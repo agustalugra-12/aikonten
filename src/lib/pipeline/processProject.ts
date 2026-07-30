@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { transcribeFootage } from "@/lib/ai/transcribe";
 import { selectClips } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildSrtSubtitles } from "@/lib/ai/generateContent";
-import { renderFinalVideo } from "@/lib/render/cloudinary";
+import { renderFinalVideo, applyZoomToImage } from "@/lib/render/cloudinary";
 import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
@@ -72,15 +72,31 @@ export async function processProject(id: string): Promise<ProcessResult> {
         })
         .where(eq(projects.id, id));
 
-      for (const url of finalImageUrls) {
+      // Efek zoom (lihat memory proyek) - CUMA berlaku foto TUNGGAL, bukan carousel
+      // multi-foto (Cloudinary zoompan cuma jalan di 1 gambar diam, menyambung banyak
+      // klip zoom = kompleksitas splice penuh spt video, di luar scope ini). Foto
+      // tunggal jadi VIDEO pendek (final_video), bukan final_image lagi.
+      if (finalImageUrls.length === 1) {
+        const zoomVideoUrl = await applyZoomToImage(finalImageUrls[0], 4);
         await db.insert(mediaAssets).values({
           id: newId("asset"),
           projectId: id,
-          type: "final_image",
-          fileUrl: url,
-          durationSeconds: null,
+          type: "final_video",
+          fileUrl: zoomVideoUrl,
+          durationSeconds: 4,
           createdAt: new Date(),
         });
+      } else {
+        for (const url of finalImageUrls) {
+          await db.insert(mediaAssets).values({
+            id: newId("asset"),
+            projectId: id,
+            type: "final_image",
+            fileUrl: url,
+            durationSeconds: null,
+            createdAt: new Date(),
+          });
+        }
       }
 
       await publishProject(id);

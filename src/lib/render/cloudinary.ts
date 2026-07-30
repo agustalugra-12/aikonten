@@ -156,6 +156,37 @@ export async function renderFinalVideo(opts: {
   return { videoUrl: eagerResult.secure_url, durationSeconds };
 }
 
+// Efek zoom in/out (lihat memory proyek) - ditemukan lewat tes nyata: Cloudinary
+// menolak zoompan pada VIDEO yg sudah direkam ("Invalid image file", zoompan cuma utk
+// gambar diam), jadi HANYA berlaku utk foto (single-photo post) - ubah foto diam jadi
+// video pendek dgn zoom halus. TIDAK dipakai utk carousel multi-foto (lihat
+// processProject.ts) krn menyambung banyak klip zoom = kompleksitas splice penuh spt
+// video, di luar scope ini.
+export async function applyZoomToImage(imageUrl: string, durationSeconds: number): Promise<string> {
+  configureCloudinary();
+
+  const hash = createHash("sha1").update(imageUrl).digest("hex").slice(0, 16);
+  const publicId = `kontenpilot_zoom_${hash}`;
+
+  const uploaded = await cloudinary.uploader.upload(imageUrl, {
+    resource_type: "image",
+    public_id: publicId,
+    overwrite: true,
+  });
+
+  return cloudinary.url(uploaded.public_id, {
+    resource_type: "image",
+    format: "mp4",
+    transformation: [
+      // Batasi resolusi dulu (foto HP modern bisa jauh lebih besar drpd wajar utk
+      // video sosmed) - sama alasannya dgn resizeImageForTiktok, cegah video hasil
+      // zoom jadi kegedean/lambat diproses.
+      { width: 1920, height: 1080, crop: "limit" },
+      { effect: `zoompan:du_${durationSeconds};from_(x_0.5;y_0.5;zoom_1.0);to_(x_0.5;y_0.5;zoom_1.25)` },
+    ],
+  });
+}
+
 // TikTok punya batas resolusi foto keras: 2.073.600 piksel (setara 1920x1080) -
 // ditemukan lewat error NYATA dari Buffer/TikTok saat tes publish foto asli ("Image
 // pixel count (12,192,768) exceeds the 2,073,600 maximum for TikTok"), bukan dugaan.
