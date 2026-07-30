@@ -35,7 +35,18 @@ type SpliceSegment = { sourcePublicId: string; start: number; end: number };
 // dari footage asli Agus, B-roll Pexels (source BEDA) cuma bisa masuk sbg overlay
 // tambahan (rest), tidak bisa jadi klip pertama. Ini kenapa B-roll "pendamping" (lihat
 // PRD diskusi) ditempel di AKHIR urutan, bukan di depan.
-function buildSpliceTransformation(segments: SpliceSegment[], srtPublicId: string): Record<string, unknown>[] {
+//
+// PENTING (ditemukan via tes nyata): Cloudinary MENOLAK splice kalau dimensi antar klip
+// beda ("Concatenated videos sizes don't match") - footage asli Agus & video Pexels
+// hampir pasti beda resolusi/orientasi. Setiap segmen overlay WAJIB di-resize dulu ke
+// dimensi base (targetWidth/targetHeight) SEBELUM fl_layer_apply, persis pola resmi
+// Cloudinary utk concat lintas-sumber (resize step di antara overlay & layer_apply).
+function buildSpliceTransformation(
+  segments: SpliceSegment[],
+  srtPublicId: string,
+  targetWidth: number,
+  targetHeight: number
+): Record<string, unknown>[] {
   if (segments.length === 0) {
     throw new Error("Tidak ada klip terpilih utk dirender - clipSelection kosong");
   }
@@ -51,6 +62,7 @@ function buildSpliceTransformation(segments: SpliceSegment[], srtPublicId: strin
       duration: seg.end - seg.start,
       flags: "splice",
     });
+    transformation.push({ width: targetWidth, height: targetHeight, crop: "fill" });
     transformation.push({ flags: "layer_apply" });
   }
 
@@ -119,7 +131,12 @@ export async function renderFinalVideo(opts: {
     spliceSegments.push({ sourcePublicId: brollUploaded.public_id, start: 0, end: brollDuration });
   }
 
-  const transformation = buildSpliceTransformation(spliceSegments, srtPublicId);
+  const transformation = buildSpliceTransformation(
+    spliceSegments,
+    srtPublicId,
+    uploaded.width,
+    uploaded.height
+  );
 
   const rendered = await cloudinary.uploader.explicit(uploaded.public_id, {
     resource_type: "video",
