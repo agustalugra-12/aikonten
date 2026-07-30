@@ -9,6 +9,7 @@ import { NewBrandDialog } from "@/components/dashboard/NewBrandDialog";
 import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
 import { ProjectList } from "@/components/dashboard/ProjectList";
 import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
+import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
 import { toast } from "sonner";
 import type { Brand, Project } from "@/types";
 
@@ -122,6 +123,7 @@ function DashboardContent() {
             </Card>
 
             {selectedBrandId && <SocialAccounts brandId={selectedBrandId} />}
+            {selectedBrandId && <AnalyticsSummary brandId={selectedBrandId} />}
           </>
         )}
       </main>

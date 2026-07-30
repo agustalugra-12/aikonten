@@ -45,6 +45,25 @@ export async function listBufferChannels(): Promise<BufferChannel[]> {
   return chData.channels;
 }
 
+export type BufferMetric = { name: string; value: number; unit: string; type: string };
+
+// Dashboard analitik (permintaan Agus: "ambil dari Buffer saja" - bukan integrasi
+// terpisah ke Meta/YouTube Analytics API, cukup 1 sumber utk akun yg tersambung lewat
+// Buffer). Diverifikasi ke API asli - field & shape metrics (name/value/unit/type)
+// dicek via introspeksi, bukan dugaan.
+export async function getAggregatedMetrics(
+  channelId: string,
+  startDateTime: string,
+  endDateTime: string
+): Promise<BufferMetric[]> {
+  const orgId = await getOrganizationId();
+  const data = await bufferGraphQL<{ aggregatedPostMetrics: { metrics: BufferMetric[] } }>(
+    "query($input: AggregatedPostMetricsInput!) { aggregatedPostMetrics(input: $input) { metrics { name value unit type } } }",
+    { input: { organizationId: orgId, channelIds: [channelId], startDateTime, endDateTime } }
+  );
+  return data.aggregatedPostMetrics.metrics;
+}
+
 type BufferPostNode = { id: string; text: string; externalLink: string | null };
 
 async function findDuplicates(channelId: string, keepPostId: string, text: string): Promise<BufferPostNode[]> {
