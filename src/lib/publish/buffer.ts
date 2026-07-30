@@ -1,5 +1,6 @@
 import type { Publisher, PublishInput, PublishResult } from "./types";
 import { resizeImageForTiktok } from "@/lib/render/cloudinary";
+import { checkAndHandleDuplicate } from "./bufferAuth";
 
 // Publish generik lewat Buffer - awalnya cuma dipakai utk TikTok (API TikTok langsung
 // perlu audit resmi, lihat PRD diskusi), tapi Agus juga mau pakai Buffer utk Instagram
@@ -32,7 +33,7 @@ const CREATE_POST_MUTATION = `
 `;
 
 export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<PublishResult> => {
-  const { videoUrl, imageUrls, caption, bufferChannelId, platform } = input;
+  const { videoUrl, imageUrls, caption, bufferChannelId, platform, brandName } = input;
   const bufferToken = process.env.BUFFER_ACCESS_TOKEN;
 
   if (!bufferToken) {
@@ -97,6 +98,21 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
     if (result.__typename !== "PostActionSuccess") {
       throw new Error(result.message || result.__typename);
     }
+
+    // Cek duplikat di BELAKANG LAYAR (tidak di-await, poll ~3.5 menit) - lihat
+    // bufferAuth.ts: Buffer kadang memproses satu request createPost jadi 2 post nyata
+    // (bug di sisi mereka, bukan kode kita). Tidak di-await supaya publishProject()
+    // tidak nunggu bermenit-menit per akun - proses Node tetap hidup (systemd, bukan
+    // serverless) jadi background task ini tetap selesai setelah response balik.
+    checkAndHandleDuplicate({
+      channelId: bufferChannelId,
+      keepPostId: result.post.id,
+      text: caption,
+      brandName: brandName || "Brand",
+      platformLabel: platform || "Buffer",
+    }).catch((err) => {
+      console.error("[buffer] Gagal cek duplikat:", err);
+    });
 
     return { success: true, platformPostId: result.post.id };
   } catch (err) {

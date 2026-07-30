@@ -15,6 +15,9 @@ export type PublishInput = {
   // diisi Buffer (mis. Instagram butuh `type: post/reel`, TikTok punya batas resolusi
   // foto) - lihat memory proyek, ditemukan lewat tes nyata bkn dugaan dari dokumentasi.
   platform?: string;
+  // Dipakai publishViaBuffer utk notifikasi Telegram (deteksi duplikat, lihat
+  // bufferAuth.ts) - biar pesannya jelas brand mana, bukan cuma project id.
+  brandName?: string;
 };
 
 export type PublishResult = {
