@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConnectBufferDialog } from "@/components/dashboard/ConnectBufferDialog";
 import type { SocialAccount } from "@/types";
 
 const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
@@ -12,10 +13,6 @@ const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
   youtube: "YouTube",
   tiktok: "TikTok",
 };
-
-// Cuma YouTube yg punya alur connect otomatis sejauh ini (lihat memory proyek -
-// IG/FB/Buffer masih nunggu Agus selesaikan Phase 0 di masing2 platform tsb). Tombol
-// connect utk platform lain menyusul dgn pola yg sama begitu kredensialnya ada.
 export function SocialAccounts({ brandId }: { brandId: string }) {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +66,7 @@ export function SocialAccounts({ brandId }: { brandId: string }) {
           >
             + Sambungkan Facebook &amp; Instagram
           </Button>
+          <ConnectBufferDialog brandId={brandId} onConnected={load} />
         </div>
       </CardContent>
     </Card>
