@@ -1,4 +1,5 @@
 import type { Publisher, PublishInput, PublishResult } from "./types";
+import { resizeImageForTiktok } from "@/lib/render/cloudinary";
 
 // Publish generik lewat Buffer - awalnya cuma dipakai utk TikTok (API TikTok langsung
 // perlu audit resmi, lihat PRD diskusi), tapi Agus juga mau pakai Buffer utk Instagram
@@ -31,7 +32,7 @@ const CREATE_POST_MUTATION = `
 `;
 
 export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<PublishResult> => {
-  const { videoUrl, imageUrls, caption, bufferChannelId } = input;
+  const { videoUrl, imageUrls, caption, bufferChannelId, platform } = input;
   const bufferToken = process.env.BUFFER_ACCESS_TOKEN;
 
   if (!bufferToken) {
@@ -41,18 +42,32 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
     return { success: false, error: "Akun ini belum ada bufferChannelId" };
   }
 
-  // Video (Reels/TikTok) diutamakan kalau ada, kalau tidak pakai gambar (carousel/feed).
-  const assets = videoUrl
-    ? [{ video: { url: videoUrl } }]
-    : imageUrls && imageUrls.length > 0
-      ? imageUrls.map((url) => ({ image: { url } }))
-      : null;
-
-  if (!assets) {
-    return { success: false, error: "Tidak ada video/gambar utk dipublikasikan" };
-  }
-
   try {
+    // TikTok punya batas keras 2.073.600 piksel utk foto (ditemukan lewat error nyata,
+    // lihat cloudinary.ts) - resize dulu kalau tujuannya TikTok & isinya foto.
+    const effectiveImageUrls =
+      platform === "tiktok" && imageUrls && imageUrls.length > 0
+        ? await Promise.all(imageUrls.map((url) => resizeImageForTiktok(url)))
+        : imageUrls;
+
+    const assets = videoUrl
+      ? [{ video: { url: videoUrl } }]
+      : effectiveImageUrls && effectiveImageUrls.length > 0
+        ? effectiveImageUrls.map((url) => ({ image: { url } }))
+        : null;
+
+    if (!assets) {
+      return { success: false, error: "Tidak ada video/gambar utk dipublikasikan" };
+    }
+
+    // Instagram WAJIB field metadata.instagram.type (post/reel/story) - ditemukan lewat
+    // error nyata "Instagram posts require a type", bukan dugaan dari dokumentasi.
+    // Foto -> "post" (feed biasa), video -> "reel".
+    const metadata =
+      platform === "instagram"
+        ? { instagram: { type: videoUrl ? "reel" : "post", shouldShareToFeed: true } }
+        : undefined;
+
     const res = await fetch(BUFFER_API_URL, {
       method: "POST",
       headers: {
@@ -66,6 +81,7 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
             channelId: bufferChannelId,
             text: caption,
             assets,
+            metadata,
             mode: "shareNow",
             schedulingType: "automatic",
             needsApproval: false,

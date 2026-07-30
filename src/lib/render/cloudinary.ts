@@ -1,4 +1,5 @@
 import { v2 as cloudinary } from "cloudinary";
+import { createHash } from "crypto";
 import type { ScoredSegment } from "@/lib/ai/clipSelect";
 
 function configureCloudinary() {
@@ -112,4 +113,30 @@ export async function renderFinalVideo(opts: {
   );
 
   return { videoUrl: eagerResult.secure_url, durationSeconds };
+}
+
+// TikTok punya batas resolusi foto keras: 2.073.600 piksel (setara 1920x1080) -
+// ditemukan lewat error NYATA dari Buffer/TikTok saat tes publish foto asli ("Image
+// pixel count (12,192,768) exceeds the 2,073,600 maximum for TikTok"), bukan dugaan.
+// Foto dari HP modern jauh melebihi ini, jadi WAJIB di-resize dulu sblm dikirim ke
+// TikTok - platform lain (Instagram/Facebook) tidak kena batas ini.
+export async function resizeImageForTiktok(imageUrl: string): Promise<string> {
+  configureCloudinary();
+
+  // Hash URL sbg public_id - idempotent (kalau foto yg sama diresize lagi, pakai aset
+  // yg sama, bukan upload duplikat tiap kali).
+  const hash = createHash("sha1").update(imageUrl).digest("hex").slice(0, 16);
+  const publicId = `kontenpilot_tiktok_resize_${hash}`;
+
+  const uploaded = await cloudinary.uploader.upload(imageUrl, {
+    resource_type: "image",
+    public_id: publicId,
+    overwrite: true,
+  });
+
+  return cloudinary.url(uploaded.public_id, {
+    resource_type: "image",
+    format: "jpg",
+    transformation: [{ width: 1920, height: 1080, crop: "limit" }],
+  });
 }

@@ -11,6 +11,10 @@ export type PublishInput = {
   // BUKAN env var global (lihat schema.ts socialAccounts.platformAccountId).
   platformAccountId: string | null;
   bufferChannelId?: string | null;
+  // Dipakai publishViaBuffer (buffer.ts) utk nentuin metadata per-platform yg wajib
+  // diisi Buffer (mis. Instagram butuh `type: post/reel`, TikTok punya batas resolusi
+  // foto) - lihat memory proyek, ditemukan lewat tes nyata bkn dugaan dari dokumentasi.
+  platform?: string;
 };
 
 export type PublishResult = {

@@ -110,6 +110,7 @@ export async function publishProject(projectId: string): Promise<void> {
       platformAccountId: account.platformAccountId,
       accountUsername: account.username,
       bufferChannelId: account.bufferChannelId,
+      platform: account.platform,
     });
 
     if (result.success) anySuccess = true;
