@@ -60,14 +60,6 @@ export function SocialAccounts({ brandId }: { brandId: string }) {
           >
             + Sambungkan YouTube
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            nativeButton={false}
-            render={<a href={`/api/auth/meta/connect?brandId=${brandId}`} />}
-          >
-            + Sambungkan Facebook &amp; Instagram
-          </Button>
           <ConnectBufferDialog brandId={brandId} onConnected={load} />
         </div>
       </CardContent>
