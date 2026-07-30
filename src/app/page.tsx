@@ -1,19 +1,30 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BrandSwitcher } from "@/components/dashboard/BrandSwitcher";
 import { NewBrandDialog } from "@/components/dashboard/NewBrandDialog";
 import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
 import { ProjectList } from "@/components/dashboard/ProjectList";
+import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
+import { toast } from "sonner";
 import type { Brand, Project } from "@/types";
 
 const LAST_BRAND_KEY = "kontenpilot_last_brand";
 
 export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground">Memuat...</div>}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [brands, setBrands] = useState<Brand[]>([]);
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -37,6 +48,14 @@ export default function DashboardPage() {
   useEffect(() => {
     loadBrands();
   }, [loadBrands]);
+
+  useEffect(() => {
+    const connected = searchParams.get("youtube_connected");
+    const error = searchParams.get("youtube_error");
+    if (connected) toast.success(`YouTube "${connected}" tersambung`);
+    if (error) toast.error(`Gagal sambungkan YouTube: ${error}`);
+    if (connected || error) router.replace("/");
+  }, [searchParams, router]);
 
   useEffect(() => {
     if (selectedBrandId) {
@@ -97,6 +116,8 @@ export default function DashboardPage() {
                 <ProjectList projects={projects} />
               </CardContent>
             </Card>
+
+            {selectedBrandId && <SocialAccounts brandId={selectedBrandId} />}
           </>
         )}
       </main>

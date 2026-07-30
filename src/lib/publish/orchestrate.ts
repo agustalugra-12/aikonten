@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { getPublisher } from "./index";
 import { sendTelegramNotification, formatPublishNotification } from "./telegram";
+import { ensureFreshYoutubeAccessToken } from "./youtubeAuth";
 
 // Full-auto publish (lihat PRD diskusi - Agus eksplisit minta ZERO keterlibatan manual,
 // TIDAK ADA jeda approval sebelum publish). Dipanggil otomatis oleh process/route.ts
@@ -70,11 +71,42 @@ export async function publishProject(projectId: string): Promise<void> {
       continue;
     }
 
+    // YouTube access token cuma berlaku ~1 jam - krn publish full otomatis (tidak ada
+    // langkah manual sblm ini), refresh dulu pakai refresh_token kalau perlu, JANGAN
+    // asumsi accessToken yg tersimpan masih hidup (lihat youtubeAuth.ts).
+    let accessToken = account.accessToken;
+    if (account.platform === "youtube") {
+      try {
+        accessToken = await ensureFreshYoutubeAccessToken(account);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await db.insert(publishLogs).values({
+          id: logId,
+          projectId,
+          socialAccountId: account.id,
+          status: "failed",
+          errorMessage: message,
+          telegramNotifiedAt: new Date(),
+          createdAt: new Date(),
+        });
+        await sendTelegramNotification(
+          formatPublishNotification({
+            brandName,
+            projectId,
+            platform: `${account.platform} (@${account.username})`,
+            success: false,
+            error: message,
+          })
+        );
+        continue;
+      }
+    }
+
     const result = await publisher({
       videoUrl: finalVideo?.fileUrl,
       imageUrls: finalImages.map((a) => a.fileUrl),
       caption: hashtags.length ? `${caption}\n\n${hashtags.map((h: string) => `#${h}`).join(" ")}` : caption,
-      accessToken: account.accessToken,
+      accessToken,
       platformAccountId: account.platformAccountId,
       accountUsername: account.username,
       bufferChannelId: account.bufferChannelId,

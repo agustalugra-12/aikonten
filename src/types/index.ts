@@ -21,6 +21,13 @@ export type Project = {
   updatedAt: string;
 };
 
+export type SocialAccount = {
+  id: string;
+  platform: "instagram" | "facebook" | "tiktok" | "youtube";
+  publishVia: "native" | "buffer";
+  username: string;
+};
+
 export const STATUS_LABEL: Record<ProjectStatus, string> = {
   uploaded: "Terupload",
   processing: "Diproses AI",
