@@ -22,17 +22,20 @@ function publicIdFor(projectId: string, suffix: string): string {
   return `kontenpilot_${projectId}_${suffix}`;
 }
 
-// Bangun transformation array utk splice (sambung) segmen-segmen terpilih dari SATU
-// video sumber yg sama jadi satu video utuh berurutan, lalu bakar subtitle di akhir -
-// pola ini persis mengikuti contoh resmi Cloudinary (segmen pertama = trim langsung di
-// base, segmen berikutnya = overlay video sumber yg sama dgn flags:"splice" lalu
-// ditutup fl_layer_apply) - diverifikasi lewat tes nyata (lihat komentar di atas),
-// bukan cuma disalin dari dokumentasi.
-function buildSpliceTransformation(
-  sourcePublicId: string,
-  segments: ScoredSegment[],
-  srtPublicId: string
-): Record<string, unknown>[] {
+type SpliceSegment = { sourcePublicId: string; start: number; end: number };
+
+// Bangun transformation array utk splice (sambung) beberapa segmen jadi satu video
+// utuh berurutan, lalu bakar subtitle di akhir - pola ini persis mengikuti contoh resmi
+// Cloudinary (segmen PERTAMA = trim langsung di base, segmen berikutnya = overlay video
+// dgn flags:"splice" lalu ditutup fl_layer_apply) - diverifikasi lewat tes nyata (lihat
+// komentar di publicIdFor), bukan cuma disalin dari dokumentasi.
+//
+// Segmen PERTAMA WAJIB dari source yg SAMA dgn `explicit()` dipanggil (base asset Cloudinary
+// tidak bisa "pinjam" dari asset lain) - makanya di renderFinalVideo, klip pertama SELALU
+// dari footage asli Agus, B-roll Pexels (source BEDA) cuma bisa masuk sbg overlay
+// tambahan (rest), tidak bisa jadi klip pertama. Ini kenapa B-roll "pendamping" (lihat
+// PRD diskusi) ditempel di AKHIR urutan, bukan di depan.
+function buildSpliceTransformation(segments: SpliceSegment[], srtPublicId: string): Record<string, unknown>[] {
   if (segments.length === 0) {
     throw new Error("Tidak ada klip terpilih utk dirender - clipSelection kosong");
   }
@@ -43,7 +46,7 @@ function buildSpliceTransformation(
 
   for (const seg of rest) {
     transformation.push({
-      overlay: { resource_type: "video", public_id: sourcePublicId },
+      overlay: { resource_type: "video", public_id: seg.sourcePublicId },
       start_offset: seg.start,
       duration: seg.end - seg.start,
       flags: "splice",
@@ -78,6 +81,10 @@ export async function renderFinalVideo(opts: {
   rawFootageUrl: string;
   segments: ScoredSegment[];
   srtContent: string;
+  // B-roll Pexels OPSIONAL - "pendamping" (lihat PRD diskusi), ditempel di AKHIR
+  // urutan, bukan menggantikan footage asli Agus.
+  brollVideoUrl?: string;
+  brollDurationSeconds?: number;
 }): Promise<RenderResult> {
   configureCloudinary();
 
@@ -95,7 +102,24 @@ export async function renderFinalVideo(opts: {
     { resource_type: "raw", public_id: srtPublicId, overwrite: true }
   );
 
-  const transformation = buildSpliceTransformation(uploaded.public_id, opts.segments, srtPublicId);
+  const spliceSegments: SpliceSegment[] = opts.segments.map((seg) => ({
+    sourcePublicId: uploaded.public_id,
+    start: seg.start,
+    end: seg.end,
+  }));
+
+  let brollDuration = 0;
+  if (opts.brollVideoUrl && opts.brollDurationSeconds) {
+    const brollUploaded = await cloudinary.uploader.upload(opts.brollVideoUrl, {
+      resource_type: "video",
+      public_id: publicIdFor(opts.projectId, "broll"),
+      overwrite: true,
+    });
+    brollDuration = opts.brollDurationSeconds;
+    spliceSegments.push({ sourcePublicId: brollUploaded.public_id, start: 0, end: brollDuration });
+  }
+
+  const transformation = buildSpliceTransformation(spliceSegments, srtPublicId);
 
   const rendered = await cloudinary.uploader.explicit(uploaded.public_id, {
     resource_type: "video",
@@ -109,7 +133,7 @@ export async function renderFinalVideo(opts: {
   }
 
   const durationSeconds = Math.round(
-    opts.segments.reduce((sum, seg) => sum + (seg.end - seg.start), 0)
+    opts.segments.reduce((sum, seg) => sum + (seg.end - seg.start), 0) + brollDuration
   );
 
   return { videoUrl: eagerResult.secure_url, durationSeconds };

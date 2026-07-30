@@ -20,17 +20,28 @@ export type GeneratedImageContent = GeneratedContent & {
   promoText: string | null;
 };
 
+export type GeneratedVideoContent = GeneratedContent & {
+  // Keyword Inggris singkat utk cari B-roll di Pexels (mis. "tropical bedroom
+  // interior") - null kalau topiknya tidak cocok disandingkan stok footage generik.
+  // Bahasa Inggris krn metadata Pexels mayoritas Inggris, hasil jauh lebih relevan drpd
+  // query Bahasa Indonesia.
+  brollKeywords: string | null;
+};
+
 export async function generateCaptionAndHashtags(
   brandName: string,
   script: string,
   selectedClipsText: string
-): Promise<GeneratedContent> {
+): Promise<GeneratedVideoContent> {
   const client = getClient();
   const system =
     "Kamu content strategist media sosial. Buat caption yang menarik & natural (bukan " +
     "generik/template) plus daftar hashtag relevan berdasarkan skrip & isi klip yang " +
-    "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip.";
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."]}`;
+    "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip. Sertakan " +
+    "juga brollKeywords: 2-4 kata kunci Bahasa INGGRIS singkat utk cari video stok " +
+    "(B-roll) pendamping yg relevan dgn suasana/topik ini (mis. \"tropical homestay " +
+    "garden\"), atau null kalau topiknya tidak cocok disandingkan stok footage generik.";
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -47,6 +58,7 @@ export async function generateCaptionAndHashtags(
   return {
     caption: parsed.caption || "",
     hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
+    brollKeywords: parsed.brollKeywords || null,
   };
 }
 
