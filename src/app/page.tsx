@@ -13,6 +13,7 @@ import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { StoryboardDialog } from "@/components/dashboard/StoryboardDialog";
 import { FootageBankDialog } from "@/components/dashboard/FootageBankDialog";
+import { AutoContentButton } from "@/components/dashboard/AutoContentButton";
 import { toast } from "sonner";
 import type { Brand, Project } from "@/types";
 
@@ -117,6 +118,9 @@ function DashboardContent() {
               {selectedBrandId && <ContentIdeas brandId={selectedBrandId} onPickIdea={setPrefillScript} />}
               {selectedBrandId && <StoryboardDialog brandId={selectedBrandId} />}
               {selectedBrandId && <FootageBankDialog brandId={selectedBrandId} />}
+              {selectedBrandId && (
+                <AutoContentButton brandId={selectedBrandId} onDone={() => loadProjects(selectedBrandId)} />
+              )}
               {selectedBrandId && (
                 <NewProjectDialog
                   key={prefillScript ?? "default"}

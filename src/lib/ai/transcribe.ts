@@ -23,7 +23,14 @@ export async function transcribeFootage(fileUrl: string): Promise<TranscriptSegm
     throw new Error(`Gagal ambil file utk transkripsi: ${fileRes.status} ${fileRes.statusText}`);
   }
   const blob = await fileRes.blob();
-  const file = new File([blob], "footage", { type: blob.type || "video/mp4" });
+  // PENTING (bug nyata ditemukan 2026-07-30 - jalur video tidak pernah benar2 dites
+  // end-to-end sebelumnya, semua tes publish real session ini kebetulan foto/carousel):
+  // Whisper API deteksi format dari EKSTENSI NAMA FILE, bukan cuma header Content-Type -
+  // filename tanpa ekstensi ("footage" doang) selalu ditolak "Unrecognized file format"
+  // walau isinya mp4 asli & valid.
+  const contentType = blob.type || "video/mp4";
+  const ext = contentType.split("/")[1]?.split(";")[0] || "mp4";
+  const file = new File([blob], `footage.${ext}`, { type: contentType });
 
   const result = await client.audio.transcriptions.create({
     file,
