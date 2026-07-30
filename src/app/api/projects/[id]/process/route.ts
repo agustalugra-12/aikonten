@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { projects, mediaAssets, brands } from "@/db/schema";
+import { projects, mediaAssets, brands, socialAccounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { transcribeFootage } from "@/lib/ai/transcribe";
 import { selectClips } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildSrtSubtitles } from "@/lib/ai/generateContent";
 import { renderFinalVideo } from "@/lib/render/cloudinary";
 import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
+import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { newId } from "@/lib/ids";
 import { publishProject } from "@/lib/publish/orchestrate";
@@ -100,7 +101,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     const segments = await transcribeFootage(rawFootage.fileUrl);
     const selected = selectClips(segments, project.script);
     const selectedText = selected.map((s) => s.text).join(" ");
-    const { caption, hashtags, brollKeywords } = await generateCaptionAndHashtags(
+    const { caption, hashtags, brollKeywords, thumbnailText } = await generateCaptionAndHashtags(
       brand?.name || "Brand",
       project.script,
       selectedText
@@ -158,6 +159,32 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       durationSeconds: rendered.durationSeconds,
       createdAt: new Date(),
     });
+
+    // Thumbnail Engine - CUMA jalan kalau brand ini punya akun YouTube tersambung
+    // (satu2nya platform yg butuh thumbnail terpisah, lihat memory proyek) - jangan
+    // buang panggilan GPT Image kalau videonya tidak akan pernah dipublish ke YouTube.
+    if (thumbnailText) {
+      const [ytAccount] = await db
+        .select()
+        .from(socialAccounts)
+        .where(and(eq(socialAccounts.brandId, project.brandId), eq(socialAccounts.platform, "youtube")));
+      if (ytAccount) {
+        const thumbnailUrl = await generateThumbnail({
+          brandId: project.brandId,
+          projectId: id,
+          rawFootageUrl: rawFootage.fileUrl,
+          thumbnailText,
+        });
+        await db.insert(mediaAssets).values({
+          id: newId("asset"),
+          projectId: id,
+          type: "thumbnail",
+          fileUrl: thumbnailUrl,
+          durationSeconds: null,
+          createdAt: new Date(),
+        });
+      }
+    }
 
     await publishProject(id);
 

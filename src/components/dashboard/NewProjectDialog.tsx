@@ -21,10 +21,21 @@ import { toast } from "sonner";
 // keputusan Agus - tidak ada jeda approval manual di sini).
 const MAX_CAROUSEL_PHOTOS = 5;
 
-export function NewProjectDialog({ brandId, onCreated }: { brandId: string; onCreated: () => void }) {
-  const [open, setOpen] = useState(false);
+export function NewProjectDialog({
+  brandId,
+  onCreated,
+  initialScript,
+}: {
+  brandId: string;
+  onCreated: () => void;
+  // Diisi kalau dialog ini dibuka dari "Ide Konten" (ContentIdeas.tsx) - lihat
+  // page.tsx, komponen ini di-remount pakai `key` tiap initialScript berubah biar
+  // useState di bawah selalu mulai dari nilai baru.
+  initialScript?: string;
+}) {
+  const [open, setOpen] = useState(!!initialScript);
   const [type, setType] = useState<"video" | "carousel">("video");
-  const [script, setScript] = useState("");
+  const [script, setScript] = useState(initialScript || "");
   const [file, setFile] = useState<File | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [stage, setStage] = useState<string | null>(null);

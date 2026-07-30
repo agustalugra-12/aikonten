@@ -24,6 +24,7 @@ export async function publishProject(projectId: string): Promise<void> {
   const assets = await db.select().from(mediaAssets).where(eq(mediaAssets.projectId, projectId));
   const finalVideo = assets.find((a) => a.type === "final_video");
   const finalImages = assets.filter((a) => a.type === "final_image");
+  const thumbnail = assets.find((a) => a.type === "thumbnail");
 
   const brandName = brand?.name || "Brand";
   const caption = project.generatedCaption || "";
@@ -112,6 +113,7 @@ export async function publishProject(projectId: string): Promise<void> {
       bufferChannelId: account.bufferChannelId,
       platform: account.platform,
       brandName,
+      thumbnailUrl: thumbnail?.fileUrl,
     });
 
     if (result.success) anySuccess = true;

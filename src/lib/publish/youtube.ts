@@ -13,9 +13,27 @@ import type { Publisher, PublishInput, PublishResult } from "./types";
 // kondisi server). Resumable upload protocol-nya didokumentasikan publik & cukup simpel
 // utk diimplementasikan langsung tanpa SDK segede itu.
 const YOUTUBE_UPLOAD_BASE = "https://www.googleapis.com/upload/youtube/v3/videos";
+const YOUTUBE_THUMBNAIL_BASE = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
+
+// Thumbnail custom (Thumbnail Engine, lihat lib/ai/thumbnail.ts) - OPSIONAL, kalau
+// gagal JANGAN gagalkan publish videonya (video sendiri sudah berhasil) - cuma log,
+// video tetap terpublish dgn thumbnail otomatis YouTube (frame dari videonya sendiri).
+async function setThumbnail(videoId: string, thumbnailUrl: string, accessToken: string): Promise<void> {
+  const imgRes = await fetch(thumbnailUrl);
+  if (!imgRes.ok) throw new Error(`Gagal ambil file thumbnail: ${imgRes.status}`);
+  const contentType = imgRes.headers.get("content-type") || "image/png";
+
+  const res = await fetch(`${YOUTUBE_THUMBNAIL_BASE}?videoId=${videoId}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": contentType },
+    body: imgRes.body,
+    duplex: "half",
+  } as RequestInit);
+  if (!res.ok) throw new Error(`Gagal set thumbnail: ${res.status} ${await res.text()}`);
+}
 
 export const publishToYoutube: Publisher = async (input: PublishInput): Promise<PublishResult> => {
-  const { videoUrl, caption, accessToken } = input;
+  const { videoUrl, caption, accessToken, thumbnailUrl } = input;
   if (!videoUrl) {
     return { success: false, error: "YouTube cuma menerima video, tidak ada videoUrl" };
   }
@@ -66,6 +84,14 @@ export const publishToYoutube: Publisher = async (input: PublishInput): Promise<
     } as RequestInit);
     const uploadData = await uploadRes.json();
     if (!uploadRes.ok) throw new Error(JSON.stringify(uploadData));
+
+    if (thumbnailUrl && uploadData.id) {
+      try {
+        await setThumbnail(uploadData.id, thumbnailUrl, accessToken);
+      } catch (err) {
+        console.error("[youtube] Video terpublish tapi gagal set thumbnail:", err);
+      }
+    }
 
     return {
       success: true,

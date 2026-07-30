@@ -26,6 +26,10 @@ export type GeneratedVideoContent = GeneratedContent & {
   // Bahasa Inggris krn metadata Pexels mayoritas Inggris, hasil jauh lebih relevan drpd
   // query Bahasa Indonesia.
   brollKeywords: string | null;
+  // Teks hook singkat (2-5 kata) utk thumbnail YouTube (lihat thumbnail.ts) - cuma
+  // dipakai kalau brand ini punya akun YouTube tersambung (lihat process/route.ts),
+  // tapi tetap di-generate di sini skalian biar hemat 1 panggilan GPT terpisah.
+  thumbnailText: string | null;
 };
 
 export async function generateCaptionAndHashtags(
@@ -40,8 +44,11 @@ export async function generateCaptionAndHashtags(
     "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip. Sertakan " +
     "juga brollKeywords: 2-4 kata kunci Bahasa INGGRIS singkat utk cari video stok " +
     "(B-roll) pendamping yg relevan dgn suasana/topik ini (mis. \"tropical homestay " +
-    "garden\"), atau null kalau topiknya tidak cocok disandingkan stok footage generik.";
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null}`;
+    "garden\"), atau null kalau topiknya tidak cocok disandingkan stok footage generik. " +
+    "Sertakan juga thumbnailText: teks hook SANGAT singkat (2-5 kata, Bahasa Indonesia, " +
+    "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
+    "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas.";
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -59,6 +66,7 @@ export async function generateCaptionAndHashtags(
     caption: parsed.caption || "",
     hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
     brollKeywords: parsed.brollKeywords || null,
+    thumbnailText: parsed.thumbnailText || null,
   };
 }
 

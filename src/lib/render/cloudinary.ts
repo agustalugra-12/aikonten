@@ -183,14 +183,16 @@ export async function resizeImageForTiktok(imageUrl: string): Promise<string> {
 }
 
 // GPT Image (edit endpoint) mewajibkan gambar & mask berformat SAMA, ukuran SAMA,
-// kedua sisi kelipatan 16px, rasio panjang:pendek maks 3:1 - foto asli dari HP jarang
-// otomatis memenuhi ini. Crop persegi (rasio 1:1, selalu valid) via Cloudinary
-// (smart-crop `gravity: auto` spy tidak asal potong bagian penting foto) + convert PNG.
-export async function prepareSquarePng(imageUrl: string, size: number): Promise<Buffer> {
+// kedua sisi kelipatan 16px, rasio panjang:pendek maks 3:1 - foto asli dari HP/frame
+// video jarang otomatis memenuhi ini. Crop ke ukuran PASTI via Cloudinary (smart-crop
+// `gravity: auto` spy tidak asal potong bagian penting foto) + convert PNG. Dipakai utk
+// overlay promo (1024x1024 persegi, lihat prepareSquarePng) MAUPUN thumbnail YouTube
+// (1280x720, 16:9 - lihat thumbnail.ts) - beda rasio, mekanisme sama.
+export async function prepareFixedSizePng(imageUrl: string, width: number, height: number): Promise<Buffer> {
   configureCloudinary();
 
-  const hash = createHash("sha1").update(imageUrl).digest("hex").slice(0, 16);
-  const publicId = `kontenpilot_promobase_${hash}`;
+  const hash = createHash("sha1").update(`${imageUrl}_${width}x${height}`).digest("hex").slice(0, 16);
+  const publicId = `kontenpilot_fixedsize_${hash}`;
 
   const uploaded = await cloudinary.uploader.upload(imageUrl, {
     resource_type: "image",
@@ -201,10 +203,38 @@ export async function prepareSquarePng(imageUrl: string, size: number): Promise<
   const url = cloudinary.url(uploaded.public_id, {
     resource_type: "image",
     format: "png",
-    transformation: [{ width: size, height: size, crop: "fill", gravity: "auto" }],
+    transformation: [{ width, height, crop: "fill", gravity: "auto" }],
   });
 
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Gagal ambil foto yg sudah di-crop persegi: ${res.status}`);
+  if (!res.ok) throw new Error(`Gagal ambil foto yg sudah di-crop ${width}x${height}: ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
+}
+
+export async function prepareSquarePng(imageUrl: string, size: number): Promise<Buffer> {
+  return prepareFixedSizePng(imageUrl, size, size);
+}
+
+// Ambil 1 frame dari video mentah sbg dasar thumbnail YouTube (lihat thumbnail.ts) -
+// pola lazy-URL yg sama dgn resizeImageForTiktok, bukan mekanisme baru. `atSeconds`
+// dijaga TIDAK melebihi durasi video pendek (footage bisa cuma beberapa detik).
+export async function extractVideoFrame(videoUrl: string, atSeconds: number): Promise<string> {
+  configureCloudinary();
+
+  const hash = createHash("sha1").update(videoUrl).digest("hex").slice(0, 16);
+  const publicId = `kontenpilot_frame_${hash}`;
+
+  const uploaded = await cloudinary.uploader.upload(videoUrl, {
+    resource_type: "video",
+    public_id: publicId,
+    overwrite: true,
+  });
+
+  const safeOffset = Math.min(atSeconds, Math.max(0, (uploaded.duration || atSeconds) - 0.5));
+
+  return cloudinary.url(uploaded.public_id, {
+    resource_type: "video",
+    format: "jpg",
+    transformation: [{ start_offset: safeOffset }],
+  });
 }

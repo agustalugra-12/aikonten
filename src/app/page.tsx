@@ -10,6 +10,8 @@ import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
 import { ProjectList } from "@/components/dashboard/ProjectList";
 import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
+import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
+import { StoryboardDialog } from "@/components/dashboard/StoryboardDialog";
 import { toast } from "sonner";
 import type { Brand, Project } from "@/types";
 
@@ -30,6 +32,9 @@ function DashboardContent() {
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  // Diisi kalau Agus klik salah satu "Ide Konten" - lihat ContentIdeas.tsx. Dipakai
+  // sbg `key` remount NewProjectDialog di bawah biar initialScript-nya benar2 baru.
+  const [prefillScript, setPrefillScript] = useState<string | null>(null);
 
   const loadBrands = useCallback(async () => {
     const res = await fetch("/api/brands");
@@ -108,8 +113,18 @@ function DashboardContent() {
                 <BrandSwitcher brands={brands} selectedBrandId={selectedBrandId} onSelect={setSelectedBrandId} />
                 <NewBrandDialog onCreated={loadBrands} />
               </div>
+              {selectedBrandId && <ContentIdeas brandId={selectedBrandId} onPickIdea={setPrefillScript} />}
+              {selectedBrandId && <StoryboardDialog brandId={selectedBrandId} />}
               {selectedBrandId && (
-                <NewProjectDialog brandId={selectedBrandId} onCreated={() => loadProjects(selectedBrandId)} />
+                <NewProjectDialog
+                  key={prefillScript ?? "default"}
+                  brandId={selectedBrandId}
+                  initialScript={prefillScript ?? undefined}
+                  onCreated={() => {
+                    loadProjects(selectedBrandId);
+                    setPrefillScript(null);
+                  }}
+                />
               )}
             </div>
 

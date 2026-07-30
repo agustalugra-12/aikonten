@@ -18,6 +18,10 @@ export type PublishInput = {
   // Dipakai publishViaBuffer utk notifikasi Telegram (deteksi duplikat, lihat
   // bufferAuth.ts) - biar pesannya jelas brand mana, bukan cuma project id.
   brandName?: string;
+  // Thumbnail custom - CUMA dipakai youtube.ts (satu2nya platform yg punya slot
+  // thumbnail terpisah dari videonya, lihat thumbnail.ts). Undefined kalau brand ini
+  // tidak punya akun YouTube (tidak pernah di-generate, lihat process/route.ts).
+  thumbnailUrl?: string;
 };
 
 export type PublishResult = {

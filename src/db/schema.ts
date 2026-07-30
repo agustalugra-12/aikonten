@@ -74,7 +74,9 @@ export const mediaAssets = sqliteTable("media_assets", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projects.id),
   type: text("type", {
-    enum: ["raw_footage", "final_video", "final_image", "subtitle_file"],
+    // "thumbnail" - foto sampul custom utk YouTube saja (satu2nya platform yg punya
+    // slot thumbnail terpisah dari videonya) - lihat lib/ai/thumbnail.ts.
+    enum: ["raw_footage", "final_video", "final_image", "subtitle_file", "thumbnail"],
   }).notNull(),
   fileUrl: text("file_url").notNull(),
   durationSeconds: integer("duration_seconds"),
@@ -108,5 +110,17 @@ export const analytics = sqliteTable("analytics", {
   views: integer("views"),
   likes: integer("likes"),
   dateRecorded: text("date_recorded").notNull(), // YYYY-MM-DD
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+// "Storyboard Engine" - shot list PRA-produksi (dibaca Agus SEBELUM syuting, lihat
+// memory proyek) - BUKAN bagian dari pipeline upload->process yg sudah ada, ini
+// langkah terpisah sebelumnya. Disimpan (bukan sekali-pakai) biar bisa dibuka lagi
+// pas syuting.
+export const storyboards = sqliteTable("storyboards", {
+  id: text("id").primaryKey(),
+  brandId: text("brand_id").notNull().references(() => brands.id),
+  script: text("script").notNull(),
+  scenes: text("scenes").notNull(), // JSON: StoryboardScene[] (lihat lib/ai/storyboard.ts)
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
