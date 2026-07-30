@@ -12,6 +12,7 @@ import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { StoryboardDialog } from "@/components/dashboard/StoryboardDialog";
+import { FootageBankDialog } from "@/components/dashboard/FootageBankDialog";
 import { toast } from "sonner";
 import type { Brand, Project } from "@/types";
 
@@ -115,6 +116,7 @@ function DashboardContent() {
               </div>
               {selectedBrandId && <ContentIdeas brandId={selectedBrandId} onPickIdea={setPrefillScript} />}
               {selectedBrandId && <StoryboardDialog brandId={selectedBrandId} />}
+              {selectedBrandId && <FootageBankDialog brandId={selectedBrandId} />}
               {selectedBrandId && (
                 <NewProjectDialog
                   key={prefillScript ?? "default"}

@@ -124,3 +124,19 @@ export const storyboards = sqliteTable("storyboards", {
   scenes: text("scenes").notNull(), // JSON: StoryboardScene[] (lihat lib/ai/storyboard.ts)
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+// "Footage Bank" - beda dari media_assets (yg terikat ke SATU project) - ini milik
+// BRAND, dipakai ULANG lintas banyak konten (lihat memory proyek: Agus syuting sekali
+// - kamar, pemandangan, dll - lalu AI pilih sendiri yg cocok per skrip baru, bukan
+// upload baru tiap kali). description/tags di-generate AI otomatis via vision saat
+// upload (lihat lib/ai/describeFootage.ts) - Agus tidak perlu ketik apa pun.
+export const footageBank = sqliteTable("footage_bank", {
+  id: text("id").primaryKey(),
+  brandId: text("brand_id").notNull().references(() => brands.id),
+  mediaType: text("media_type", { enum: ["video", "image"] }).notNull(),
+  fileUrl: text("file_url").notNull(),
+  description: text("description").notNull(),
+  tags: text("tags").notNull(), // JSON string[]
+  durationSeconds: integer("duration_seconds"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
