@@ -1,64 +1,104 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BrandSwitcher } from "@/components/dashboard/BrandSwitcher";
+import { NewBrandDialog } from "@/components/dashboard/NewBrandDialog";
+import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
+import { ProjectList } from "@/components/dashboard/ProjectList";
+import type { Brand, Project } from "@/types";
+
+const LAST_BRAND_KEY = "kontenpilot_last_brand";
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadBrands = useCallback(async () => {
+    const res = await fetch("/api/brands");
+    const data: Brand[] = await res.json();
+    setBrands(data);
+    const remembered = typeof window !== "undefined" ? localStorage.getItem(LAST_BRAND_KEY) : null;
+    const stillExists = remembered && data.some((b) => b.id === remembered);
+    setSelectedBrandId(stillExists ? remembered : data[0]?.id ?? null);
+    setLoading(false);
+  }, []);
+
+  const loadProjects = useCallback(async (brandId: string) => {
+    const res = await fetch(`/api/projects?brandId=${brandId}`);
+    setProjects(await res.json());
+  }, []);
+
+  useEffect(() => {
+    loadBrands();
+  }, [loadBrands]);
+
+  useEffect(() => {
+    if (selectedBrandId) {
+      localStorage.setItem(LAST_BRAND_KEY, selectedBrandId);
+      loadProjects(selectedBrandId);
+    }
+  }, [selectedBrandId, loadProjects]);
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
+
+  if (loading) {
+    return <div className="flex-1 flex items-center justify-center text-muted-foreground">Memuat...</div>;
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    <div className="flex-1 flex flex-col">
+      <header className="border-b px-6 py-4 flex items-center justify-between">
+        <h1 className="font-semibold text-lg">KontenPilot AI</h1>
+        <Button variant="ghost" size="sm" onClick={handleLogout}>
+          Keluar
+        </Button>
+      </header>
+
+      <main className="flex-1 p-6 space-y-6 max-w-5xl w-full mx-auto">
+        {brands.length === 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Belum ada brand</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Buat brand pertama (mis. &quot;Pelangi Homestay&quot;) utk mulai kelola kontennya.
+              </p>
+              <NewBrandDialog onCreated={loadBrands} />
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <BrandSwitcher brands={brands} selectedBrandId={selectedBrandId} onSelect={setSelectedBrandId} />
+                <NewBrandDialog onCreated={loadBrands} />
+              </div>
+              {selectedBrandId && (
+                <NewProjectDialog brandId={selectedBrandId} onCreated={() => loadProjects(selectedBrandId)} />
+              )}
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Konten</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ProjectList projects={projects} />
+              </CardContent>
+            </Card>
+          </>
+        )}
       </main>
     </div>
   );

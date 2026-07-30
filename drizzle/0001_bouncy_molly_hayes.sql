@@ -1,0 +1,1 @@
+ALTER TABLE `social_accounts` ADD `platform_account_id` text;
