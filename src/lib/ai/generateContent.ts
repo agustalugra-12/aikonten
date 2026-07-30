@@ -12,6 +12,14 @@ export type GeneratedContent = {
   hashtags: string[];
 };
 
+export type GeneratedImageContent = GeneratedContent & {
+  // Teks harga/promo singkat kalau skrip menyebutkannya (mis. "Rp175.000", "Promo 20%"),
+  // null kalau tidak ada - dipakai utk overlay GPT Image (lihat promoOverlay.ts). Deteksi
+  // ini SENGAJA jadi bagian sama panggilan GPT ini (bukan panggilan terpisah) biar
+  // hemat & konsisten dgn konteks yg sama persis dgn caption.
+  promoText: string | null;
+};
+
 export async function generateCaptionAndHashtags(
   brandName: string,
   script: string,
@@ -50,13 +58,17 @@ export async function generateCaptionForImage(
   brandName: string,
   script: string,
   imageUrl: string
-): Promise<GeneratedContent> {
+): Promise<GeneratedImageContent> {
   const client = getClient();
   const system =
     "Kamu content strategist media sosial. Lihat foto yang diberikan, lalu buat caption " +
     "menarik & natural (bukan generik/template) plus daftar hashtag relevan berdasarkan " +
-    "ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto.";
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."]}`;
+    "ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto. " +
+    "Kalau skrip menyebutkan harga/promo/diskon, tulis juga versi SINGKAT teks itu " +
+    "(mis. \"Rp175.000\" atau \"Promo 20%\") di field promoText - ini akan ditempel " +
+    "sbg badge di foto, jadi HARUS singkat (maks ~4 kata). Kalau skrip TIDAK menyebut " +
+    "harga/promo sama sekali, promoText HARUS null.";
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -79,6 +91,7 @@ export async function generateCaptionForImage(
   return {
     caption: parsed.caption || "",
     hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
+    promoText: parsed.promoText || null,
   };
 }
 

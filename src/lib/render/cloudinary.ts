@@ -140,3 +140,30 @@ export async function resizeImageForTiktok(imageUrl: string): Promise<string> {
     transformation: [{ width: 1920, height: 1080, crop: "limit" }],
   });
 }
+
+// GPT Image (edit endpoint) mewajibkan gambar & mask berformat SAMA, ukuran SAMA,
+// kedua sisi kelipatan 16px, rasio panjang:pendek maks 3:1 - foto asli dari HP jarang
+// otomatis memenuhi ini. Crop persegi (rasio 1:1, selalu valid) via Cloudinary
+// (smart-crop `gravity: auto` spy tidak asal potong bagian penting foto) + convert PNG.
+export async function prepareSquarePng(imageUrl: string, size: number): Promise<Buffer> {
+  configureCloudinary();
+
+  const hash = createHash("sha1").update(imageUrl).digest("hex").slice(0, 16);
+  const publicId = `kontenpilot_promobase_${hash}`;
+
+  const uploaded = await cloudinary.uploader.upload(imageUrl, {
+    resource_type: "image",
+    public_id: publicId,
+    overwrite: true,
+  });
+
+  const url = cloudinary.url(uploaded.public_id, {
+    resource_type: "image",
+    format: "png",
+    transformation: [{ width: size, height: size, crop: "fill", gravity: "auto" }],
+  });
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Gagal ambil foto yg sudah di-crop persegi: ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}

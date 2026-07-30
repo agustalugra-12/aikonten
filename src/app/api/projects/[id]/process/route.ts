@@ -6,6 +6,7 @@ import { transcribeFootage } from "@/lib/ai/transcribe";
 import { selectClips } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImage, buildSrtSubtitles } from "@/lib/ai/generateContent";
 import { renderFinalVideo } from "@/lib/render/cloudinary";
+import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
 import { newId } from "@/lib/ids";
 import { publishProject } from "@/lib/publish/orchestrate";
 
@@ -49,11 +50,23 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     // aset final (foto asli sudah "final", tidak perlu disambung/dipotong spt video) -
     // caption dibuat dari analisis foto asli (vision), bukan cuma teks skrip.
     if (project.type === "carousel") {
-      const { caption, hashtags } = await generateCaptionForImage(
+      const { caption, hashtags, promoText } = await generateCaptionForImage(
         brand?.name || "Brand",
         project.script,
         rawFootage.fileUrl
       );
+
+      // Kalau skrip menyebut harga/promo, tempel badge-nya ke foto via GPT Image
+      // (edit bermask - foto asli TIDAK diubah di luar area badge, lihat
+      // promoOverlay.ts). Kalau tidak ada promo, foto asli dipakai apa adanya.
+      const finalImageUrl = promoText
+        ? await applyPromoOverlay({
+            brandId: project.brandId,
+            projectId: id,
+            imageUrl: rawFootage.fileUrl,
+            promoText,
+          })
+        : rawFootage.fileUrl;
 
       await db
         .update(projects)
@@ -69,14 +82,14 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
         id: newId("asset"),
         projectId: id,
         type: "final_image",
-        fileUrl: rawFootage.fileUrl,
+        fileUrl: finalImageUrl,
         durationSeconds: null,
         createdAt: new Date(),
       });
 
       await publishProject(id);
 
-      return NextResponse.json({ ok: true, caption, hashtags });
+      return NextResponse.json({ ok: true, caption, hashtags, promoText });
     }
 
     const segments = await transcribeFootage(rawFootage.fileUrl);

@@ -38,6 +38,21 @@ export async function createPresignedUploadUrl(
   return { uploadUrl, publicUrl };
 }
 
+// Upload LANGSUNG dari server (beda dari createPresignedUploadUrl di atas) - dipakai
+// utk aset yg dihasilkan SERVER sendiri (bukan file dari browser Agus), mis. hasil
+// overlay promo GPT Image atau footage yg diambil dari Pexels. Ukurannya kecil/wajar
+// (gambar, bukan video mentah gede) jadi aman lewat server.
+export async function uploadBuffer(key: string, body: Buffer, contentType: string): Promise<string> {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket) throw new Error("STORAGE_BUCKET belum diisi di .env");
+
+  const client = getClient();
+  await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }));
+
+  const base = process.env.STORAGE_PUBLIC_BASE_URL?.replace(/\/$/, "") || "";
+  return `${base}/${key}`;
+}
+
 export function buildAssetKey(brandId: string, projectId: string, filename: string): string {
   const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
   return `${brandId}/${projectId}/${Date.now()}-${safe}`;
