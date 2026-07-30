@@ -141,3 +141,27 @@ export function buildSrtSubtitles(selectedClips: ScoredSegment[]): string {
   });
   return blocks.join("\n");
 }
+
+// PENTING: dipakai KHUSUS kalau AI Dubbing aktif (lihat memory proyek - dubbing GANTI
+// TOTAL audio asli dgn TTS membaca caption). Kalau subtitle tetap dari transkrip ASLI
+// (buildSrtSubtitles di atas), subtitle & audio baru akan BEDA teks - membingungkan.
+// Jadi subtitle-nya juga HARUS dari caption yg sama persis dgn naskah TTS, dipecah jadi
+// blok2 kecil (~8 kata) & disebar rata sepanjang durasi video final.
+export function buildCaptionSrt(captionText: string, totalDurationSeconds: number): string {
+  const words = captionText.split(/\s+/).filter(Boolean);
+  const wordsPerBlock = 8;
+  const chunks: string[] = [];
+  for (let i = 0; i < words.length; i += wordsPerBlock) {
+    chunks.push(words.slice(i, i + wordsPerBlock).join(" "));
+  }
+  if (chunks.length === 0) return "";
+
+  const perBlock = totalDurationSeconds / chunks.length;
+  return chunks
+    .map((text, i) => {
+      const start = i * perBlock;
+      const end = (i + 1) * perBlock;
+      return `${i + 1}\n${formatSrtTime(start)} --> ${formatSrtTime(end)}\n${text}\n`;
+    })
+    .join("\n");
+}

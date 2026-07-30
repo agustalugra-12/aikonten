@@ -3,7 +3,7 @@ import { projects, mediaAssets, brands, socialAccounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { transcribeFootage } from "@/lib/ai/transcribe";
 import { selectClips } from "@/lib/ai/clipSelect";
-import { generateCaptionAndHashtags, generateCaptionForImages, buildSrtSubtitles } from "@/lib/ai/generateContent";
+import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt } from "@/lib/ai/generateContent";
 import { renderFinalVideo, applyZoomToImage } from "@/lib/render/cloudinary";
 import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
@@ -112,7 +112,6 @@ export async function processProject(id: string): Promise<ProcessResult> {
       project.script,
       selectedText
     );
-    const srt = buildSrtSubtitles(selected);
 
     let brollVideoUrl: string | undefined;
     let brollDurationSeconds: number | undefined;
@@ -123,6 +122,13 @@ export async function processProject(id: string): Promise<ProcessResult> {
         brollDurationSeconds = Math.min(broll.durationSeconds, 5);
       }
     }
+
+    // Subtitle dibuat dari CAPTION (bukan transkrip asli lagi) - krn AI Dubbing (di
+    // bawah) MENGGANTI TOTAL audio dgn TTS membaca caption, subtitle jg HARUS teks yg
+    // sama, bukan transkrip asli yg sudah tidak match dgn audio barunya.
+    const totalDuration =
+      selected.reduce((sum, seg) => sum + (seg.end - seg.start), 0) + (brollDurationSeconds || 0);
+    const srt = buildCaptionSrt(caption, totalDuration);
 
     await db
       .update(projects)
@@ -152,6 +158,10 @@ export async function processProject(id: string): Promise<ProcessResult> {
       srtContent: srt,
       brollVideoUrl,
       brollDurationSeconds,
+      // AI Dubbing - GANTI TOTAL suara asli (lihat memory proyek, keputusan eksplisit
+      // Agus), reuse caption yg sudah di-generate sbg naskah narasi - tidak perlu
+      // panggilan GPT terpisah.
+      voiceoverText: caption,
     });
 
     await db.insert(mediaAssets).values({

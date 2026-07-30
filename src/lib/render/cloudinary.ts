@@ -1,6 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
 import { createHash } from "crypto";
 import type { ScoredSegment } from "@/lib/ai/clipSelect";
+import { generateVoiceover } from "@/lib/ai/dubbing";
 
 function configureCloudinary() {
   const cloud_name = process.env.CLOUDINARY_CLOUD_NAME;
@@ -97,6 +98,10 @@ export async function renderFinalVideo(opts: {
   // urutan, bukan menggantikan footage asli Agus.
   brollVideoUrl?: string;
   brollDurationSeconds?: number;
+  // AI Dubbing OPSIONAL (lihat memory proyek - Agus konfirmasi GANTI TOTAL suara asli,
+  // bukan campur) - teks narasi (biasanya caption yg sudah di-generate), di-generate
+  // jadi audio (dubbing.ts) & MENGGANTIKAN audio asli video, bukan ditambahkan.
+  voiceoverText?: string;
 }): Promise<RenderResult> {
   configureCloudinary();
 
@@ -137,6 +142,23 @@ export async function renderFinalVideo(opts: {
     uploaded.width,
     uploaded.height
   );
+
+  // AI Dubbing - ac_none MEMATIKAN SELURUH audio hasil splice (bukan cuma footage
+  // asli - audio B-roll ikut kebawa saat splice, jadi harus dimatikan total dulu),
+  // baru overlay audio TTS di atasnya. Diverifikasi lewat tes nyata (lihat memory
+  // proyek): hasil akhir audio-nya PERSIS properti file TTS (24kHz mono), bukan
+  // campuran - jadi ini benar2 GANTI, bukan mixing, sesuai konfirmasi Agus.
+  if (opts.voiceoverText) {
+    const voiceoverBuffer = await generateVoiceover(opts.voiceoverText);
+    const audioPublicId = publicIdFor(opts.projectId, "voiceover");
+    await cloudinary.uploader.upload(`data:audio/mp3;base64,${voiceoverBuffer.toString("base64")}`, {
+      resource_type: "video",
+      public_id: audioPublicId,
+      overwrite: true,
+    });
+    transformation.push({ audio_codec: "none" });
+    transformation.push({ overlay: { resource_type: "video", public_id: audioPublicId }, flags: "layer_apply" });
+  }
 
   const rendered = await cloudinary.uploader.explicit(uploaded.public_id, {
     resource_type: "video",
