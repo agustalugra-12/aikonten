@@ -5,20 +5,19 @@ import { eq } from "drizzle-orm";
 import { transcribeFootage } from "@/lib/ai/transcribe";
 import { selectClips } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, buildSrtSubtitles } from "@/lib/ai/generateContent";
+import { renderFinalVideo } from "@/lib/render/cloudinary";
 import { newId } from "@/lib/ids";
 import { publishProject } from "@/lib/publish/orchestrate";
 
 // Orkestrasi pipeline Fase 1 (lihat PRD diskusi & task list): transkripsi -> pemilihan
 // klip otomatis (heuristik deterministik, BUKAN vision-AI) -> caption/hashtag/subtitle
-// -> LANGSUNG lanjut publishProject() otomatis (full-auto, TIDAK ADA jeda approval -
+// -> render video final (splice klip terpilih + bakar subtitle via Cloudinary) ->
+// LANGSUNG lanjut publishProject() otomatis (full-auto, TIDAK ADA jeda approval -
 // keputusan eksplisit Agus, lihat memory project_kontenpilot_ai.md).
 //
-// publishProject() sendiri akan gagal dgn jelas kalau aset final (video/gambar hasil
-// rendering) belum ada - lihat orchestrate.ts - krn rendering trim+concat+subtitle via
-// Cloudinary/Replicate BELUM diimplementasikan (task terpisah, butuh kredensial nyata
-// dari Agus yg belum ada). Artefak teks (transcript/clipSelection/caption/hashtags/SRT)
-// tetap lengkap & tersimpan begitu status jadi "ready", siap dipakai begitu rendering
-// ada.
+// Kalau rendering gagal (mis. Cloudinary error), exception-nya ditangkap oleh
+// catch-all di bawah sama seperti tahap lain di pipeline ini - project ditandai
+// "failed" dgn errorMessage jelas, publishProject() TIDAK dipanggil sama sekali.
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
@@ -69,6 +68,22 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       type: "subtitle_file",
       fileUrl: `data:text/plain;base64,${Buffer.from(srt).toString("base64")}`,
       durationSeconds: null,
+      createdAt: new Date(),
+    });
+
+    const rendered = await renderFinalVideo({
+      projectId: id,
+      rawFootageUrl: rawFootage.fileUrl,
+      segments: selected,
+      srtContent: srt,
+    });
+
+    await db.insert(mediaAssets).values({
+      id: newId("asset"),
+      projectId: id,
+      type: "final_video",
+      fileUrl: rendered.videoUrl,
+      durationSeconds: rendered.durationSeconds,
       createdAt: new Date(),
     });
 
