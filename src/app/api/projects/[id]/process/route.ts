@@ -7,7 +7,7 @@ import { selectClips } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImage, buildSrtSubtitles } from "@/lib/ai/generateContent";
 import { renderFinalVideo } from "@/lib/render/cloudinary";
 import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
-import { searchPexelsVideo } from "@/lib/assets/pexels";
+import { searchBrollVideo } from "@/lib/assets/broll";
 import { newId } from "@/lib/ids";
 import { publishProject } from "@/lib/publish/orchestrate";
 
@@ -103,20 +103,16 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     );
     const srt = buildSrtSubtitles(selected);
 
-    // B-roll Pexels "pendamping" (lihat PRD diskusi) - OPSIONAL, kalau gagal/tidak
-    // ketemu JANGAN gagalkan seluruh proses, video tetap jalan tanpa B-roll. Dibatasi
-    // maks 5 detik biar cuma jadi tambahan, bukan mendominasi video.
+    // B-roll Pexels/Pixabay "pendamping" (lihat PRD diskusi) - OPSIONAL, kalau gagal/
+    // tidak ketemu JANGAN gagalkan seluruh proses, video tetap jalan tanpa B-roll.
+    // Dibatasi maks 5 detik biar cuma jadi tambahan, bukan mendominasi video.
     let brollVideoUrl: string | undefined;
     let brollDurationSeconds: number | undefined;
     if (brollKeywords) {
-      try {
-        const broll = await searchPexelsVideo(brollKeywords);
-        if (broll) {
-          brollVideoUrl = broll.videoUrl;
-          brollDurationSeconds = Math.min(broll.durationSeconds, 5);
-        }
-      } catch (err) {
-        console.error("[process] B-roll Pexels gagal, lanjut tanpa B-roll:", err);
+      const broll = await searchBrollVideo(brollKeywords);
+      if (broll) {
+        brollVideoUrl = broll.videoUrl;
+        brollDurationSeconds = Math.min(broll.durationSeconds, 5);
       }
     }
 
