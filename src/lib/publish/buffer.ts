@@ -1,8 +1,10 @@
 import type { Publisher, PublishInput, PublishResult } from "./types";
 
-// TikTok via Buffer (BUKAN TikTok Content Posting API langsung) - lihat PRD diskusi:
-// TikTok API tanpa audit cuma bisa post SELF_ONLY (privat), percuma utk marketing.
-// Buffer sudah jadi partner ter-audit, jadi kita publish lewat API Buffer.
+// Publish generik lewat Buffer - awalnya cuma dipakai utk TikTok (API TikTok langsung
+// perlu audit resmi, lihat PRD diskusi), tapi Agus juga mau pakai Buffer utk Instagram
+// selagi uji coba (dapat kuota gratis 10 post) sblm alur OAuth Meta langsung beres -
+// jadi fungsi ini digeneralisasi utk platform APA SAJA yg tersambung via Buffer, bukan
+// TikTok doang. Dispatcher (index.ts) yg nentuin kapan pakai ini vs native API.
 //
 // PENTING: Buffer REST API (v1, api.bufferapp.com) SUDAH PENSIUN per 2026-07-30 (sunset
 // resmi 1 Feb 2027, token jenis ini eksplisit ditolak API-nya - "Public API tokens are
@@ -10,7 +12,7 @@ import type { Publisher, PublishInput, PublishResult } from "./types";
 // (https://api.buffer.com) - mutation createPost, bentuk field diverifikasi lewat
 // INTROSPEKSI GraphQL ke API asli (bukan tebak dari dokumentasi publik yg ternyata
 // beda), termasuk tes nyata mode saveToDraft:true (hasil status "draft", TIDAK
-// terpublish ke TikTok) lalu dihapus lagi via deletePost.
+// terpublish ke akun asli) lalu dihapus lagi via deletePost.
 const BUFFER_API_URL = "https://api.buffer.com";
 
 const CREATE_POST_MUTATION = `
@@ -28,18 +30,26 @@ const CREATE_POST_MUTATION = `
   }
 `;
 
-export const publishToTiktokViaBuffer: Publisher = async (input: PublishInput): Promise<PublishResult> => {
-  const { videoUrl, caption, bufferChannelId } = input;
+export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<PublishResult> => {
+  const { videoUrl, imageUrls, caption, bufferChannelId } = input;
   const bufferToken = process.env.BUFFER_ACCESS_TOKEN;
 
   if (!bufferToken) {
     return { success: false, error: "BUFFER_ACCESS_TOKEN belum diisi di .env" };
   }
   if (!bufferChannelId) {
-    return { success: false, error: "Akun TikTok ini belum ada bufferChannelId" };
+    return { success: false, error: "Akun ini belum ada bufferChannelId" };
   }
-  if (!videoUrl) {
-    return { success: false, error: "TikTok butuh video, tidak ada videoUrl" };
+
+  // Video (Reels/TikTok) diutamakan kalau ada, kalau tidak pakai gambar (carousel/feed).
+  const assets = videoUrl
+    ? [{ video: { url: videoUrl } }]
+    : imageUrls && imageUrls.length > 0
+      ? imageUrls.map((url) => ({ image: { url } }))
+      : null;
+
+  if (!assets) {
+    return { success: false, error: "Tidak ada video/gambar utk dipublikasikan" };
   }
 
   try {
@@ -55,7 +65,7 @@ export const publishToTiktokViaBuffer: Publisher = async (input: PublishInput): 
           input: {
             channelId: bufferChannelId,
             text: caption,
-            assets: [{ video: { url: videoUrl } }],
+            assets,
             mode: "shareNow",
             schedulingType: "automatic",
             needsApproval: false,
