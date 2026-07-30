@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { projects, mediaAssets, brands } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { transcribeFootage } from "@/lib/ai/transcribe";
 import { selectClips } from "@/lib/ai/clipSelect";
-import { generateCaptionAndHashtags, generateCaptionForImage, buildSrtSubtitles } from "@/lib/ai/generateContent";
+import { generateCaptionAndHashtags, generateCaptionForImages, buildSrtSubtitles } from "@/lib/ai/generateContent";
 import { renderFinalVideo } from "@/lib/render/cloudinary";
 import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
 import { searchBrollVideo } from "@/lib/assets/broll";
@@ -35,13 +35,14 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Project belum punya script/brief" }, { status: 400 });
   }
 
-  const [rawFootage] = await db
+  const rawFootageAssets = await db
     .select()
     .from(mediaAssets)
-    .where(eq(mediaAssets.projectId, id));
-  if (!rawFootage) {
+    .where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.type, "raw_footage")));
+  if (rawFootageAssets.length === 0) {
     return NextResponse.json({ error: "Belum ada footage mentah utk project ini" }, { status: 400 });
   }
+  const [rawFootage] = rawFootageAssets; // jalur video selalu 1 file - lihat carousel di bawah utk banyak foto
 
   const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
 
@@ -51,23 +52,24 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     // aset final (foto asli sudah "final", tidak perlu disambung/dipotong spt video) -
     // caption dibuat dari analisis foto asli (vision), bukan cuma teks skrip.
     if (project.type === "carousel") {
-      const { caption, hashtags, promoText } = await generateCaptionForImage(
+      const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
+      const { caption, hashtags, promoText } = await generateCaptionForImages(
         brand?.name || "Brand",
         project.script,
-        rawFootage.fileUrl
+        photoUrls
       );
 
-      // Kalau skrip menyebut harga/promo, tempel badge-nya ke foto via GPT Image
-      // (edit bermask - foto asli TIDAK diubah di luar area badge, lihat
-      // promoOverlay.ts). Kalau tidak ada promo, foto asli dipakai apa adanya.
-      const finalImageUrl = promoText
-        ? await applyPromoOverlay({
-            brandId: project.brandId,
-            projectId: id,
-            imageUrl: rawFootage.fileUrl,
-            promoText,
-          })
-        : rawFootage.fileUrl;
+      // Kalau skrip menyebut harga/promo, tempel badge-nya HANYA di foto PERTAMA
+      // (cover) via GPT Image (edit bermask - foto asli TIDAK diubah di luar area
+      // badge, lihat promoOverlay.ts) - foto lain di carousel dipakai apa adanya,
+      // tidak semua foto perlu badge yg sama.
+      const finalImageUrls = await Promise.all(
+        photoUrls.map((url, i) =>
+          promoText && i === 0
+            ? applyPromoOverlay({ brandId: project.brandId, projectId: id, imageUrl: url, promoText })
+            : Promise.resolve(url)
+        )
+      );
 
       await db
         .update(projects)
@@ -79,18 +81,20 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
         })
         .where(eq(projects.id, id));
 
-      await db.insert(mediaAssets).values({
-        id: newId("asset"),
-        projectId: id,
-        type: "final_image",
-        fileUrl: finalImageUrl,
-        durationSeconds: null,
-        createdAt: new Date(),
-      });
+      for (const url of finalImageUrls) {
+        await db.insert(mediaAssets).values({
+          id: newId("asset"),
+          projectId: id,
+          type: "final_image",
+          fileUrl: url,
+          durationSeconds: null,
+          createdAt: new Date(),
+        });
+      }
 
       await publishProject(id);
 
-      return NextResponse.json({ ok: true, caption, hashtags, promoText });
+      return NextResponse.json({ ok: true, caption, hashtags, promoText, photoCount: finalImageUrls.length });
     }
 
     const segments = await transcribeFootage(rawFootage.fileUrl);

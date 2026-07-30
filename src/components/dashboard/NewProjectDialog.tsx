@@ -19,15 +19,41 @@ import { toast } from "sonner";
 // storage (bukan lewat server kita, lihat lib/storage.ts) -> (4) catat asset di DB ->
 // (5) trigger /process (transkripsi+pemilihan klip+caption/hashtag, full-auto sesuai
 // keputusan Agus - tidak ada jeda approval manual di sini).
+const MAX_CAROUSEL_PHOTOS = 5;
+
 export function NewProjectDialog({ brandId, onCreated }: { brandId: string; onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<"video" | "carousel">("video");
   const [script, setScript] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [stage, setStage] = useState<string | null>(null);
 
+  const hasFiles = type === "carousel" ? files.length > 0 : !!file;
+
+  async function uploadOneFile(projectId: string, f: File): Promise<string> {
+    const presignRes = await fetch(`/api/projects/${projectId}/upload-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: f.name, contentType: f.type }),
+    });
+    if (!presignRes.ok) throw new Error((await presignRes.json()).error || "Gagal menyiapkan upload");
+    const { uploadUrl, publicUrl } = await presignRes.json();
+
+    const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": f.type }, body: f });
+    if (!putRes.ok) throw new Error(`Gagal upload ${f.name} ke storage`);
+
+    const assetRes = await fetch(`/api/projects/${projectId}/assets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "raw_footage", fileUrl: publicUrl }),
+    });
+    if (!assetRes.ok) throw new Error((await assetRes.json()).error || `Gagal mencatat asset ${f.name}`);
+    return publicUrl;
+  }
+
   async function handleSubmit() {
-    if (!file || !script.trim()) return;
+    if (!hasFiles || !script.trim()) return;
 
     try {
       setStage("Membuat project...");
@@ -39,29 +65,15 @@ export function NewProjectDialog({ brandId, onCreated }: { brandId: string; onCr
       if (!projRes.ok) throw new Error((await projRes.json()).error || "Gagal membuat project");
       const project = await projRes.json();
 
-      setStage("Mengunggah footage...");
-      const presignRes = await fetch(`/api/projects/${project.id}/upload-url`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, contentType: file.type }),
-      });
-      if (!presignRes.ok) throw new Error((await presignRes.json()).error || "Gagal menyiapkan upload");
-      const { uploadUrl, publicUrl } = await presignRes.json();
-
-      const putRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("Gagal upload file ke storage");
-
-      setStage("Mencatat asset...");
-      const assetRes = await fetch(`/api/projects/${project.id}/assets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "raw_footage", fileUrl: publicUrl }),
-      });
-      if (!assetRes.ok) throw new Error((await assetRes.json()).error || "Gagal mencatat asset");
+      if (type === "carousel") {
+        for (let i = 0; i < files.length; i++) {
+          setStage(`Mengunggah foto ${i + 1}/${files.length}...`);
+          await uploadOneFile(project.id, files[i]);
+        }
+      } else {
+        setStage("Mengunggah footage...");
+        await uploadOneFile(project.id, file!);
+      }
 
       setStage("Memproses dengan AI (transkripsi, pilih klip, caption)...");
       const processRes = await fetch(`/api/projects/${project.id}/process`, { method: "POST" });
@@ -73,6 +85,7 @@ export function NewProjectDialog({ brandId, onCreated }: { brandId: string; onCr
       toast.success("Project selesai diproses, siap dipublikasikan");
       setScript("");
       setFile(null);
+      setFiles([]);
       setOpen(false);
       onCreated();
     } catch (err) {
@@ -113,17 +126,30 @@ export function NewProjectDialog({ brandId, onCreated }: { brandId: string; onCr
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="footage">Footage mentah</Label>
-            <Input
-              id="footage"
-              type="file"
-              accept="video/*,image/*"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-            />
+            <Label htmlFor="footage">{type === "carousel" ? `Foto (maks ${MAX_CAROUSEL_PHOTOS})` : "Footage mentah"}</Label>
+            {type === "carousel" ? (
+              <Input
+                id="footage"
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, MAX_CAROUSEL_PHOTOS))}
+              />
+            ) : (
+              <Input
+                id="footage"
+                type="file"
+                accept="video/*"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+              />
+            )}
+            {type === "carousel" && files.length > 0 && (
+              <p className="text-xs text-muted-foreground">{files.length} foto dipilih</p>
+            )}
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={handleSubmit} disabled={!!stage || !file || !script.trim()}>
+          <Button onClick={handleSubmit} disabled={!!stage || !hasFiles || !script.trim()}>
             {stage || "Buat & Proses Otomatis"}
           </Button>
         </DialogFooter>

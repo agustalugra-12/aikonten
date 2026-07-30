@@ -65,22 +65,25 @@ export async function generateCaptionAndHashtags(
 // Konten foto/carousel (type "carousel") TIDAK ada transkrip audio utk dijadikan
 // konteks - jadi caption-nya dibuat berdasar foto asli via vision model (bukan cuma
 // nebak dari skrip doang), supaya tetap akurat & tidak mengarang klaim yg tdk ada di
-// foto (sama prinsipnya dgn video, lihat generateCaptionAndHashtags).
-export async function generateCaptionForImage(
+// foto (sama prinsipnya dgn video, lihat generateCaptionAndHashtags). Terima BANYAK
+// foto sekaligus (carousel 1-5 foto, lihat NewProjectDialog.tsx) - satu caption yg
+// merangkum semua foto, bukan per-foto.
+export async function generateCaptionForImages(
   brandName: string,
   script: string,
-  imageUrl: string
+  imageUrls: string[]
 ): Promise<GeneratedImageContent> {
   const client = getClient();
   const system =
-    "Kamu content strategist media sosial. Lihat foto yang diberikan, lalu buat caption " +
+    "Kamu content strategist media sosial. Lihat SEMUA foto yang diberikan (bisa lebih " +
+    "dari satu, urutan sesuai carousel), lalu buat SATU caption yang merangkum & " +
     "menarik & natural (bukan generik/template) plus daftar hashtag relevan berdasarkan " +
     "ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto. " +
     "Kalau skrip menyebutkan harga/promo/diskon, tulis juga versi SINGKAT teks itu " +
     "(mis. \"Rp175.000\" atau \"Promo 20%\") di field promoText - ini akan ditempel " +
-    "sbg badge di foto, jadi HARUS singkat (maks ~4 kata). Kalau skrip TIDAK menyebut " +
-    "harga/promo sama sekali, promoText HARUS null.";
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null}`;
+    "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
+    "TIDAK menyebut harga/promo sama sekali, promoText HARUS null.";
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -90,7 +93,7 @@ export async function generateCaptionForImage(
         role: "user",
         content: [
           { type: "text", text: user },
-          { type: "image_url", image_url: { url: imageUrl } },
+          ...imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url } })),
         ],
       },
     ],
