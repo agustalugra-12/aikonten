@@ -30,7 +30,13 @@ function significantWords(text: string): Set<string> {
 // Tetap 100% otomatis (Agus minta zero-touch), cuma metodenya lebih sederhana & bisa
 // ditingkatkan nanti kalau hasilnya kurang bagus.
 const WEIGHTS = { keyword: 0.5, clarity: 0.2, duration: 0.3 };
-const IDEAL_DURATION_RANGE: [number, number] = [3, 15]; // detik per klip
+// Diperketat 2026-07-31 atas permintaan eksplisit Agus: potongan cepat (3-5 detik per
+// footage) drpd durasi lama - sebelumnya [3,15] terlalu longgar utk gaya edit
+// cepat/reels. Cap keras 5 detik ditegakkan di selectClips (di bawah), bukan cuma lewat
+// scoring - biar TIDAK bergantung skor lain (mis. keyword match tinggi) meloloskan klip
+// lama.
+const IDEAL_DURATION_RANGE: [number, number] = [3, 5]; // detik per klip
+const MAX_CLIP_DURATION = 5;
 
 function scoreDuration(durationSeconds: number): number {
   const [min, max] = IDEAL_DURATION_RANGE;
@@ -89,8 +95,14 @@ export function selectClips(
   for (const seg of byScoreDesc) {
     if (totalDuration >= targetDurationSeconds) break;
     if (seg.combinedScore < MIN_SCORE_THRESHOLD) continue;
-    selected.push(seg);
-    totalDuration += seg.end - seg.start;
+    // Cap keras 5 detik (lihat MAX_CLIP_DURATION) - potong DURASInya saja (end
+    // dimundurkan), teks transkrip tetap utuh krn cuma dipakai sbg konteks caption,
+    // bukan ditampilkan literal per-klip lagi (subtitle final sekarang dari caption,
+    // lihat buildCaptionSrt).
+    const cappedEnd = Math.min(seg.end, seg.start + MAX_CLIP_DURATION);
+    const capped: ScoredSegment = { ...seg, end: cappedEnd };
+    selected.push(capped);
+    totalDuration += cappedEnd - seg.start;
   }
 
   return selected.sort((a, b) => a.start - b.start);

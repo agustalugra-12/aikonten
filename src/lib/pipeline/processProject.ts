@@ -75,15 +75,22 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // Efek zoom (lihat memory proyek) - CUMA berlaku foto TUNGGAL, bukan carousel
       // multi-foto (Cloudinary zoompan cuma jalan di 1 gambar diam, menyambung banyak
       // klip zoom = kompleksitas splice penuh spt video, di luar scope ini). Foto
-      // tunggal jadi VIDEO pendek (final_video), bukan final_image lagi.
+      // tunggal jadi VIDEO pendek (final_video), bukan final_image lagi - skalian
+      // dikasih dubbing+subtitle (caption yg sama dipakai foto biasa), durasi videonya
+      // ikut mengikuti panjang narasi TTS-nya (lihat applyZoomToImage).
       if (finalImageUrls.length === 1) {
-        const zoomVideoUrl = await applyZoomToImage(finalImageUrls[0], 4);
+        const zoomed = await applyZoomToImage({
+          projectId: id,
+          imageUrl: finalImageUrls[0],
+          fallbackDurationSeconds: 4,
+          captionText: caption,
+        });
         await db.insert(mediaAssets).values({
           id: newId("asset"),
           projectId: id,
           type: "final_video",
-          fileUrl: zoomVideoUrl,
-          durationSeconds: 4,
+          fileUrl: zoomed.videoUrl,
+          durationSeconds: zoomed.durationSeconds,
           createdAt: new Date(),
         });
       } else {

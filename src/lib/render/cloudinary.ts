@@ -1,7 +1,8 @@
 import { v2 as cloudinary } from "cloudinary";
 import { createHash } from "crypto";
 import type { ScoredSegment } from "@/lib/ai/clipSelect";
-import { generateVoiceover } from "@/lib/ai/dubbing";
+import { generateVoiceover, getAudioDurationSeconds } from "@/lib/ai/dubbing";
+import { buildCaptionSrt } from "@/lib/ai/generateContent";
 
 function configureCloudinary() {
   const cloud_name = process.env.CLOUDINARY_CLOUD_NAME;
@@ -184,29 +185,86 @@ export async function renderFinalVideo(opts: {
 // video pendek dgn zoom halus. TIDAK dipakai utk carousel multi-foto (lihat
 // processProject.ts) krn menyambung banyak klip zoom = kompleksitas splice penuh spt
 // video, di luar scope ini.
-export async function applyZoomToImage(imageUrl: string, durationSeconds: number): Promise<string> {
+//
+// Dubbing+subtitle (OPSIONAL via captionText, ditambah 2026-07-31 atas permintaan Agus)
+// - beda dgn renderFinalVideo: di sini TTS-lah yg MENENTUKAN durasi video (bukan
+// sebaliknya), krn sumbernya cuma 1 foto diam, tidak ada durasi "asli" spt klip footage.
+// Jadi kalau captionText diisi, fallbackDurationSeconds DIABAIKAN - durasi asli video
+// dihitung dari panjang audio TTS yg sungguhan (via ffprobe, lihat dubbing.ts), supaya
+// narasi tidak terpotong/terlalu cepat selesai drpd videonya.
+//
+// Pakai explicit()+eager (SINKRON) sama persis pola renderFinalVideo, BUKAN lagi
+// cloudinary.url() lazy spt sebelumnya - supaya overlay subtitle+audio (yg butuh asset
+// lain sudah ter-upload) bisa digabung dlm SATU transformation array yg sama terbukti
+// jalan (lihat renderFinalVideo), bukan pola baru yg belum pernah dites gabungannya.
+export async function applyZoomToImage(opts: {
+  projectId: string;
+  imageUrl: string;
+  fallbackDurationSeconds: number;
+  captionText?: string;
+}): Promise<{ videoUrl: string; durationSeconds: number }> {
   configureCloudinary();
 
-  const hash = createHash("sha1").update(imageUrl).digest("hex").slice(0, 16);
+  const hash = createHash("sha1").update(opts.imageUrl).digest("hex").slice(0, 16);
   const publicId = `kontenpilot_zoom_${hash}`;
 
-  const uploaded = await cloudinary.uploader.upload(imageUrl, {
+  const uploaded = await cloudinary.uploader.upload(opts.imageUrl, {
     resource_type: "image",
     public_id: publicId,
     overwrite: true,
   });
 
-  return cloudinary.url(uploaded.public_id, {
+  let durationSeconds = opts.fallbackDurationSeconds;
+  let voiceoverPublicId: string | undefined;
+  let srtPublicId: string | undefined;
+
+  if (opts.captionText) {
+    const voiceoverBuffer = await generateVoiceover(opts.captionText);
+    durationSeconds = Math.max(4, Math.round(await getAudioDurationSeconds(voiceoverBuffer)));
+
+    voiceoverPublicId = publicIdFor(opts.projectId, "zoom_voiceover");
+    await cloudinary.uploader.upload(`data:audio/mp3;base64,${voiceoverBuffer.toString("base64")}`, {
+      resource_type: "video",
+      public_id: voiceoverPublicId,
+      overwrite: true,
+    });
+
+    const srt = buildCaptionSrt(opts.captionText, durationSeconds);
+    srtPublicId = publicIdFor(opts.projectId, "zoom_subtitles.srt");
+    await cloudinary.uploader.upload(
+      `data:text/plain;base64,${Buffer.from(srt).toString("base64")}`,
+      { resource_type: "raw", public_id: srtPublicId, overwrite: true }
+    );
+  }
+
+  const transformation: Record<string, unknown>[] = [
+    // Batasi resolusi dulu (foto HP modern bisa jauh lebih besar drpd wajar utk
+    // video sosmed) - sama alasannya dgn resizeImageForTiktok, cegah video hasil
+    // zoom jadi kegedean/lambat diproses.
+    { width: 1920, height: 1080, crop: "limit" },
+    { effect: `zoompan:du_${durationSeconds};from_(x_0.5;y_0.5;zoom_1.0);to_(x_0.5;y_0.5;zoom_1.25)` },
+  ];
+
+  if (srtPublicId) {
+    transformation.push({ overlay: { resource_type: "subtitles", public_id: srtPublicId } });
+    transformation.push({ flags: "layer_apply" });
+  }
+  if (voiceoverPublicId) {
+    transformation.push({ overlay: { resource_type: "video", public_id: voiceoverPublicId }, flags: "layer_apply" });
+  }
+
+  const rendered = await cloudinary.uploader.explicit(publicId, {
     resource_type: "image",
-    format: "mp4",
-    transformation: [
-      // Batasi resolusi dulu (foto HP modern bisa jauh lebih besar drpd wajar utk
-      // video sosmed) - sama alasannya dgn resizeImageForTiktok, cegah video hasil
-      // zoom jadi kegedean/lambat diproses.
-      { width: 1920, height: 1080, crop: "limit" },
-      { effect: `zoompan:du_${durationSeconds};from_(x_0.5;y_0.5;zoom_1.0);to_(x_0.5;y_0.5;zoom_1.25)` },
-    ],
+    type: "upload",
+    eager: [{ transformation, format: "mp4" }],
   });
+
+  const eagerResult = rendered.eager?.[0];
+  if (!eagerResult?.secure_url) {
+    throw new Error("Cloudinary tidak menghasilkan video zoom (eager transformation kosong)");
+  }
+
+  return { videoUrl: eagerResult.secure_url, durationSeconds };
 }
 
 // TikTok punya batas resolusi foto keras: 2.073.600 piksel (setara 1920x1080) -

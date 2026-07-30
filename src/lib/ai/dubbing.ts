@@ -1,4 +1,11 @@
 import OpenAI from "openai";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { writeFile, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import path from "path";
+
+const execFileAsync = promisify(execFile);
 
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -19,4 +26,27 @@ export async function generateVoiceover(text: string): Promise<Buffer> {
     input: text,
   });
   return Buffer.from(await response.arrayBuffer());
+}
+
+// Dipakai utk foto-zoom (lihat cloudinary.ts applyZoomToImage) - durasi video pendek
+// itu HARUS ikut durasi asli suara TTS-nya (bukan angka tebakan/hardcode), krn beda dgn
+// jalur video asli (yg durasinya sudah ditentukan dari klip footage terpilih), di sini
+// TTS-lah yg justru menentukan berapa lama videonya. ffprobe (server sudah terpasang,
+// lihat memory proyek) jauh lebih akurat drpd estimasi kata/detik.
+export async function getAudioDurationSeconds(buffer: Buffer): Promise<number> {
+  const tmpFile = path.join(tmpdir(), `kontenpilot_tts_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`);
+  await writeFile(tmpFile, buffer);
+  try {
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "csv=p=0",
+      tmpFile,
+    ]);
+    const duration = parseFloat(stdout.trim());
+    if (!Number.isFinite(duration)) throw new Error("ffprobe tidak menghasilkan durasi audio yang valid");
+    return duration;
+  } finally {
+    await unlink(tmpFile).catch(() => {});
+  }
 }
