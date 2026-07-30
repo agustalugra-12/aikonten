@@ -4,20 +4,24 @@ import { projects, mediaAssets, brands } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { transcribeFootage } from "@/lib/ai/transcribe";
 import { selectClips } from "@/lib/ai/clipSelect";
-import { generateCaptionAndHashtags, buildSrtSubtitles } from "@/lib/ai/generateContent";
+import { generateCaptionAndHashtags, generateCaptionForImage, buildSrtSubtitles } from "@/lib/ai/generateContent";
 import { renderFinalVideo } from "@/lib/render/cloudinary";
 import { newId } from "@/lib/ids";
 import { publishProject } from "@/lib/publish/orchestrate";
 
-// Orkestrasi pipeline Fase 1 (lihat PRD diskusi & task list): transkripsi -> pemilihan
-// klip otomatis (heuristik deterministik, BUKAN vision-AI) -> caption/hashtag/subtitle
-// -> render video final (splice klip terpilih + bakar subtitle via Cloudinary) ->
-// LANGSUNG lanjut publishProject() otomatis (full-auto, TIDAK ADA jeda approval -
-// keputusan eksplisit Agus, lihat memory project_kontenpilot_ai.md).
+// Orkestrasi pipeline Fase 1 (lihat PRD diskusi & task list). Dua jalur beda tergantung
+// project.type:
+// - "video": transkripsi -> pemilihan klip otomatis (heuristik deterministik, BUKAN
+//   vision-AI) -> caption/hashtag/subtitle -> render video final (splice+subtitle via
+//   Cloudinary) -> publish.
+// - "carousel" (foto): TIDAK ada transkrip/render - foto mentah LANGSUNG jadi aset
+//   final, caption dibuat dari analisis foto asli (vision model) - lihat
+//   generateCaptionForImage.
+// Keduanya LANGSUNG lanjut publishProject() otomatis (full-auto, TIDAK ADA jeda
+// approval - keputusan eksplisit Agus, lihat memory project_kontenpilot_ai.md).
 //
-// Kalau rendering gagal (mis. Cloudinary error), exception-nya ditangkap oleh
-// catch-all di bawah sama seperti tahap lain di pipeline ini - project ditandai
-// "failed" dgn errorMessage jelas, publishProject() TIDAK dipanggil sama sekali.
+// Kalau rendering/generate gagal, exception-nya ditangkap oleh catch-all di bawah -
+// project ditandai "failed" dgn errorMessage jelas, publishProject() TIDAK dipanggil.
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
@@ -40,6 +44,41 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
 
   try {
+    // Konten foto (type "carousel") - TIDAK ada audio utk ditranskrip, jadi skip
+    // transcribe/clipSelect/render sepenuhnya. Foto mentah yg diupload LANGSUNG jadi
+    // aset final (foto asli sudah "final", tidak perlu disambung/dipotong spt video) -
+    // caption dibuat dari analisis foto asli (vision), bukan cuma teks skrip.
+    if (project.type === "carousel") {
+      const { caption, hashtags } = await generateCaptionForImage(
+        brand?.name || "Brand",
+        project.script,
+        rawFootage.fileUrl
+      );
+
+      await db
+        .update(projects)
+        .set({
+          status: "ready",
+          generatedCaption: caption,
+          generatedHashtags: JSON.stringify(hashtags),
+          updatedAt: new Date(),
+        })
+        .where(eq(projects.id, id));
+
+      await db.insert(mediaAssets).values({
+        id: newId("asset"),
+        projectId: id,
+        type: "final_image",
+        fileUrl: rawFootage.fileUrl,
+        durationSeconds: null,
+        createdAt: new Date(),
+      });
+
+      await publishProject(id);
+
+      return NextResponse.json({ ok: true, caption, hashtags });
+    }
+
     const segments = await transcribeFootage(rawFootage.fileUrl);
     const selected = selectClips(segments, project.script);
     const selectedText = selected.map((s) => s.text).join(" ");

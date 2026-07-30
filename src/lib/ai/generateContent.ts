@@ -42,6 +42,46 @@ export async function generateCaptionAndHashtags(
   };
 }
 
+// Konten foto/carousel (type "carousel") TIDAK ada transkrip audio utk dijadikan
+// konteks - jadi caption-nya dibuat berdasar foto asli via vision model (bukan cuma
+// nebak dari skrip doang), supaya tetap akurat & tidak mengarang klaim yg tdk ada di
+// foto (sama prinsipnya dgn video, lihat generateCaptionAndHashtags).
+export async function generateCaptionForImage(
+  brandName: string,
+  script: string,
+  imageUrl: string
+): Promise<GeneratedContent> {
+  const client = getClient();
+  const system =
+    "Kamu content strategist media sosial. Lihat foto yang diberikan, lalu buat caption " +
+    "menarik & natural (bukan generik/template) plus daftar hashtag relevan berdasarkan " +
+    "ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto.";
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."]}`;
+
+  const completion = await client.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [
+      { role: "system", content: system },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: user },
+          { type: "image_url", image_url: { url: imageUrl } },
+        ],
+      },
+    ],
+    temperature: 0.7,
+  });
+
+  const raw = completion.choices[0]?.message?.content?.trim() || "{}";
+  const cleaned = raw.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+  const parsed = JSON.parse(cleaned);
+  return {
+    caption: parsed.caption || "",
+    hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
+  };
+}
+
 function formatSrtTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
