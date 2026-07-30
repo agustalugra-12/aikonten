@@ -54,13 +54,22 @@ export function SocialAccounts({ brandId }: { brandId: string }) {
             ))}
           </ul>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          render={<a href={`/api/auth/youtube/connect?brandId=${brandId}`} />}
-        >
-          + Sambungkan YouTube
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            render={<a href={`/api/auth/youtube/connect?brandId=${brandId}`} />}
+          >
+            + Sambungkan YouTube
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            render={<a href={`/api/auth/meta/connect?brandId=${brandId}`} />}
+          >
+            + Sambungkan Facebook &amp; Instagram
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

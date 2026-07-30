@@ -50,11 +50,15 @@ function DashboardContent() {
   }, [loadBrands]);
 
   useEffect(() => {
-    const connected = searchParams.get("youtube_connected");
-    const error = searchParams.get("youtube_error");
-    if (connected) toast.success(`YouTube "${connected}" tersambung`);
-    if (error) toast.error(`Gagal sambungkan YouTube: ${error}`);
-    if (connected || error) router.replace("/");
+    const ytConnected = searchParams.get("youtube_connected");
+    const ytError = searchParams.get("youtube_error");
+    const metaConnected = searchParams.get("meta_connected");
+    const metaError = searchParams.get("meta_error");
+    if (ytConnected) toast.success(`YouTube "${ytConnected}" tersambung`);
+    if (ytError) toast.error(`Gagal sambungkan YouTube: ${ytError}`);
+    if (metaConnected) toast.success(`Tersambung: ${metaConnected}`);
+    if (metaError) toast.error(`Gagal sambungkan Meta: ${metaError}`);
+    if (ytConnected || ytError || metaConnected || metaError) router.replace("/");
   }, [searchParams, router]);
 
   useEffect(() => {
