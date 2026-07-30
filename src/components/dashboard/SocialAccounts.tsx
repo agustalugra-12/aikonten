@@ -55,6 +55,7 @@ export function SocialAccounts({ brandId }: { brandId: string }) {
           <Button
             variant="outline"
             size="sm"
+            nativeButton={false}
             render={<a href={`/api/auth/youtube/connect?brandId=${brandId}`} />}
           >
             + Sambungkan YouTube
@@ -62,6 +63,7 @@ export function SocialAccounts({ brandId }: { brandId: string }) {
           <Button
             variant="outline"
             size="sm"
+            nativeButton={false}
             render={<a href={`/api/auth/meta/connect?brandId=${brandId}`} />}
           >
             + Sambungkan Facebook &amp; Instagram

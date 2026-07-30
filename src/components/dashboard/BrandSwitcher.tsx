@@ -15,7 +15,9 @@ export function BrandSwitcher({
   return (
     <Select value={selectedBrandId ?? undefined} onValueChange={(v) => v && onSelect(v)}>
       <SelectTrigger className="w-[220px]">
-        <SelectValue placeholder="Pilih brand" />
+        <SelectValue placeholder="Pilih brand">
+          {(value: string | null) => brands.find((b) => b.id === value)?.name ?? "Pilih brand"}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {brands.map((b) => (
