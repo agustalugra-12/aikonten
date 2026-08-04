@@ -1,17 +1,12 @@
-import OpenAI, { toFile } from "openai";
-import { prepareSquarePng } from "@/lib/render/cloudinary";
+import { fal } from "@fal-ai/client";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import type { PosterCopy } from "./posterCopy";
 
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
+function ensureFalConfigured(): void {
+  const apiKey = process.env.FAL_KEY;
+  if (!apiKey) throw new Error("FAL_KEY belum diisi di .env");
+  fal.config({ credentials: apiKey });
 }
-
-// 1024 persegi (1:1) - salah satu dari 2 rasio yg diizinkan spec ("Poster 4:5 atau 1:1"),
-// dipilih krn ukuran resmi yg didukung gpt-image-1 (4:5 pas tidak ada di preset resminya).
-const EDIT_SIZE = 1024;
 
 // "Pelangi Homestay Poster Design System v1" (2026-08-05, master prompt LENGKAP dari
 // Agus, dipakai APA ADANYA - ini brief art-direction penuh, bukan sesuatu yg boleh
@@ -73,30 +68,35 @@ function buildPosterPrompt(copy: PosterCopy): string {
 }
 
 // Poster foto tunggal penuh (BEDA dari applyPromoOverlay yg cuma badge kecil 1 pojok) -
-// gpt-image-1 edit TANPA mask (perlu kebebasan taruh headline/CTA/badge di mana saja
-// sesuai komposisi terbaik, tidak bisa dibatasi 1 kotak spt badge overlay) - keamanan foto
-// asli TIDAK diegakkan lewat mask di sini, murni lewat instruksi tegas di
-// MASTER_STYLE_PROMPT (bagian FOTO & BATASAN KERAS).
+// Nano Banana 2 (fal.ai, gemini-3.1-flash-image via fal-ai/nano-banana-2/edit) TANPA
+// mask - model ini sama sekali TIDAK PUNYA fitur mask biner (2026-08-05, dicek langsung
+// ke dokumentasi resmi: "no masks needed", editing murni lewat instruksi natural
+// language/"semantic masking") - keamanan foto asli TIDAK ditegakkan lewat mask, murni
+// lewat instruksi tegas di MASTER_STYLE_PROMPT (bagian FOTO & BATASAN KERAS). Sebelumnya
+// pakai gpt-image-1 (OpenAI) - diganti ke sini atas permintaan Agus (resolusi 1K,
+// ~$0,08/gambar dari playground fal.ai beliau).
 export async function applyPosterDesign(opts: {
   brandId: string;
   projectId: string;
   imageUrl: string;
   copy: PosterCopy;
 }): Promise<string> {
-  const client = getClient();
-  const baseImage = await prepareSquarePng(opts.imageUrl, EDIT_SIZE);
+  ensureFalConfigured();
 
-  const response = await client.images.edit({
-    model: "gpt-image-1",
-    image: await toFile(baseImage, "photo.png", { type: "image/png" }),
-    prompt: buildPosterPrompt(opts.copy),
-    size: "1024x1024",
+  const result = await fal.subscribe("fal-ai/nano-banana-2/edit", {
+    input: {
+      prompt: buildPosterPrompt(opts.copy),
+      image_urls: [opts.imageUrl],
+      resolution: "1K",
+    },
   });
 
-  const b64 = response.data?.[0]?.b64_json;
-  if (!b64) throw new Error("GPT Image tidak mengembalikan hasil poster");
+  const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
+  if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil poster");
 
-  const buffer = Buffer.from(b64, "base64");
+  const res = await fetch(imageUrl);
+  if (!res.ok) throw new Error(`Gagal ambil hasil poster dari fal.ai: ${res.status}`);
+  const buffer = Buffer.from(await res.arrayBuffer());
   const key = buildAssetKey(opts.brandId, opts.projectId, "poster.png");
   return uploadBuffer(key, buffer, "image/png");
 }
