@@ -7,6 +7,17 @@ function getClient(): OpenAI {
   return new OpenAI({ apiKey });
 }
 
+// Normalisasi hashtag (2026-08-05, bug nyata dilaporkan Agus - hashtag tampil "##").
+// Prompt di bawah tidak menegaskan ADA/TIDAKnya "#" di tiap item array, jadi GPT kadang
+// balas sudah pakai "#" sendiri (mis. "#PelangiHomestay") - kode pemakai (orchestrate.ts
+// publish, DraftReview.tsx preview) SELALU nambahin "#" lagi krn asumsinya array isi kata
+// polos, jadi jadi "##PelangiHomestay". Buang "#" di depan di sini (SATU tempat, dipakai
+// kedua fungsi di bawah) - array yang di-return ke pemakai lain SELALU kata polos tanpa
+// "#", apa pun yang dibalas GPT.
+function stripHashPrefix(tags: string[]): string[] {
+  return tags.map((t) => t.replace(/^#+/, ""));
+}
+
 export type GeneratedContent = {
   caption: string;
   hashtags: string[];
@@ -64,7 +75,7 @@ export async function generateCaptionAndHashtags(
   const parsed = JSON.parse(cleaned);
   return {
     caption: parsed.caption || "",
-    hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
+    hashtags: stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : []),
     brollKeywords: parsed.brollKeywords || null,
     thumbnailText: parsed.thumbnailText || null,
   };
@@ -113,7 +124,7 @@ export async function generateCaptionForImages(
   const parsed = JSON.parse(cleaned);
   return {
     caption: parsed.caption || "",
-    hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
+    hashtags: stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : []),
     promoText: parsed.promoText || null,
   };
 }
