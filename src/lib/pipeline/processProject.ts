@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { transcribeFootage } from "@/lib/ai/transcribe";
 import { selectClips } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt } from "@/lib/ai/generateContent";
-import { renderFinalVideo, applyZoomToImage } from "@/lib/render/cloudinary";
+import { renderFinalVideo } from "@/lib/render/cloudinary";
 import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
@@ -89,38 +89,21 @@ export async function processProject(id: string): Promise<ProcessResult> {
         })
         .where(eq(projects.id, id));
 
-      // Efek zoom (lihat memory proyek) - CUMA berlaku foto TUNGGAL, bukan carousel
-      // multi-foto (Cloudinary zoompan cuma jalan di 1 gambar diam, menyambung banyak
-      // klip zoom = kompleksitas splice penuh spt video, di luar scope ini). Foto
-      // tunggal jadi VIDEO pendek (final_video), bukan final_image lagi - skalian
-      // dikasih dubbing+subtitle (caption yg sama dipakai foto biasa), durasi videonya
-      // ikut mengikuti panjang narasi TTS-nya (lihat applyZoomToImage).
-      if (finalImageUrls.length === 1) {
-        const zoomed = await applyZoomToImage({
-          projectId: id,
-          imageUrl: finalImageUrls[0],
-          fallbackDurationSeconds: 4,
-          captionText: caption,
-        });
+      // Foto tunggal SELALU tetap poster foto (2026-08-05, permintaan Agus - single
+      // post harus pakai foto asli apa adanya + overlay teks promo kalau ada, BUKAN
+      // diubah jadi video) - sama persis carousel multi-foto di bawah, tidak ada lagi
+      // percabangan khusus foto tunggal. Efek zoom-ke-video (applyZoomToImage) yang
+      // dulu otomatis jalan di sini sudah DIHAPUS dari alur ini per keputusan Agus ini
+      // (supersede keputusan sebelumnya "bangun untuk foto saja" - Ken Burns zoom).
+      for (const url of finalImageUrls) {
         await db.insert(mediaAssets).values({
           id: newId("asset"),
           projectId: id,
-          type: "final_video",
-          fileUrl: zoomed.videoUrl,
-          durationSeconds: zoomed.durationSeconds,
+          type: "final_image",
+          fileUrl: url,
+          durationSeconds: null,
           createdAt: new Date(),
         });
-      } else {
-        for (const url of finalImageUrls) {
-          await db.insert(mediaAssets).values({
-            id: newId("asset"),
-            projectId: id,
-            type: "final_image",
-            fileUrl: url,
-            durationSeconds: null,
-            createdAt: new Date(),
-          });
-        }
       }
 
       return { caption, hashtags, promoText, photoCount: finalImageUrls.length };
