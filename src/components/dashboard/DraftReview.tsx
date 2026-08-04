@@ -30,18 +30,21 @@ export function DraftReview({ brandId, projects, onChange }: { brandId: string; 
       .catch(() => setAccounts([]));
   }, [brandId]);
 
-  if (drafts.length === 0) return null;
-
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Draft Menunggu Review ({drafts.length})</CardTitle>
+        <CardTitle>Draft Menunggu Review {drafts.length > 0 && `(${drafts.length})`}</CardTitle>
         <CardDescription>Cek hasil AI dulu sebelum tayang ke sosmed.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {drafts.map((p) => (
-          <DraftCard key={p.id} project={p} accounts={accounts} onChange={onChange} />
-        ))}
+        {drafts.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            Belum ada draft menunggu. Konten baru (upload manual atau ⚡ Konten Otomatis) akan muncul di sini dulu
+            sebelum dipublikasikan.
+          </p>
+        ) : (
+          drafts.map((p) => <DraftCard key={p.id} project={p} accounts={accounts} onChange={onChange} />)
+        )}
       </CardContent>
     </Card>
   );
