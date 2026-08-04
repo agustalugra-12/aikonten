@@ -6,11 +6,13 @@ import { getPublisher } from "./index";
 import { sendTelegramNotification, formatPublishNotification } from "./telegram";
 import { ensureFreshYoutubeAccessToken } from "./youtubeAuth";
 
-// Full-auto publish (lihat PRD diskusi - Agus eksplisit minta ZERO keterlibatan manual,
-// TIDAK ADA jeda approval sebelum publish). Dipanggil otomatis oleh process/route.ts
-// begitu artefak AI (caption/hashtag/klip) selesai - BUKAN tombol terpisah yang perlu
-// diklik manual. Notifikasi Telegram (bukan approval gate) jadi satu-satunya jaring
-// pengaman, dikirim tiap kali ada percobaan publish, sukses maupun gagal.
+// Publish - dulu dipanggil OTOMATIS begitu artefak AI selesai (full-auto, tanpa jeda
+// approval), TAPI sejak 2026-08-04 (permintaan Agus - mau bisa cek draft dulu) ini
+// SEKARANG cuma dipanggil MANUAL: sekali dari draft review (DraftReview.tsx, tombol
+// "Publikasikan") setelah Agus approve, atau sbg retry manual kalau publish
+// sebelumnya gagal. Notifikasi Telegram tetap dikirim tiap percobaan publish, sukses
+// maupun gagal, sbg jaring pengaman tambahan (bukan approval gate lagi - itu sudah di
+// tahap draft review).
 export async function publishProject(projectId: string): Promise<void> {
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project) return;

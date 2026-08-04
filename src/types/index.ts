@@ -21,6 +21,17 @@ export type Project = {
   updatedAt: string;
 };
 
+export type MediaAsset = {
+  id: string;
+  projectId: string;
+  type: "raw_footage" | "final_video" | "final_image" | "subtitle_file" | "thumbnail";
+  fileUrl: string;
+  durationSeconds: number | null;
+  createdAt: string;
+};
+
+export type ProjectDetail = Project & { assets: MediaAsset[] };
+
 export type SocialAccount = {
   id: string;
   platform: "instagram" | "facebook" | "tiktok" | "youtube";

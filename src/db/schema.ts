@@ -84,9 +84,11 @@ export const mediaAssets = sqliteTable("media_assets", {
 });
 
 // Separate from analytics (below) - this tracks WHETHER/WHEN a project got published to
-// a given account, since publish is fully automatic with no approval gate. Telegram
-// notification is sent per row here (see PRD discussion: full auto, no pre-publish
-// review, Telegram alert after every publish attempt so Agus can react fast).
+// a given account. Publish is now a manual step triggered from draft review (see
+// DraftReview.tsx / processProject.ts, changed 2026-08-04) - this table is written by
+// publishProject() regardless of whether it was triggered manually or (previously)
+// automatically. Telegram notification is sent per row here after every publish attempt
+// so Agus can react fast even without watching the dashboard.
 export const publishLogs = sqliteTable("publish_logs", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projects.id),

@@ -9,7 +9,6 @@ import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { newId } from "@/lib/ids";
-import { publishProject } from "@/lib/publish/orchestrate";
 
 export type ProcessResult = {
   caption: string;
@@ -44,8 +43,10 @@ function isStockFootageUrl(url: string): boolean {
 //   Cloudinary) -> thumbnail (kalau ada YouTube) -> publish.
 // - "carousel" (foto): TIDAK ada transkrip/render - foto mentah LANGSUNG jadi aset
 //   final, caption dibuat dari analisis foto asli (vision model).
-// Keduanya LANGSUNG lanjut publishProject() otomatis (full-auto, TIDAK ADA jeda
-// approval - keputusan eksplisit Agus).
+// Keduanya BERHENTI di status "ready" (draft) - TIDAK publish otomatis lagi
+// (2026-08-04, permintaan Agus: mau bisa cek draft dulu sebelum tayang - lihat
+// DraftReview.tsx). publishProject() sekarang HANYA dipanggil manual lewat tombol
+// "Publikasikan" di draft review (POST /api/projects/[id]/publish).
 export async function processProject(id: string): Promise<ProcessResult> {
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
   if (!project) throw new Error("Project tidak ditemukan");
@@ -121,8 +122,6 @@ export async function processProject(id: string): Promise<ProcessResult> {
           });
         }
       }
-
-      await publishProject(id);
 
       return { caption, hashtags, promoText, photoCount: finalImageUrls.length };
     }
@@ -244,8 +243,6 @@ export async function processProject(id: string): Promise<ProcessResult> {
         });
       }
     }
-
-    await publishProject(id);
 
     return { caption, hashtags, clipCount: selected.length };
   } catch (err) {

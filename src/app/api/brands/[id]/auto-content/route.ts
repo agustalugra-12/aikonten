@@ -13,8 +13,9 @@ import { eq, desc } from "drizzle-orm";
 // "⚡ Konten Otomatis" (lihat memory proyek: "otomatis seperti AI blog") - satu klik,
 // TANPA upload apa pun: (1) ambil skrip dari body, atau kalau kosong usul sendiri lewat
 // Research Engine, (2) cocokkan ke Footage Bank yg SUDAH ada, (3) buat project + kaitkan
-// footage yg cocok (BUKAN upload baru - fileUrl bank dipakai langsung), (4) proses+
-// publish spt biasa (processProject, sama persis dipakai /process manual).
+// footage yg cocok (BUKAN upload baru - fileUrl bank dipakai langsung), (4) proses spt
+// biasa (processProject, sama persis dipakai /process manual) - berhenti di status
+// "ready" (draft), TIDAK auto-publish (lihat DraftReview.tsx).
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: brandId } = await params;
   const body = await req.json().catch(() => ({}));

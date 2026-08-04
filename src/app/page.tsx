@@ -8,6 +8,7 @@ import { BrandSwitcher } from "@/components/dashboard/BrandSwitcher";
 import { NewBrandDialog } from "@/components/dashboard/NewBrandDialog";
 import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
 import { ProjectList } from "@/components/dashboard/ProjectList";
+import { DraftReview } from "@/components/dashboard/DraftReview";
 import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
@@ -133,6 +134,10 @@ function DashboardContent() {
                 />
               )}
             </div>
+
+            {selectedBrandId && (
+              <DraftReview brandId={selectedBrandId} projects={projects} onChange={() => loadProjects(selectedBrandId)} />
+            )}
 
             <Card>
               <CardHeader>

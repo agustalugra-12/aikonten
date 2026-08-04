@@ -20,7 +20,7 @@ export function AutoContentButton({ brandId, onDone }: { brandId: string; onDone
       toast.error(data.error || "Gagal membuat konten otomatis");
       return;
     }
-    toast.success(`Konten otomatis dibuat & dipublikasikan: "${data.script}"`);
+    toast.success(`Konten otomatis dibuat, cek di Draft: "${data.script}"`);
     onDone();
   }
 

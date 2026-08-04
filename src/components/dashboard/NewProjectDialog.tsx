@@ -17,8 +17,9 @@ import { toast } from "sonner";
 
 // Alur upload: (1) buat project -> (2) minta presigned URL -> (3) PUT file LANGSUNG ke
 // storage (bukan lewat server kita, lihat lib/storage.ts) -> (4) catat asset di DB ->
-// (5) trigger /process (transkripsi+pemilihan klip+caption/hashtag, full-auto sesuai
-// keputusan Agus - tidak ada jeda approval manual di sini).
+// (5) trigger /process (transkripsi+pemilihan klip+caption/hashtag). Berhenti di status
+// "ready" (draft) - publish TIDAK lagi otomatis, Agus review dulu di DraftReview.tsx
+// (2026-08-04) sebelum klik publikasikan.
 const MAX_CAROUSEL_PHOTOS = 5;
 
 export function NewProjectDialog({
