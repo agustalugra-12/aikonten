@@ -6,6 +6,8 @@ import { selectClips } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt } from "@/lib/ai/generateContent";
 import { renderFinalVideo } from "@/lib/render/cloudinary";
 import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
+import { generatePosterCopy } from "@/lib/ai/posterCopy";
+import { applyPosterDesign } from "@/lib/ai/posterDesign";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { newId } from "@/lib/ids";
@@ -71,13 +73,28 @@ export async function processProject(id: string): Promise<ProcessResult> {
         photoUrls
       );
 
-      const finalImageUrls = await Promise.all(
-        photoUrls.map((url, i) =>
-          promoText && i === 0
-            ? applyPromoOverlay({ brandId: project.brandId, projectId: id, imageUrl: url, promoText })
-            : Promise.resolve(url)
-        )
-      );
+      // Foto TUNGGAL pakai "Pelangi Homestay Poster Design System v1" (2026-08-05, master
+      // prompt lengkap dari Agus) - poster penuh (headline/CTA/badge/benefit dgn gaya
+      // brand konsisten), BUKAN cuma badge kecil 1 pojok - lihat posterDesign.ts. Carousel
+      // multi-foto TETAP pakai applyPromoOverlay lama (badge kecil di foto pertama SAJA
+      // kalau ada promo) - master prompt ini eksplisit "hanya untuk single foto".
+      const finalImageUrls =
+        photoUrls.length === 1
+          ? [
+              await applyPosterDesign({
+                brandId: project.brandId,
+                projectId: id,
+                imageUrl: photoUrls[0],
+                copy: await generatePosterCopy(brand?.name || "Brand", project.script),
+              }),
+            ]
+          : await Promise.all(
+              photoUrls.map((url, i) =>
+                promoText && i === 0
+                  ? applyPromoOverlay({ brandId: project.brandId, projectId: id, imageUrl: url, promoText })
+                  : Promise.resolve(url)
+              )
+            );
 
       await db
         .update(projects)
