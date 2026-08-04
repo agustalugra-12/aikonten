@@ -19,6 +19,22 @@ export type ProcessResult = {
   clipCount?: number;
 };
 
+// Deteksi footage stok Pexels/Pixabay via domain URL, BUKAN kolom DB baru (2026-08-04,
+// permintaan Agus - fallback "generate tetap jalan walau tidak ada footage asli", lihat
+// auto-content/route.ts) - pragmatis, hindari migrasi skema utk 1 fitur ini. Footage stok
+// TIDAK PUNYA ucapan asli yg relevan buat ditranskrip (beda dari footage Pelangi/Harmoni
+// sendiri yg suara aslinya jadi dasar pemilihan klip) - jadi transcribeFootage+selectClips
+// di-SKIP total, diganti 1 segmen sintetis yg mencakup seluruh klip (durasi asli dari
+// broll.durationSeconds, disimpan ke mediaAssets.durationSeconds saat insert - lihat
+// auto-content/route.ts). AI Dubbing (sudah ada) tetap jalan spt biasa & GANTI TOTAL audio
+// asli klip stok dgn TTS baca caption - jadi tidak masalah klip stok tidak ada ucapan.
+const STOCK_FOOTAGE_DOMAINS = ["pexels.com", "pixabay.com"];
+const STOCK_FOOTAGE_MAX_DURATION = 20; // detik - jaga video tetap gaya konten pendek/reels
+
+function isStockFootageUrl(url: string): boolean {
+  return STOCK_FOOTAGE_DOMAINS.some((domain) => url.includes(domain));
+}
+
 // Pipeline Fase 1 (lihat memory proyek) - DIPAKAI BERSAMA oleh
 // POST /api/projects/[id]/process (dipicu manual dari NewProjectDialog) MAUPUN
 // POST /api/brands/[id]/auto-content ("⚡ Konten Otomatis", lihat matchFootageBank.ts)
@@ -111,9 +127,35 @@ export async function processProject(id: string): Promise<ProcessResult> {
       return { caption, hashtags, promoText, photoCount: finalImageUrls.length };
     }
 
-    const segments = await transcribeFootage(rawFootage.fileUrl);
-    const selected = selectClips(segments, project.script);
-    const selectedText = selected.map((s) => s.text).join(" ");
+    const isStockFootage = isStockFootageUrl(rawFootage.fileUrl);
+
+    let segments: Awaited<ReturnType<typeof transcribeFootage>>;
+    let selected: ReturnType<typeof selectClips>;
+    let selectedText: string;
+
+    if (isStockFootage) {
+      const cappedDuration = Math.min(rawFootage.durationSeconds || 8, STOCK_FOOTAGE_MAX_DURATION);
+      segments = [];
+      selected = [
+        {
+          start: 0,
+          end: cappedDuration,
+          text: "",
+          avgLogprob: 0,
+          keywordScore: 0,
+          clarityScore: 0,
+          durationScore: 0,
+          combinedScore: 0,
+        },
+      ];
+      // Tidak ada transkrip asli - caption/hashtag digenerate dari SKRIP/IDE saja (masih
+      // cukup, krn ini jalur ide UMUM yg tidak butuh detail spesifik properti).
+      selectedText = "";
+    } else {
+      segments = await transcribeFootage(rawFootage.fileUrl);
+      selected = selectClips(segments, project.script);
+      selectedText = selected.map((s) => s.text).join(" ");
+    }
     const { caption, hashtags, brollKeywords, thumbnailText } = await generateCaptionAndHashtags(
       brand?.name || "Brand",
       project.script,

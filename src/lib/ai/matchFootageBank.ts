@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { db } from "@/db";
 import { footageBank } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -46,4 +46,22 @@ export async function matchFootageForScript(brandId: string, script: string): Pr
   return indices
     .filter((i) => Number.isInteger(i) && i >= 0 && i < items.length)
     .map((i) => items[i].fileUrl);
+}
+
+// Fallback foto LONGGAR (2026-08-04, permintaan Agus) - kalau matchFootageForScript tidak
+// ketemu foto yg cocok TEMA persis, tapi bank sebenarnya PUNYA foto asli properti (apa
+// saja), tetap pakai itu drpd gagal total - keputusan eksplisit Agus: foto WAJIB selalu
+// asli Pelangi/Harmoni (TIDAK BOLEH Pexels sama sekali, beda dari video yg boleh fallback
+// Pexels utk ide umum), tapi foto tidak perlu cocok tema persis krn overlay teks promo
+// (lihat promoOverlay.ts) yg menyampaikan pesan spesifiknya, bukan foto itu sendiri.
+// Ambil foto TERBARU (bukan acak) - lebih mungkin representatif/kualitas konsisten drpd
+// upload lama yg mungkin sudah basi (kamar direnovasi, dst).
+export async function pickAnyRealPhoto(brandId: string): Promise<string | null> {
+  const items = await db
+    .select()
+    .from(footageBank)
+    .where(and(eq(footageBank.brandId, brandId), eq(footageBank.mediaType, "image")))
+    .orderBy(desc(footageBank.createdAt))
+    .limit(1);
+  return items[0]?.fileUrl || null;
 }
