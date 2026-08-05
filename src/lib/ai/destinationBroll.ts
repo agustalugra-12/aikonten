@@ -48,6 +48,15 @@ function detectDestinationMentions(script: string): string[] {
   return queries;
 }
 
+// Exposed ke processProject.ts (2026-08-05, permintaan Agus - "jika konten wisata
+// dekat pelangi homestay pakai footage pexels 60% footage pelangi 40%") - dipakai utk
+// PUTUSKAN rasio budget mana yg berlaku (lihat computeFootageBudgets di clipSelect.ts),
+// bukan cuma jumlah query B-roll. "Konten wisata" = skrip MENYEBUT landmark spesifik,
+// sama definisi persis dgn detectDestinationMentions di atas - satu sumber kebenaran.
+export function isDestinationContent(script: string): boolean {
+  return detectDestinationMentions(script).length > 0;
+}
+
 export type DestinationBrollClip = { videoUrl: string; durationSeconds: number };
 
 // Ambil klip Pexels utk landmark wisata yg disebut skrip, SAMPAI budget durasi terisi

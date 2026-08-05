@@ -5,9 +5,9 @@ import { transcribeFootage } from "@/lib/ai/transcribe";
 import {
   selectClips,
   scoreSegments,
-  REAL_FOOTAGE_BUDGET_SECONDS,
-  STOCK_FOOTAGE_BUDGET_SECONDS,
   MAX_CLIP_DURATION,
+  computeFootageBudgets,
+  MIN_VIDEO_DURATION_SECONDS,
 } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt } from "@/lib/ai/generateContent";
 // Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
@@ -19,7 +19,7 @@ import { generatePosterCopy } from "@/lib/ai/posterCopy";
 import { applyPosterDesign } from "@/lib/ai/posterDesign";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
-import { fetchDestinationBrollClips } from "@/lib/ai/destinationBroll";
+import { fetchDestinationBrollClips, isDestinationContent } from "@/lib/ai/destinationBroll";
 import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
 import { applyLogoToImage } from "@/lib/ai/logoOverlay";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
@@ -163,6 +163,10 @@ export async function processProject(id: string): Promise<ProcessResult> {
     let segments: Awaited<ReturnType<typeof transcribeFootage>>;
     let selected: SourcedSegment[];
     let selectedText: string;
+    // Pool transkrip LENGKAP (semua segmen, bukan cuma yg terpilih) - diisi di cabang
+    // non-stok, dipakai lagi belakangan utk top-up minimum durasi 40 detik (lihat
+    // MIN_VIDEO_DURATION_SECONDS di bawah) kalau seleksi awal masih kurang.
+    let pooled: (Awaited<ReturnType<typeof transcribeFootage>>[number] & { sourceUrl: string })[] = [];
 
     if (isStockFootage) {
       const cappedDuration = Math.min(rawFootage.durationSeconds || 8, STOCK_FOOTAGE_MAX_DURATION);
@@ -213,14 +217,18 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // terlalu pendek [ada yg cuma ~4 detik] utk isi 70% dari target 30-60 detik).
       // Transkrip tiap file terpisah, tandai asal file-nya (sourceUrl) supaya
       // renderFinalVideo tahu tiap klip terpilih harus dipotong dari file MANA.
-      const pooled: (Awaited<ReturnType<typeof transcribeFootage>>[number] & { sourceUrl: string })[] = [];
       segments = [];
       for (const asset of usableAssets) {
         const t = await transcribeFootage(asset.fileUrl);
         segments = segments.concat(t);
         pooled.push(...t.map((s) => ({ ...s, sourceUrl: asset.fileUrl })));
       }
-      const budgeted = selectClips(pooled, project.script, REAL_FOOTAGE_BUDGET_SECONDS);
+      // Rasio asli:Pexels TERGANTUNG jenis konten (2026-08-05, permintaan Agus - "jika
+      // konten wisata dekat pelangi homestay pakai footage pexels 60% footage pelangi
+      // 40%", KEBALIKAN dari rasio default 7:3 utk video promosi properti biasa - lihat
+      // computeFootageBudgets di clipSelect.ts).
+      const footageBudgets = computeFootageBudgets(isDestinationContent(project.script));
+      const budgeted = selectClips(pooled, project.script, footageBudgets.realBudgetSeconds);
       // Pastikan SEMUA file yg Agus sediakan ikut terwakili (2026-08-05, bug nyata
       // ditemukan lewat tes live - selectClips cuma fallback ke 1 klip TERBAIK dari
       // SELURUH pool kalau tidak ada yg lolos ambang skor, bukan per-file - 4 klip asli
@@ -277,7 +285,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
 
     let brollClips: Array<{ videoUrl: string; durationSeconds: number }> = [];
     if (!isStockFootage) {
-      brollClips = await fetchDestinationBrollClips(project.script, STOCK_FOOTAGE_BUDGET_SECONDS, recentlyUsedUrls);
+      const stockBudget = computeFootageBudgets(isDestinationContent(project.script)).stockBudgetSeconds;
+      brollClips = await fetchDestinationBrollClips(project.script, stockBudget, recentlyUsedUrls);
     }
     if (brollClips.length === 0 && brollKeywords) {
       // Fallback lama - skrip tidak menyebut landmark spesifik apa pun, tetap kasih 1
@@ -288,12 +297,68 @@ export async function processProject(id: string): Promise<ProcessResult> {
       }
     }
 
+    // Aturan KERAS (2026-08-05, permintaan Agus - "aturan konten video tidak boleh
+    // kurang dari 40 detik") - BEDA dari VIDEO_DURATION_TARGET (itu cuma titik tengah
+    // rencana budget SEBELUM tau durasi klip sungguhan - klip asli sering lebih pendek
+    // dari nominal MAX_CLIP_DURATION, bug durasi berulang sebelumnya justru dari sini).
+    // Top-up di SINI pakai durasi SUNGGUHAN (bukan estimasi), prioritas: (1) footage
+    // ASLI dulu (selaras "video didominasi footage Pelangi"), (2) B-roll generik kalau
+    // footage asli sudah habis, (3) GAGAL dgn pesan jelas kalau tetap kurang - drpd
+    // diam2 kirim video di bawah standar yg diwajibkan.
+    const currentTotalDuration = () =>
+      selected.reduce((sum, seg) => sum + (seg.end - seg.start), 0) +
+      brollClips.reduce((sum, c) => sum + c.durationSeconds, 0);
+    // Margin aman (2026-08-05, ditemukan lewat tes nyata - durasi NOMINAL klip Pexels
+    // [field "duration" dari API] kadang tidak sama persis dgn durasi FILE video kualitas
+    // tertentu yg sungguhan diserve, jadi total durasi hasil RENDER akhir bisa sedikit di
+    // bawah estimasi pre-render walau perhitungan nominal sudah pas di angka minimum).
+    // Top-up di sini kejar target LEBIH TINGGI dari minimum sungguhan supaya varian kecil
+    // itu tidak bikin hasil akhir jatuh di bawah 40 detik - pengecekan akhir (setelah
+    // render, lihat rendered.durationSeconds di bawah) tetap pakai angka minimum ASLI.
+    const PRE_RENDER_TARGET_SECONDS = MIN_VIDEO_DURATION_SECONDS + 3;
+
+    if (!isStockFootage && currentTotalDuration() < PRE_RENDER_TARGET_SECONDS) {
+      // Tarik segmen ASLI TAMBAHAN dari pool lengkap (bukan cuma yg lolos budget/ambang
+      // skor awal) - urut skor tertinggi dulu, sama logikanya dgn fallback selectClips.
+      const usedKeys = new Set(selected.map((s) => `${s.sourceUrl}|${s.start}`));
+      const remainingScored = scoreSegments(
+        pooled.filter((s) => !usedKeys.has(`${s.sourceUrl}|${s.start}`)),
+        project.script
+      ).sort((a, b) => b.combinedScore - a.combinedScore);
+      for (const seg of remainingScored) {
+        if (currentTotalDuration() >= PRE_RENDER_TARGET_SECONDS) break;
+        const cappedEnd = Math.min(seg.end, seg.start + MAX_CLIP_DURATION);
+        selected.push({ ...seg, end: cappedEnd });
+      }
+    }
+
+    if (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && brollKeywords) {
+      // Footage asli sudah habis (atau ini jalur 100% stok) - top-up pakai B-roll
+      // GENERIK tambahan (bukan destinasi spesifik - itu sengaja dibatasi 1 klip per
+      // landmark, lihat destinationBroll.ts). Exclude set terus bertambah tiap iterasi
+      // supaya klip TIDAK berulang dlm video yg sama (anti-monoton berlaku jg di sini).
+      const usedBrollUrls = new Set([...recentlyUsedUrls, ...brollClips.map((c) => c.videoUrl)]);
+      let attempts = 0;
+      while (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && attempts < 8) {
+        attempts += 1;
+        const broll = await searchBrollVideo(brollKeywords, usedBrollUrls);
+        if (!broll) break;
+        usedBrollUrls.add(broll.videoUrl);
+        brollClips.push({ videoUrl: broll.videoUrl, durationSeconds: Math.min(broll.durationSeconds, MAX_CLIP_DURATION) });
+      }
+    }
+
+    if (currentTotalDuration() < MIN_VIDEO_DURATION_SECONDS) {
+      throw new Error(
+        `Footage/B-roll yg tersedia tidak cukup utk capai minimum ${MIN_VIDEO_DURATION_SECONDS} detik ` +
+          `(cuma dapat ~${Math.round(currentTotalDuration())} detik) - upload lebih banyak footage asli, atau coba ide/skrip lain.`
+      );
+    }
+
     // Subtitle dibuat dari CAPTION (bukan transkrip asli lagi) - krn AI Dubbing (di
     // bawah) MENGGANTI TOTAL audio dgn TTS membaca caption, subtitle jg HARUS teks yg
     // sama, bukan transkrip asli yg sudah tidak match dgn audio barunya.
-    const totalDuration =
-      selected.reduce((sum, seg) => sum + (seg.end - seg.start), 0) +
-      brollClips.reduce((sum, c) => sum + c.durationSeconds, 0);
+    const totalDuration = currentTotalDuration();
     const srt = buildCaptionSrt(caption, totalDuration);
 
     await db
@@ -331,6 +396,21 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // cabang carousel di atas, sama alasannya.
       logoUrl: brand?.logoUrl,
     });
+
+    // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,
+    // bukan estimasi pre-render) tetap >= minimum wajib. Ditemukan lewat tes nyata: durasi
+    // NOMINAL klip Pexels kadang beda dari durasi FILE sungguhan yg diserve, jadi estimasi
+    // pre-render (sudah dikasih margin +3dtk, lihat PRE_RENDER_TARGET_SECONDS di atas) bisa
+    // meleset. Render yg SUDAH JADI tapi ternyata di bawah standar tetap DIBUANG (bukan
+    // dipublikasikan diam2 melanggar aturan "tidak boleh kurang dari 40 detik") - biaya
+    // render yg terbuang lebih baik drpd konten yg melanggar aturan keras yg diminta Agus.
+    if (rendered.durationSeconds < MIN_VIDEO_DURATION_SECONDS) {
+      throw new Error(
+        `Video hasil render cuma ${rendered.durationSeconds} detik, di bawah minimum ` +
+          `${MIN_VIDEO_DURATION_SECONDS} detik yg diwajibkan (estimasi pre-render meleset - ` +
+          `durasi nyata sumber footage beda dari metadata) - coba generate ulang.`
+      );
+    }
 
     await db.insert(mediaAssets).values({
       id: newId("asset"),

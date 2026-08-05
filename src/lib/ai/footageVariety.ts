@@ -65,3 +65,72 @@ export function isRoomFootage(description: string | null, tagsJson: string): boo
     return false;
   }
 }
+
+// Komposisi WAJIB kamar vs halaman/lokasi properti (2026-08-05, permintaan Agus -
+// "dalam pembuatan video wajib tampilkan video kamar sebanyak 60% dan halaman atau
+// pelangi lokasi 40%") - BEDA dari isDestinationContent/DESTINATION_STOCK_RATIO
+// (clipSelect.ts, itu rasio ASLI:PEXELS keseluruhan) - ini rasio DI DALAM porsi
+// footage ASLI Pelangi itu sendiri, antara "kamar" vs "bukan kamar" (halaman, taman,
+// gerbang, area umum, dst - semua yg BUKAN kamar dianggap "lokasi").
+export const ROOM_FOOTAGE_RATIO = 0.6;
+
+type FootageBankLike = { fileUrl: string; description: string | null; tags: string };
+
+// Pilih klip ASLI dari bank dgn komposisi kamar:lokasi WAJIB 60:40 (bulat ke atas utk
+// kamar), diutamakan dari `themedCandidates` (footage yg sudah dianggap relevan tema
+// skrip oleh matchFootageForScript) - kalau kandidat tema tidak cukup memenuhi salah
+// satu kategori, backfill dari `allBankVideos` (SELURUH bank, sama prinsip dgn jaminan
+// room versi sebelumnya - kamar/lokasi selalu boleh dipakai terlepas cocok tema literal
+// atau tidak, krn ini soal KOMPOSISI VISUAL wajib, bukan soal relevansi topik).
+// `filterViableSize` (size guard) & freshness (anti-monoton) diterapkan di KEDUA
+// tahap - kandidat yg lolos dari fungsi ini SUDAH pasti aman dipakai processProject.ts
+// tanpa di-skip diam2 lagi (lihat bug room-shot sebelumnya, root cause SAMA).
+export async function selectBalancedRealFootage(opts: {
+  themedCandidates: FootageBankLike[];
+  allBankVideos: FootageBankLike[];
+  recentlyUsed: Set<string>;
+  targetCount: number;
+  filterViableSize: <T extends FootageBankLike>(items: T[]) => Promise<T[]>;
+}): Promise<string[]> {
+  const { themedCandidates, allBankVideos, recentlyUsed, targetCount, filterViableSize } = opts;
+  const roomTarget = Math.ceil(targetCount * ROOM_FOOTAGE_RATIO);
+  const locationTarget = targetCount - roomTarget;
+
+  function split(items: FootageBankLike[]) {
+    return {
+      room: items.filter((r) => isRoomFootage(r.description, r.tags)),
+      location: items.filter((r) => !isRoomFootage(r.description, r.tags)),
+    };
+  }
+
+  function pickPreferringFresh(items: FootageBankLike[], count: number, exclude: Set<string>): FootageBankLike[] {
+    const pool = items.filter((r) => !exclude.has(r.fileUrl));
+    const fresh = pool.filter((r) => !recentlyUsed.has(r.fileUrl));
+    const stale = pool.filter((r) => recentlyUsed.has(r.fileUrl));
+    return [...fresh, ...stale].slice(0, count);
+  }
+
+  const themedViable = await filterViableSize(themedCandidates);
+  const themedSplit = split(themedViable);
+
+  const selected: FootageBankLike[] = [
+    ...pickPreferringFresh(themedSplit.room, roomTarget, new Set()),
+    ...pickPreferringFresh(themedSplit.location, locationTarget, new Set()),
+  ];
+
+  const haveUrls = new Set(selected.map((r) => r.fileUrl));
+  const roomShortfall = roomTarget - selected.filter((r) => isRoomFootage(r.description, r.tags)).length;
+  const locationShortfall = locationTarget - selected.filter((r) => !isRoomFootage(r.description, r.tags)).length;
+
+  if (roomShortfall > 0 || locationShortfall > 0) {
+    const bankViable = await filterViableSize(allBankVideos.filter((r) => !haveUrls.has(r.fileUrl)));
+    const bankSplit = split(bankViable);
+    if (roomShortfall > 0) selected.push(...pickPreferringFresh(bankSplit.room, roomShortfall, haveUrls));
+    if (locationShortfall > 0) {
+      const haveUrls2 = new Set(selected.map((r) => r.fileUrl));
+      selected.push(...pickPreferringFresh(bankSplit.location, locationShortfall, haveUrls2));
+    }
+  }
+
+  return selected.map((r) => r.fileUrl);
+}

@@ -14,9 +14,36 @@ export type ScoredSegment = TranscriptSegment & ScoredFields;
 // Dipakai bareng oleh processProject.ts (budget klip asli) & destinationBroll.ts
 // (budget klip Pexels) supaya SATU angka target, bukan dihitung terpisah di 2 tempat.
 export const VIDEO_DURATION_TARGET = 45; // detik - titik tengah rentang 30-60
+// Aturan KERAS (2026-08-05, permintaan Agus - "aturan konten video tidak boleh kurang
+// dari 40 detik") - BUKAN cuma target/estimasi kayak VIDEO_DURATION_TARGET, ini batas
+// MINIMUM WAJIB. processProject.ts nge-top-up klip (asli dulu, baru B-roll) sampai
+// tercapai, dan kalau footage yg tersedia SUNGGUH tidak cukup, generation GAGAL dgn
+// pesan jelas drpd diam2 kirim video di bawah standar.
+export const MIN_VIDEO_DURATION_SECONDS = 40;
 export const REAL_FOOTAGE_RATIO = 0.7;
 export const REAL_FOOTAGE_BUDGET_SECONDS = VIDEO_DURATION_TARGET * REAL_FOOTAGE_RATIO; // 31.5s
 export const STOCK_FOOTAGE_BUDGET_SECONDS = VIDEO_DURATION_TARGET * (1 - REAL_FOOTAGE_RATIO); // 13.5s
+
+// Rasio KHUSUS "konten wisata dekat Pelangi Homestay" (2026-08-05, permintaan Agus -
+// "jika konten wisata dekat pelangi homestay pakai footage pexels 60% footage pelangi
+// 40%") - KEBALIKAN dari rasio default di atas. Skrip yg MENYEBUT landmark wisata
+// (Danau Beratan, Kebun Raya, dst - lihat destinationBroll.ts DESTINATION_QUERIES)
+// dianggap "konten wisata": video ini fokusnya destinasi itu sendiri, jadi footage
+// stok destinasi wajar LEBIH DOMINAN drpd footage properti - beda dari video promosi
+// properti biasa (rasio default 7:3 Pelangi:Pexels tetap berlaku kalau skrip TIDAK
+// menyebut landmark spesifik).
+export const DESTINATION_STOCK_RATIO = 0.6;
+
+export function computeFootageBudgets(isDestinationContent: boolean): {
+  realBudgetSeconds: number;
+  stockBudgetSeconds: number;
+} {
+  const stockRatio = isDestinationContent ? DESTINATION_STOCK_RATIO : 1 - REAL_FOOTAGE_RATIO;
+  return {
+    realBudgetSeconds: VIDEO_DURATION_TARGET * (1 - stockRatio),
+    stockBudgetSeconds: VIDEO_DURATION_TARGET * stockRatio,
+  };
+}
 
 const STOPWORDS = new Set([
   "yang", "dan", "di", "ke", "dari", "ini", "itu", "untuk", "dengan", "pada", "adalah",

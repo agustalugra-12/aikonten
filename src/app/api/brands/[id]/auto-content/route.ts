@@ -8,7 +8,7 @@ import { processProject } from "@/lib/pipeline/processProject";
 import { isIdeSpesifikProperti } from "@/lib/ai/classifyIdea";
 import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { searchBrollVideo } from "@/lib/assets/broll";
-import { getRecentlyUsedFootageUrls, isRoomFootage, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
+import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, selectBalancedRealFootage } from "@/lib/ai/footageVariety";
 import { eq, desc } from "drizzle-orm";
 
 // "⚡ Konten Otomatis" (lihat memory proyek: "otomatis seperti AI blog") - satu klik,
@@ -80,11 +80,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
         // Footage kelewat besar (2026-08-05, larangan eksplisit Agus - "jangan pernah
         // pakai 1 footage panjang", lihat processProject.ts MAX_FOOTAGE_BYTES) TIDAK
-        // PERNAH dipilih DI SINI - dicek LEBIH AWAL, bukan cuma diandalkan ke guard di
-        // processProject.ts. Bug nyata ditemukan lewat tes: klip room lolos seleksi
-        // tema tapi ternyata >24MB, di-skip diam2 belakangan oleh processProject.ts -
-        // "jaminan room" jadi TIDAK BENERAN ada di video final walau logic di sini
-        // sukses milihnya. Sekarang size dicek SEBELUM masuk pool, bukan sesudah.
+        // PERNAH dipilih DI SINI - dicek LEBIH AWAL di dalam selectBalancedRealFootage
+        // (footageVariety.ts), bukan cuma diandalkan ke guard di processProject.ts.
+        // Bug nyata ditemukan lewat tes: klip room lolos seleksi tema tapi ternyata
+        // >24MB, di-skip diam2 belakangan - "jaminan room" jadi TIDAK BENERAN ada di
+        // video final. Size dicek SEBELUM masuk pool, bukan sesudah.
         async function filterViableSize<T extends { fileUrl: string }>(items: T[]): Promise<T[]> {
           const sized = await Promise.all(
             items.map(async (r) => ({ item: r, size: await getRemoteFileSizeBytes(r.fileUrl) }))
@@ -92,68 +92,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           return sized.filter((s) => s.size === null || s.size <= MAX_FOOTAGE_BYTES).map((s) => s.item);
         }
 
-        // Anti-monoton (2026-08-05, permintaan Agus - "footage jangan monoton",
-        // "ini penting sekali") - utamakan klip yg BELUM dipakai di 5 video terakhir
-        // brand ini (lihat footageVariety.ts). Kalau footage segar kurang dari 3 klip
-        // (bank terbatas), tetap backfill pakai yg pernah dipakai drpd gagal total -
-        // variasi lebih baik drpd tidak ada, tapi jangan sampai video gagal digenerate.
+        // Komposisi WAJIB kamar 60% : halaman/lokasi 40% (2026-08-05, permintaan Agus
+        // - "dalam pembuatan video wajib tampilkan video kamar sebanyak 60% dan halaman
+        // atau pelangi lokasi 40%") - utamakan klip yg cocok TEMA skrip dulu
+        // (matchFootageForScript), backfill dari SELURUH bank kalau kandidat tema tidak
+        // cukup memenuhi salah satu kategori (lihat selectBalancedRealFootage). Anti-
+        // monoton (klip yg baru dipakai 5 video terakhir dihindari kalau memungkinkan)
+        // otomatis diterapkan di dalamnya.
+        // Target jumlah klip (2026-08-05, Agus tanya "kenapa video masih di bawah 30
+        // detik" - root cause: klip asli sering <5dtk beneran [segmen whisper pendek],
+        // rata2 nyata ~3.7dtk/klip - 9 klip (~33dtk estimasi) lebih konsisten tembus
+        // target 30-60 detik drpd angka lebih kecil, dites nyata sebelumnya).
+        const TARGET_VIDEO_CLIP_COUNT = 9;
         const videoCandidates = matchedItems.filter((r) => r.mediaType === "video");
-        const viableCandidates = await filterViableSize(videoCandidates);
-        const fresh = viableCandidates.filter((r) => !recentlyUsed.has(r.fileUrl));
-        const pool = fresh.length >= 3 ? fresh : viableCandidates.length > 0 ? viableCandidates : videoCandidates;
-        urlsToUse = pool.map((r) => r.fileUrl).slice(0, MAX_VIDEO_CLIPS_AUTO);
-
-        // Pastikan ada footage "kamar" Pelangi ditampilkan (2026-08-05, permintaan
-        // Agus - "di setiap pembuatan video ada menampilkan room Pelangi dari
-        // footage") - kalau belum ada satu pun klip room di hasil pilihan, cari di
-        // SELURUH bank (bukan cuma yg matchFootageForScript anggap relevan tema-nya -
-        // room selalu relevan ditampilkan, terlepas topik skrip), prioritaskan yg
-        // belum baru dipakai, tempel di akhir (gantikan slot terakhir kalau sudah
-        // penuh MAX_VIDEO_CLIPS_AUTO drpd melebihi batas).
-        if (!pool.some((r) => isRoomFootage(r.description, r.tags))) {
-          const allVideos = matchedRows.filter((r) => r.mediaType === "video");
-          const roomCandidates = allVideos.filter(
-            (r) => isRoomFootage(r.description, r.tags) && !urlsToUse.includes(r.fileUrl)
-          );
-          const viableRoom = await filterViableSize(roomCandidates);
-          const freshRoom = viableRoom.filter((r) => !recentlyUsed.has(r.fileUrl));
-          const roomPick = freshRoom[0] || viableRoom[0];
-          if (roomPick) {
-            if (urlsToUse.length >= MAX_VIDEO_CLIPS_AUTO) {
-              urlsToUse[urlsToUse.length - 1] = roomPick.fileUrl;
-            } else {
-              urlsToUse.push(roomPick.fileUrl);
-            }
-          }
-        }
-
-        // Top-up JUMLAH klip kalau masih kurang dari cukup utk capai target durasi
-        // 30-60 detik (2026-08-05, Agus tanya "kenapa video masih di bawah 30 detik" -
-        // root cause NYATA: matchFootageForScript (GPT) sering cuma anggap SEDIKIT klip
-        // "relevan tema" utk skrip yg sempit topiknya, padahal tiap klip asli maks
-        // kontribusi 5 detik [MAX_CLIP_DURATION] - < 7 klip asli = otomatis < 35 detik,
-        // tidak peduli seberapa bagus skrip/caption-nya). Fix: kalau msh kurang dari
-        // MIN_VIDEO_CLIPS_FOR_LENGTH, tambah klip ASLI LAIN dari SELURUH bank (bukan
-        // andalkan LEBIH BANYAK stock Pexels utk isi durasi - itu JUSTRU berlawanan dgn
-        // permintaan Agus "video didominasi footage Pelangi") - sama pola dgn jaminan
-        // room di atas, room bukan satu2nya yg "selalu boleh dipakai walau di luar tema
-        // literal skrip".
-        // 7 klip (asumsi 5dtk/klip) di tes nyata cuma hasilkan 26 detik - klip
-        // SUNGGUHAN sering < 5dtk (segmen whisper pendek), rata2 nyata ~3.7dtk/klip.
-        // Dinaikkan ke 9 (~33dtk estimasi nyata) biar lebih konsisten tembus 30dtk.
-        const MIN_VIDEO_CLIPS_FOR_LENGTH = 9;
-        if (urlsToUse.length < MIN_VIDEO_CLIPS_FOR_LENGTH) {
-          const unusedVideos = matchedRows.filter(
-            (r) => r.mediaType === "video" && !urlsToUse.includes(r.fileUrl)
-          );
-          const viableUnused = await filterViableSize(unusedVideos);
-          const freshUnused = viableUnused.filter((r) => !recentlyUsed.has(r.fileUrl));
-          const orderedTopUp = [...freshUnused, ...viableUnused.filter((r) => !freshUnused.includes(r))];
-          for (const extra of orderedTopUp) {
-            if (urlsToUse.length >= MIN_VIDEO_CLIPS_FOR_LENGTH) break;
-            urlsToUse.push(extra.fileUrl);
-          }
-        }
+        const allBankVideos = matchedRows.filter((r) => r.mediaType === "video");
+        urlsToUse = await selectBalancedRealFootage({
+          themedCandidates: videoCandidates,
+          allBankVideos,
+          recentlyUsed,
+          targetCount: Math.min(TARGET_VIDEO_CLIP_COUNT, MAX_VIDEO_CLIPS_AUTO),
+          filterViableSize,
+        });
       } else {
         urlsToUse = matchedUrls.slice(0, MAX_CAROUSEL_PHOTOS_AUTO);
       }
