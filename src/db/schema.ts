@@ -151,3 +151,18 @@ export const footageBank = sqliteTable("footage_bank", {
   durationSeconds: integer("duration_seconds"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+// AI Content Planner (2026-08-05, permintaan Agus, PRD "AI Content Brain" modul 10 -
+// "setiap pagi AI membuat 10 ide") - batch 10 ide/hari, DIGENERATE SEKALI per hari
+// (bukan tiap kali dashboard dibuka spt fitur "Ide Konten" lama yg tetap ada terpisah)
+// & DIPERSIST di sini supaya konsisten sepanjang hari itu. "date" pakai zona WITA
+// (lihat researchTopics.ts todayDateWita()) - hari ganti jam 00:00 WITA, bukan UTC,
+// biar cocok dgn kalender hari yg dialami Agus.
+export const dailyIdeas = sqliteTable("daily_ideas", {
+  id: text("id").primaryKey(),
+  brandId: text("brand_id").notNull().references(() => brands.id),
+  date: text("date").notNull(), // "YYYY-MM-DD" WITA
+  idea: text("idea").notNull(),
+  used: integer("used", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});

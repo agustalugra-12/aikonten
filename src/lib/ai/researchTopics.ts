@@ -20,17 +20,25 @@ function getClient(): OpenAI {
 // di web-pelangi (kamar/harga/fasilitas ASLI, larangan eksplisit klaim fasilitas yg
 // TIDAK dimiliki, fakta radius/landmark wisata sekitar Bedugul) via
 // pelangiKnowledge.ts, BUKAN bikin knowledge base baru dari nol.
+// Tanggal WITA (Bedugul/Bali, UTC+8) - dipakai jg oleh dailyContentPlanner.ts (batas
+// "hari ini" utk batch ide harian) supaya konsisten dgn zona bisnis Agus, bukan UTC
+// (sama alasannya dgn BALI_TZ di web-pelangi/backend/server.py).
+export function todayDateKeyWita(): string {
+  return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Makassar" }); // "YYYY-MM-DD"
+}
+
 export async function suggestContentIdeas(
   brandName: string,
   brandDescription: string | null,
-  recentScripts: string[]
+  recentScripts: string[],
+  count: number = 4
 ): Promise<string[]> {
   const client = getClient();
-  const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+  const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
   const knowledge = await fetchPelangiKnowledge();
 
   const system =
-    "Kamu content strategist media sosial utk bisnis lokal Indonesia. Usulkan 3-5 ide " +
+    `Kamu content strategist media sosial utk bisnis lokal Indonesia. Usulkan ${count} ide ` +
     "brief konten singkat (1-2 kalimat tiap ide, Bahasa Indonesia) yang RELEVAN dgn " +
     "niche brand & musim/tanggal sekarang. Ide harus konkret & bisa langsung difilmkan " +
     "dgn footage asli (bukan konsep abstrak) - fokus ke hal yg BENAR-BENAR ada di " +
@@ -39,6 +47,13 @@ export async function suggestContentIdeas(
     "topik besarnya sama (mis. sama-sama soal harga), WAJIB angle/sudut pandang yg " +
     "BEDA drpd yg sudah pernah dipakai (mis. harga vs lokasi vs sarapan vs suasana vs " +
     "target tamu tertentu), bukan variasi kalimat dari ide yg sama. " +
+    (count > 5
+      ? `SEMUA ${count} ide dalam batch ini JUGA WAJIB angle BEDA satu sama lain (bukan cuma ` +
+        "beda drpd histori) - variasikan: harga/value, lokasi/jarak ke wisata sekitar, " +
+        "fasilitas spesifik, suasana/pengalaman, target tamu (keluarga/pasangan/rombongan/" +
+        "solo), momen/waktu (pagi/sore/weekend), FAQ/edukasi produk (mis. \"day use itu " +
+        "apa?\"), perbandingan (mis. day use vs menginap). "
+      : "") +
     (knowledge
       ? "\n\nKAMU PUNYA KNOWLEDGE BASE ASLI PROPERTI DI BAWAH (KAMAR/FASILITAS/RADIUS " +
         "WISATA) - WAJIB PATUHI INI KETAT: (1) SEMUA klaim fasilitas/harga/kamar HARUS " +
