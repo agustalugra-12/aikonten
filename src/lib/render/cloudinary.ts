@@ -96,9 +96,13 @@ export async function renderFinalVideo(opts: {
   segments: ScoredSegment[];
   srtContent: string;
   // B-roll Pexels OPSIONAL - "pendamping" (lihat PRD diskusi), ditempel di AKHIR
-  // urutan, bukan menggantikan footage asli Agus.
-  brollVideoUrl?: string;
-  brollDurationSeconds?: number;
+  // urutan, bukan menggantikan footage asli Agus. Array (2026-08-05, permintaan Agus -
+  // kombinasi footage asli + Pexels PER LANDMARK wisata yg disebut skrip, lihat
+  // destinationBroll.ts) - dulu cuma 1 klip pendamping generik, sekarang bisa >1 klip
+  // beda sumber, tiap klip diupload & disambung sbg overlay+splice terpisah
+  // (buildSpliceTransformation SUDAH mendukung banyak source_public_id berbeda di
+  // segmen "rest", jadi ini generalisasi murni, bukan mekanisme baru).
+  brollClips?: Array<{ videoUrl: string; durationSeconds: number }>;
   // AI Dubbing OPSIONAL (lihat memory proyek - Agus konfirmasi GANTI TOTAL suara asli,
   // bukan campur) - teks narasi (biasanya caption yg sudah di-generate), di-generate
   // jadi audio (dubbing.ts) & MENGGANTIKAN audio asli video, bukan ditambahkan.
@@ -127,14 +131,14 @@ export async function renderFinalVideo(opts: {
   }));
 
   let brollDuration = 0;
-  if (opts.brollVideoUrl && opts.brollDurationSeconds) {
-    const brollUploaded = await cloudinary.uploader.upload(opts.brollVideoUrl, {
+  for (const [i, clip] of (opts.brollClips || []).entries()) {
+    const brollUploaded = await cloudinary.uploader.upload(clip.videoUrl, {
       resource_type: "video",
-      public_id: publicIdFor(opts.projectId, "broll"),
+      public_id: publicIdFor(opts.projectId, `broll_${i}`),
       overwrite: true,
     });
-    brollDuration = opts.brollDurationSeconds;
-    spliceSegments.push({ sourcePublicId: brollUploaded.public_id, start: 0, end: brollDuration });
+    brollDuration += clip.durationSeconds;
+    spliceSegments.push({ sourcePublicId: brollUploaded.public_id, start: 0, end: clip.durationSeconds });
   }
 
   const transformation = buildSpliceTransformation(

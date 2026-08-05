@@ -105,5 +105,21 @@ export function selectClips(
     totalDuration += cappedEnd - seg.start;
   }
 
+  // Fallback (2026-08-05, ditemukan lewat tes live - footage asli B-roll TANPA narasi
+  // jelas [mis. rekaman jalan setapak diam] selalu skor combinedScore-nya di bawah
+  // MIN_SCORE_THRESHOLD, jadi selected KOSONG total & video final jadi 100% Pexels,
+  // 0% footage asli - berlawanan dgn permintaan Agus "kebanyakan akan menggunakan
+  // footage asli"). Ambang MIN_SCORE_THRESHOLD sengaja dibuat ketat dulu krn WAKTU ITU
+  // tidak ada review manual sama sekali sblm publish - sekarang SUDAH ada Draft Review
+  // (2026-08-04), jadi klip di bawah ambang tidak lagi otomatis tayang tanpa dicek,
+  // aman diberi fallback: kalau TIDAK ADA satu pun klip lolos ambang tapi transkrip
+  // punya isi, tetap sertakan klip dgn skor TERTINGGI (walau di bawah ambang) drpd nol
+  // footage asli sama sekali.
+  if (selected.length === 0 && byScoreDesc.length > 0) {
+    const best = byScoreDesc[0];
+    const cappedEnd = Math.min(best.end, best.start + MAX_CLIP_DURATION);
+    selected.push({ ...best, end: cappedEnd });
+  }
+
   return selected.sort((a, b) => a.start - b.start);
 }

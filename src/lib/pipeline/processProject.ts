@@ -10,6 +10,7 @@ import { generatePosterCopy } from "@/lib/ai/posterCopy";
 import { applyPosterDesign } from "@/lib/ai/posterDesign";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
+import { fetchDestinationBrollClips } from "@/lib/ai/destinationBroll";
 import { newId } from "@/lib/ids";
 
 export type ProcessResult = {
@@ -161,13 +162,24 @@ export async function processProject(id: string): Promise<ProcessResult> {
       selectedText
     );
 
-    let brollVideoUrl: string | undefined;
-    let brollDurationSeconds: number | undefined;
-    if (brollKeywords) {
+    // Kombinasi footage asli + Pexels (2026-08-05, permintaan Agus - "jika ada
+    // pembahasan wisata seperti danau beratan kebun raya bedugul dan lainnya gunakan
+    // pexels, jika menyangkut pelangi gunakan footage asli pelangi"). Cuma relevan
+    // kalau dasarnya footage ASLI (bukan footage stok - video "ide umum" tanpa footage
+    // asli, lihat isStockFootage di atas, sudah 100% Pexels dari awal, tidak ada yg
+    // perlu dikombinasi). Tiap landmark yg disebut skrip dapat klip Pexels sendiri,
+    // ditempel MENDAMPINGI klip asli Pelangi (lihat renderFinalVideo - klip pertama
+    // selalu footage asli).
+    let brollClips: Array<{ videoUrl: string; durationSeconds: number }> = [];
+    if (!isStockFootage) {
+      brollClips = await fetchDestinationBrollClips(project.script);
+    }
+    if (brollClips.length === 0 && brollKeywords) {
+      // Fallback lama - skrip tidak menyebut landmark spesifik apa pun, tetap kasih 1
+      // klip suasana umum spt sebelumnya (mis. "tropical homestay garden").
       const broll = await searchBrollVideo(brollKeywords);
       if (broll) {
-        brollVideoUrl = broll.videoUrl;
-        brollDurationSeconds = Math.min(broll.durationSeconds, 5);
+        brollClips = [{ videoUrl: broll.videoUrl, durationSeconds: Math.min(broll.durationSeconds, 5) }];
       }
     }
 
@@ -175,7 +187,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // bawah) MENGGANTI TOTAL audio dgn TTS membaca caption, subtitle jg HARUS teks yg
     // sama, bukan transkrip asli yg sudah tidak match dgn audio barunya.
     const totalDuration =
-      selected.reduce((sum, seg) => sum + (seg.end - seg.start), 0) + (brollDurationSeconds || 0);
+      selected.reduce((sum, seg) => sum + (seg.end - seg.start), 0) +
+      brollClips.reduce((sum, c) => sum + c.durationSeconds, 0);
     const srt = buildCaptionSrt(caption, totalDuration);
 
     await db
@@ -204,8 +217,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       rawFootageUrl: rawFootage.fileUrl,
       segments: selected,
       srtContent: srt,
-      brollVideoUrl,
-      brollDurationSeconds,
+      brollClips,
       // AI Dubbing - GANTI TOTAL suara asli (lihat memory proyek, keputusan eksplisit
       // Agus), reuse caption yg sudah di-generate sbg naskah narasi - tidak perlu
       // panggilan GPT terpisah.
