@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { fetchPelangiKnowledge } from "./pelangiKnowledge";
+import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
 import { CONTENT_PILLARS, CONTENT_ANGLES, type ContentPillar, type ContentAngle } from "./generateContent";
 import { buildSeasonalContext } from "./seasonalContext";
 import { buildKeywordPriorityBlock, type KeywordClassification } from "./keywordPriority";
@@ -121,10 +121,11 @@ async function buildIdeaPromptBase(
   recentScripts: string[],
   count: number,
   recentClassifications: RecentClassification[],
-  knowledgeSite?: string | null
+  knowledgeSite?: string | null,
+  manualKnowledge?: string | null
 ): Promise<{ system: string; user: string }> {
   const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
-  const knowledge = await fetchPelangiKnowledge(knowledgeSite || "pelangi");
+  const knowledge = mergeManualKnowledge(await fetchPelangiKnowledge(knowledgeSite || "pelangi"), manualKnowledge);
   const distributionBlock = buildDistributionBlock(recentClassifications);
   const seasonalBlock = buildSeasonalContext();
   const keywordBlock = buildKeywordPriorityBlock(recentClassifications);
@@ -188,10 +189,11 @@ export async function suggestContentIdeas(
   recentScripts: string[],
   count: number = 4,
   recentClassifications: RecentClassification[] = [],
-  knowledgeSite?: string | null
+  knowledgeSite?: string | null,
+  manualKnowledge?: string | null
 ): Promise<string[]> {
   const client = getClient();
-  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite);
+  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge);
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -216,7 +218,7 @@ export type ScoredIdea = {
   idea: string;
   score: number; // 0-100
   reasoning: string;
-  contentType: "video" | "carousel";
+  contentType: "video" | "foto" | "carousel";
 };
 
 // Opportunity Finder (2026-08-05, PRD "AI Content Brain" - fitur yg Agus sendiri sebut
@@ -238,14 +240,16 @@ export async function suggestScoredContentIdeas(
   brandDescription: string | null,
   recentScripts: string[],
   videoCount: number,
+  fotoCount: number,
   carouselCount: number,
   recentClassifications: RecentClassification[] = [],
   performanceClassifications: PerformanceClassification[] = [],
-  knowledgeSite?: string | null
+  knowledgeSite?: string | null,
+  manualKnowledge?: string | null
 ): Promise<ScoredIdea[]> {
   const client = getClient();
-  const count = videoCount + carouselCount;
-  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite);
+  const count = videoCount + fotoCount + carouselCount;
+  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge);
   const performanceBlock = buildPerformanceInsightBlock(performanceClassifications);
 
   const scoredSystem =
@@ -263,12 +267,20 @@ export async function suggestScoredContentIdeas(
     "spesifik (mis. \"skor tinggi krn isi kekosongan pilar Kuliner Sekitar & keyword " +
     "Level 1 blm pernah dipakai\", atau \"pilar Wisata Sekitar terbukti performa tinggi " +
     "dari data views nyata\"), bukan pujian generik. " +
-    `Sertakan jg contentType ("video" atau "carousel") - dari ${count} ide, TEPAT ${videoCount} ` +
-    `harus "video" & TEPAT ${carouselCount} harus "carousel" (JANGAN meleset dari angka ini). ` +
-    "Pilih ide MANA yg cocok jadi video (butuh gerakan/proses/beberapa momen berurutan - " +
-    "mis. tur kamar, aktivitas, perbandingan) vs foto/carousel (1 momen visual kuat yg " +
-    "cukup diwakili gambar diam - mis. highlight 1 fasilitas spesifik, 1 sudut estetik, " +
-    "promo harga simpel) - JANGAN asal bagi rata, pilih yg PALING NATURAL utk tiap format.";
+    // 3 tipe (2026-08-05, revisi Agus - awalnya 2 tipe "video"/"carousel" [carousel
+    // sebenarnya berarti foto tunggal], sekarang dipisah eksplisit jadi 3: video, foto
+    // tunggal (poster), carousel BENERAN multi-foto).
+    `Sertakan jg contentType ("video", "foto", atau "carousel") - dari ${count} ide, TEPAT ` +
+    `${videoCount} harus "video", TEPAT ${fotoCount} harus "foto", TEPAT ${carouselCount} ` +
+    `harus "carousel" (JANGAN meleset dari angka ini). Pilih ide MANA yg cocok jadi apa: ` +
+    "\"video\" = butuh gerakan/proses/beberapa momen berurutan (mis. tur kamar, aktivitas, " +
+    "perbandingan). \"foto\" = SATU momen visual kuat yg cukup diwakili 1 gambar diam (mis. " +
+    "highlight 1 fasilitas spesifik, 1 sudut estetik, promo harga simpel) - jadi POSTER " +
+    "promosi tunggal. \"carousel\" = topik yg BENAR-BENAR butuh BEBERAPA foto berurutan utk " +
+    "cerita lengkap (mis. tur beberapa sudut kamar sekaligus, beberapa fasilitas berbeda " +
+    "dalam 1 post, before/after, beberapa menu/pilihan) - BUKAN cuma 1 foto yg dibagi jadi " +
+    "beberapa slide tanpa alasan, harus ada alasan NYATA butuh multi-foto. JANGAN asal bagi " +
+    "rata, pilih yg PALING NATURAL utk tiap format.";
   const scoredUser =
     `${user}${performanceBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
     `{"ideas": [{"idea": "...", "score": 0, "reasoning": "...", "contentType": "video"}, ...]}`;
@@ -294,39 +306,52 @@ export async function suggestScoredContentIdeas(
       idea: i.idea,
       score: Math.max(0, Math.min(100, Math.round(Number(i.score) || 0))),
       reasoning: typeof i.reasoning === "string" ? i.reasoning : "",
-      contentType: i.contentType === "carousel" ? ("carousel" as const) : ("video" as const),
+      contentType:
+        i.contentType === "carousel" ? ("carousel" as const) :
+        i.contentType === "foto" ? ("foto" as const) :
+        ("video" as const),
     }));
 
   const filteredIdeaTexts = new Set(filterRestricted(scored.map((s) => s.idea)));
   const filtered = scored.filter((s) => filteredIdeaTexts.has(s.idea));
-  return enforceContentTypeSplit(filtered, videoCount, carouselCount).sort((a, b) => b.score - a.score);
+  return enforceContentTypeSplit(filtered, videoCount, fotoCount, carouselCount).sort((a, b) => b.score - a.score);
 }
 
 // Jaring pengaman KODE (2026-08-05) - GPT sering meleset hitung jumlah exact dari
 // instruksi teks (bug class yg sama berulang sesi ini: model "hampir benar" tapi
 // tidak bisa diandalkan 100% utk aritmatika sederhana). Kalau split hasil GPT tidak
-// PERSIS videoCount/carouselCount, koreksi deterministik: pindahkan ide dgn SKOR
-// TERENDAH dari kategori kelebihan ke kategori kekurangan, sampai pas - bukan
-// panggil API lagi (lebih cepat & pasti berhasil).
-function enforceContentTypeSplit(ideas: ScoredIdea[], videoCount: number, carouselCount: number): ScoredIdea[] {
+// PERSIS videoCount/fotoCount/carouselCount, koreksi deterministik: pindahkan ide dgn
+// SKOR TERENDAH dari kategori kelebihan ke kategori kekurangan, sampai pas - bukan
+// panggil API lagi (lebih cepat & pasti berhasil). Diperluas dari 2 tipe ke 3 (2026-08-05).
+function enforceContentTypeSplit(ideas: ScoredIdea[], videoCount: number, fotoCount: number, carouselCount: number): ScoredIdea[] {
   const result = [...ideas];
-  const total = videoCount + carouselCount;
+  const total = videoCount + fotoCount + carouselCount;
   if (result.length !== total) return result; // filterRestricted bisa kurangi jumlah - jangan paksa split kalau total sudah beda
 
-  const videos = result.filter((i) => i.contentType === "video").sort((a, b) => a.score - b.score);
-  const carousels = result.filter((i) => i.contentType === "carousel").sort((a, b) => a.score - b.score);
+  const targets: Record<ScoredIdea["contentType"], number> = { video: videoCount, foto: fotoCount, carousel: carouselCount };
+  const buckets: Record<ScoredIdea["contentType"], ScoredIdea[]> = {
+    video: result.filter((i) => i.contentType === "video").sort((a, b) => a.score - b.score),
+    foto: result.filter((i) => i.contentType === "foto").sort((a, b) => a.score - b.score),
+    carousel: result.filter((i) => i.contentType === "carousel").sort((a, b) => a.score - b.score),
+  };
+  const types: ScoredIdea["contentType"][] = ["video", "foto", "carousel"];
 
-  while (videos.length > videoCount && carousels.length < carouselCount) {
-    const moved = videos.shift();
-    if (!moved) break;
-    moved.contentType = "carousel";
-    carousels.push(moved);
+  // Loop sampai semua bucket pas dgn targetnya - pindahkan skor terendah dari bucket
+  // KELEBIHAN ke bucket manapun yg KEKURANGAN, urutan tidak masalah selama target
+  // masing2 akhirnya pas persis (beda dari versi 2-tipe yg cuma py 1 arah pindah).
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (const from of types) {
+      if (buckets[from].length <= targets[from]) continue;
+      const to = types.find((t) => buckets[t].length < targets[t]);
+      if (!to) continue;
+      const moved = buckets[from].shift();
+      if (!moved) continue;
+      moved.contentType = to;
+      buckets[to].push(moved);
+      progress = true;
+    }
   }
-  while (carousels.length > carouselCount && videos.length < videoCount) {
-    const moved = carousels.shift();
-    if (!moved) break;
-    moved.contentType = "video";
-    videos.push(moved);
-  }
-  return result;
+  return [...buckets.video, ...buckets.foto, ...buckets.carousel];
 }

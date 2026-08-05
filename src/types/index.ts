@@ -5,7 +5,12 @@ export type Brand = {
   description: string | null;
   logoUrl: string | null;
   dailyVideoCount: number;
+  dailySinglePhotoCount: number;
   dailyCarouselCount: number;
+  videoDurationTarget: number;
+  carouselPhotosPerPost: number;
+  videoOrientation: "portrait" | "landscape";
+  manualKnowledge: string | null;
   knowledgeSite: string | null;
   createdAt: string;
 };

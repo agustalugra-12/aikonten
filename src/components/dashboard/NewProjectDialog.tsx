@@ -20,22 +20,22 @@ import { toast } from "sonner";
 // (5) trigger /process (transkripsi+pemilihan klip+caption/hashtag). Berhenti di status
 // "ready" (draft) - publish TIDAK lagi otomatis, Agus review dulu di DraftReview.tsx
 // (2026-08-04) sebelum klik publikasikan.
-const MAX_CAROUSEL_PHOTOS = 5;
 // Video BOLEH >1 klip sekaligus (2026-08-05, permintaan Agus - "video didominasi
 // footage Pelangi", rasio 7:3 - 1 klip sendirian sering terlalu pendek/panjang utk isi
-// 70% target 30-60 detik, lihat processProject.ts REAL_FOOTAGE_BUDGET_SECONDS & pooling
-// multi-source di renderFinalVideo). Dulu cuma 1 file video per project. Dinaikkan ke 15
-// (2026-08-05, permintaan eksplisit Agus) - klip asli Agus sering pendek (2-6 detik),
-// perlu cukup banyak digabung utk benar-benar capai target 30-60 detik.
-const MAX_VIDEO_CLIPS = 15;
-// Foto tunggal WAJIB 1 file - beda dari carousel (2-5 foto). Batas ini SENGAJA
-// dipisah dari MAX_CAROUSEL_PHOTOS (2026-08-05, permintaan Agus - "kenapa tidak ada
-// pilihan foto tunggal?") walau di DB kedua mode SAMA-SAMA type="carousel"
-// (processProject.ts sudah lama membedakan poster foto tunggal vs carousel murni dari
-// JUMLAH foto yg diupload, bukan field terpisah - lihat processProject.ts
-// finalImageUrls) - "mode" di sini CUMA soal kejelasan UI, bukan skema data baru.
+// 70% target durasi, lihat clipSelect.ts & pooling multi-source di renderFinalVideo).
+// Dulu cuma 1 file video per project. Dinaikkan ke 15 (2026-08-05, permintaan eksplisit
+// Agus) - klip asli Agus sering pendek (2-6 detik), perlu cukup banyak digabung utk
+// benar-benar capai target durasi. Dinaikkan lagi ke 20 (2026-08-05, sesi sama) - opsi
+// durasi target sampai 90 detik/1.30 butuh ~17 klip di rata2 durasi klip asli ~3.7dtk,
+// 15 tidak cukup lagi.
+const MAX_VIDEO_CLIPS = 20;
+// Foto tunggal WAJIB 1 file - beda dari carousel. Batas ini SENGAJA dipisah dari jumlah
+// carousel (2026-08-05, permintaan Agus - "kenapa tidak ada pilihan foto tunggal?")
+// walau di DB kedua mode SAMA-SAMA type="carousel" (processProject.ts sudah lama
+// membedakan poster foto tunggal vs carousel murni dari JUMLAH foto yg diupload, bukan
+// field terpisah - lihat processProject.ts finalImageUrls) - "mode" di sini CUMA soal
+// kejelasan UI, bukan skema data baru.
 const SINGLE_PHOTO_MAX = 1;
-const MIN_CAROUSEL_PHOTOS = 2;
 
 // "mode" (3 pilihan UI) vs "type" (2 nilai backend "video"|"carousel") SENGAJA
 // dipisah - foto tunggal & carousel SAMA-SAMA type="carousel" di project (perbedaan
@@ -52,6 +52,7 @@ export function NewProjectDialog({
   onCreated,
   initialScript,
   initialType,
+  carouselPhotosPerPost = 5,
 }: {
   brandId: string;
   onCreated: () => void;
@@ -59,24 +60,32 @@ export function NewProjectDialog({
   // DailyContentPlanner.tsx) - lihat page.tsx, komponen ini di-remount pakai `key`
   // tiap initialScript berubah biar useState di bawah selalu mulai dari nilai baru.
   initialScript?: string;
-  // Diisi dari Content Planner harian (2026-08-05, permintaan Agus - "3 dibuat foto 7
-  // dibuat video") - tipe yg AI sarankan utk ide ini, Agus tetap BOLEH ganti manual di
-  // dropdown. "carousel" dari planner DIPETAKAN ke mode "photo" (bukan "carousel") -
-  // prompt Opportunity Finder (researchTopics.ts) memang mendeskripsikan ide "foto"
-  // sbg 1 momen visual kuat (poster tunggal), bukan carousel multi-foto - Agus tetap
-  // BOLEH ganti manual ke "carousel" kalau mau. "Ide Konten" lama (ContentIdeas.tsx)
+  // Diisi dari Content Planner harian (2026-08-05, permintaan Agus) - tipe yg AI
+  // sarankan utk ide ini, Agus tetap BOLEH ganti manual di dropdown. SEKARANG 3 tipe
+  // eksplisit (video/foto/carousel, revisi Agus hari sama - sebelumnya cuma 2 tipe,
+  // "carousel" dari planner DIPETAKAN ke mode "photo" scr default krn planner belum
+  // bisa bedakan foto tunggal vs carousel beneran). "Ide Konten" lama (ContentIdeas.tsx)
   // tidak isi ini, default tetap "video".
-  initialType?: "video" | "carousel";
+  initialType?: "video" | "foto" | "carousel";
+  // Target jumlah foto per post carousel (2026-08-05, permintaan Agus - "carousel 3
+  // foto, 5 foto, 7 foto") - setting per-brand (brands.carouselPhotosPerPost), dipakai
+  // sbg MIN & MAX carousel sekaligus (target PERSIS, bukan sekadar batas atas).
+  carouselPhotosPerPost?: number;
 }) {
   const [open, setOpen] = useState(!!initialScript);
-  const [mode, setMode] = useState<ContentMode>(initialType === "carousel" ? "photo" : "video");
+  const [mode, setMode] = useState<ContentMode>(
+    initialType === "carousel" ? "carousel" : initialType === "foto" ? "photo" : "video"
+  );
   const [script, setScript] = useState(initialScript || "");
   const [files, setFiles] = useState<File[]>([]);
   const [stage, setStage] = useState<string | null>(null);
 
   const type = modeToType(mode);
-  const maxFiles = mode === "photo" ? SINGLE_PHOTO_MAX : mode === "carousel" ? MAX_CAROUSEL_PHOTOS : MAX_VIDEO_CLIPS;
-  const minFiles = mode === "carousel" ? MIN_CAROUSEL_PHOTOS : 1;
+  const maxFiles = mode === "photo" ? SINGLE_PHOTO_MAX : mode === "carousel" ? carouselPhotosPerPost : MAX_VIDEO_CLIPS;
+  // Carousel: min & max SAMA (target PERSIS sesuai setting brand), BUKAN sekadar
+  // rentang longgar - sesuai permintaan Agus "carousel 3 foto/5 foto/7 foto" (preset
+  // ukuran tetap, bukan batas atas fleksibel).
+  const minFiles = mode === "carousel" ? carouselPhotosPerPost : 1;
   const hasFiles = files.length >= minFiles;
 
   async function uploadOneFile(projectId: string, f: File): Promise<string> {
@@ -179,7 +188,7 @@ export function NewProjectDialog({
               {mode === "photo"
                 ? "Foto (1 foto - jadi poster)"
                 : mode === "carousel"
-                  ? `Foto (${MIN_CAROUSEL_PHOTOS}-${maxFiles} foto)`
+                  ? `Foto (tepat ${maxFiles} foto)`
                   : `Footage mentah (boleh >1 klip, maks ${maxFiles})`}
             </Label>
             <Input
@@ -192,7 +201,7 @@ export function NewProjectDialog({
             {files.length > 0 && (
               <p className="text-xs text-muted-foreground">
                 {files.length} {mode === "video" ? "klip" : "foto"} dipilih
-                {mode === "carousel" && files.length < MIN_CAROUSEL_PHOTOS && ` - minimal ${MIN_CAROUSEL_PHOTOS} foto utk carousel`}
+                {mode === "carousel" && files.length < minFiles && ` - butuh tepat ${minFiles} foto utk carousel`}
               </p>
             )}
           </div>

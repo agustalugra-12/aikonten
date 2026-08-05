@@ -22,8 +22,15 @@ export type RenderResult = {
   durationSeconds: number;
 };
 
-const TARGET_WIDTH = 1080;
-const TARGET_HEIGHT = 1920; // vertikal (9:16) - sama dgn Cloudinary sebelumnya (c_fill 1080x1920)
+// Orientasi video (2026-08-05, permintaan Agus - "vidio landscape atau potrait ini utk
+// kebutuhan YT") - portrait (9:16, default lama - IG/TikTok Reels) vs landscape (16:9 -
+// YouTube). Dulu TARGET_WIDTH/HEIGHT konstanta tetap, sekarang fungsi dari orientasi
+// yg dikirim per-project (dari brands.videoOrientation, lihat processProject.ts).
+export type VideoOrientation = "portrait" | "landscape";
+
+function getTargetDimensions(orientation: VideoOrientation): { width: number; height: number } {
+  return orientation === "landscape" ? { width: 1920, height: 1080 } : { width: 1080, height: 1920 };
+}
 
 // Style subtitle (2026-08-05, permintaan Agus - "kecilkan 50%, posisi tengah-tengah
 // video, turunkan sedikit"). PENTING (bug nyata ditemukan lewat tes visual langsung -
@@ -39,8 +46,11 @@ const TARGET_HEIGHT = 1920; // vertikal (9:16) - sama dgn Cloudinary sebelumnya 
 // (2026-08-05, permintaan Agus "besarkan agar proporsional") ke 60px, standar umum
 // caption video vertikal 1080 lebar (mis. gaya CapCut/TikTok auto-caption, ~5.5% dari
 // lebar frame) - cukup besar utk terbaca di HP kecil, tapi tidak menutupi footage.
-const SUBTITLE_FONT_SIZE = 60;
-const SUBTITLE_MARGIN_V = 760; // dari tepi bawah, dlm skala PlayResY=1920 sungguhan - diuji visual: jatuh di ~tengah, sedikit di bawah tengah asli
+// Diubah jadi RASIO (2026-08-05, sesi sama - dukung landscape juga) - font size relatif
+// ke LEBAR frame, margin relatif ke TINGGI frame, supaya visual tetap proporsional sama
+// persis di kedua orientasi, bukan angka piksel tetap yg cuma pas utk portrait 1080x1920.
+const SUBTITLE_FONT_SIZE_RATIO = 60 / 1080; // ~5.5% dari lebar frame
+const SUBTITLE_MARGIN_V_RATIO = 760 / 1920; // ~39.6% dari tinggi frame (dari tepi bawah)
 
 async function run(cmd: string, args: string[]): Promise<void> {
   try {
@@ -98,13 +108,15 @@ function parseSrt(srt: string): Array<{ start: string; end: string; text: string
 // Konversi SRT (format yg SUDAH dipakai buildCaptionSrt, lihat generateContent.ts) jadi
 // .ass EKSPLISIT dgn PlayResX/PlayResY = resolusi video sungguhan (lihat catatan
 // SUBTITLE_FONT_SIZE di atas kenapa ini WAJIB, bukan sekadar preferensi gaya).
-function buildAssContent(srtContent: string): string {
+function buildAssContent(srtContent: string, width: number, height: number): string {
   const entries = parseSrt(srtContent);
+  const fontSize = Math.round(width * SUBTITLE_FONT_SIZE_RATIO);
+  const marginV = Math.round(height * SUBTITLE_MARGIN_V_RATIO);
   const header =
-    `[Script Info]\nPlayResX: ${TARGET_WIDTH}\nPlayResY: ${TARGET_HEIGHT}\nScaledBorderAndShadow: yes\n\n` +
+    `[Script Info]\nPlayResX: ${width}\nPlayResY: ${height}\nScaledBorderAndShadow: yes\n\n` +
     `[V4+ Styles]\n` +
     `Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n` +
-    `Style: Default,Arial,${SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,${SUBTITLE_MARGIN_V},1\n\n` +
+    `Style: Default,Arial,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,${marginV},1\n\n` +
     `[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
   const events = entries.map((e) => `Dialogue: 0,${e.start},${e.end},Default,,0,0,0,,${e.text}`).join("\n");
   return header + events + "\n";
@@ -121,11 +133,15 @@ export async function renderFinalVideo(opts: {
   // proporsional (lihat logoOverlay.ts), pojok kanan-atas, JANGAN dianggap wajib -
   // brand tanpa logoUrl dilewati begitu saja.
   logoUrl?: string | null;
+  // Orientasi (2026-08-05, permintaan Agus) - default "portrait" (perilaku lama, tidak
+  // berubah kalau caller tidak kirim apa-apa).
+  orientation?: VideoOrientation;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
   }
 
+  const { width: TARGET_WIDTH, height: TARGET_HEIGHT } = getTargetDimensions(opts.orientation || "portrait");
   const workDir = await mkdtemp(path.join(tmpdir(), `kontenpilot_render_${opts.projectId}_`));
 
   try {
@@ -167,7 +183,7 @@ export async function renderFinalVideo(opts: {
     // 3) Subtitle -> .ass eksplisit (lihat buildAssContent - WAJIB, bukan subtitles=
     // +force_style yg terbukti nyata tidak predictable posisi/ukurannya).
     const assPath = path.join(workDir, "subtitles.ass");
-    await writeFile(assPath, buildAssContent(opts.srtContent));
+    await writeFile(assPath, buildAssContent(opts.srtContent, TARGET_WIDTH, TARGET_HEIGHT));
 
     // 4) Logo brand OPSIONAL (2026-08-05, permintaan Agus) - crop lingkaran +
     // ukuran proporsional (logoOverlay.ts, dipakai jg utk foto - konsisten), disiapkan

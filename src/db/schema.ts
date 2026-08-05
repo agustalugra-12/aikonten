@@ -25,14 +25,38 @@ export const brands = sqliteTable("brands", {
   // lingkaran & ditempel proporsional (bukan nutupin konten) di SETIAP foto & video
   // final. Nullable - brand tanpa logo tetap jalan normal, overlay cuma dilewati.
   logoUrl: text("logo_url"),
-  // Rasio video:foto di batch Content Planner harian (2026-08-05, permintaan Agus -
-  // "dari 10 konten ini 3 dibuat foto 7 dibuat video") - default 7:3 PERSIS sesuai
-  // permintaan, TAPI disimpan sbg setting per-brand (bukan hardcode) krn "aku mau di
-  // setting" menyiratkan Agus mau bisa ubah nanti, bukan cuma sekali pakai. Jumlah
-  // keduanya WAJIB = DAILY_IDEA_COUNT (10, lihat dailyContentPlanner.ts) - divalidasi
-  // di route.ts saat disimpan.
+  // Volume konten harian PER TIPE (2026-08-05, permintaan Agus - awalnya "3 foto 7
+  // video" [2 tipe], DIREVISI hari yg sama jadi 3 tipe terpisah: "4 foto, 4 vidio, 4
+  // curasel artinya 12 konten" - total TIDAK LAGI wajib 10, sepenuhnya sejumlah yg
+  // Agus set (bebas 0+ tiap tipe, validasi cuma total >= 1). dailyCarouselCount
+  // SEBELUMNYA (nama sama, arti beda) dipakai utk "foto tunggal" (default map ke mode
+  // "photo" di NewProjectDialog) krn saat itu cuma ada 2 tipe di planner - MIGRASI DATA
+  // di migration 0012 memindahkan nilai lama field ini ke dailySinglePhotoCount (yg
+  // baru) & reset field ini ke 0, supaya brand yg sudah ada (Pelangi) perilakunya PERSIS
+  // sama spt sebelum migrasi (bukan tiba2 generate carousel multi-foto yg tidak diminta).
   dailyVideoCount: integer("daily_video_count").notNull().default(7),
-  dailyCarouselCount: integer("daily_carousel_count").notNull().default(3),
+  dailySinglePhotoCount: integer("daily_single_photo_count").notNull().default(3),
+  dailyCarouselCount: integer("daily_carousel_count").notNull().default(0),
+  // Durasi target video (2026-08-05, permintaan Agus - "durasi konten video misal video
+  // 30 detik 60 detik dan 1.30") - dipakai processProject.ts (TARGET_VIDEO_CLIP_COUNT dkk,
+  // sebelumnya hardcode target 30-60 detik) utk turunkan jumlah klip yg dikumpulkan.
+  videoDurationTarget: integer("video_duration_target").notNull().default(60),
+  // Berapa foto per POST carousel (2026-08-05, permintaan Agus - "carousel 3 foto,
+  // carousel 5 foto dan 7 foto") - BEDA dari dailyCarouselCount (itu jumlah POST carousel/
+  // hari, ini jumlah FOTO di DALAM 1 post carousel). Dipakai NewProjectDialog.tsx &
+  // auto-content/route.ts (sebelumnya hardcode MAX_CAROUSEL_PHOTOS=5).
+  carouselPhotosPerPost: integer("carousel_photos_per_post").notNull().default(5),
+  // Orientasi video (2026-08-05, permintaan Agus - "vidio landscape atau potrait ini
+  // utk kebutuhan YT") - render pipeline (ffmpeg.ts) sebelumnya hardcode portrait
+  // 1080x1920 (IG/TikTok Reels) - landscape 1920x1080 utk YouTube, auto-thumbnail
+  // (thumbnail.ts, sudah ada) baru relevan dipakai kalau orientasi ini "landscape".
+  videoOrientation: text("video_orientation", { enum: ["portrait", "landscape"] }).notNull().default("portrait"),
+  // Knowledge Base manual (2026-08-05, permintaan Agus - "setiap brand bisa mengisi
+  // pengetahuan secara manual") - MELENGKAPI (bukan menggantikan) fakta otomatis dari
+  // PMS/website (lihat knowledgeSite/pelangiKnowledge.ts) - utk hal yg tidak ada
+  // sumbernya otomatis (mis. promo bulan ini, penekanan khusus, atau brand yg belum
+  // terhubung PMS/website sama sekali). Nullable, kosong = tidak nambah apa-apa.
+  manualKnowledge: text("manual_knowledge"),
   // Knowledge Base per-brand (2026-08-05, permintaan Agus - "sebaiknya ditambahkan di
   // setiap brand") - sebelumnya fetchPelangiKnowledge() (pelangiKnowledge.ts) HARDCODE
   // site="pelangi" di titik panggilnya (researchTopics.ts/generateContent.ts), tidak
@@ -221,6 +245,10 @@ export const dailyIdeas = sqliteTable("daily_ideas", {
   // suggestScoredContentIdeas), dgn jumlah persis sesuai brands.dailyVideoCount/
   // dailyCarouselCount. Dipakai isi otomatis pilihan tipe di NewProjectDialog.tsx
   // saat ide ini diklik, Agus tetap BOLEH ganti manual kalau mau.
-  contentType: text("content_type", { enum: ["video", "carousel"] }),
+  // Diperluas ke 3 tipe (2026-08-05, revisi Agus - "foto" [poster tunggal] dipisah
+  // eksplisit dari "carousel" [BENERAN multi-foto], sebelumnya "carousel" dipakai utk
+  // keduanya). Baris lama (sblm migrasi) tetap valid - nilainya cuma "video"/"carousel",
+  // tidak ada yg otomatis jadi "foto" tanpa sengaja.
+  contentType: text("content_type", { enum: ["video", "foto", "carousel"] }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

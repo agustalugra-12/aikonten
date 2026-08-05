@@ -13,16 +13,35 @@ export type ScoredSegment = TranscriptSegment & ScoredFields;
 // minimal 30-60 detik", "perbandingan footage 7:3 utk footage pelangi dan pexels").
 // Dipakai bareng oleh processProject.ts (budget klip asli) & destinationBroll.ts
 // (budget klip Pexels) supaya SATU angka target, bukan dihitung terpisah di 2 tempat.
-export const VIDEO_DURATION_TARGET = 45; // detik - titik tengah rentang 30-60
-// Aturan KERAS (2026-08-05, permintaan Agus - "aturan konten video tidak boleh kurang
-// dari 40 detik") - BUKAN cuma target/estimasi kayak VIDEO_DURATION_TARGET, ini batas
-// MINIMUM WAJIB. processProject.ts nge-top-up klip (asli dulu, baru B-roll) sampai
-// tercapai, dan kalau footage yg tersedia SUNGGUH tidak cukup, generation GAGAL dgn
-// pesan jelas drpd diam2 kirim video di bawah standar.
-export const MIN_VIDEO_DURATION_SECONDS = 40;
+//
+// Diparameterisasi (2026-08-05, sesi sama - permintaan Agus "durasi konten video
+// misal video 30 detik 60 detik dan 1.30") - SEBELUMNYA konstanta tetap (45s, satu2nya
+// pilihan), SEKARANG setting per-brand (brands.videoDurationTarget, 30/60/90) yg
+// diteruskan sbg parameter `target` ke fungsi2 di bawah. DEFAULT_VIDEO_DURATION_TARGET
+// dipertahankan sbg fallback kalau brand belum di-set (row lama sblm migrasi 0012).
+export const DEFAULT_VIDEO_DURATION_TARGET = 45; // detik - titik tengah rentang 30-60 lama
 export const REAL_FOOTAGE_RATIO = 0.7;
-export const REAL_FOOTAGE_BUDGET_SECONDS = VIDEO_DURATION_TARGET * REAL_FOOTAGE_RATIO; // 31.5s
-export const STOCK_FOOTAGE_BUDGET_SECONDS = VIDEO_DURATION_TARGET * (1 - REAL_FOOTAGE_RATIO); // 13.5s
+
+export type DurationConfig = {
+  target: number;
+  // Aturan KERAS (2026-08-05, permintaan Agus - "aturan konten video tidak boleh kurang
+  // dari 40 detik") - BUKAN cuma target/estimasi, ini batas MINIMUM WAJIB. processProject.ts
+  // nge-top-up klip (asli dulu, baru B-roll) sampai tercapai, dan kalau footage yg tersedia
+  // SUNGGUH tidak cukup, generation GAGAL dgn pesan jelas drpd diam2 kirim video di bawah
+  // standar. Diskalakan proporsional dari formula asli (target 45 -> min 40, selisih 5s).
+  min: number;
+  realBudgetSeconds: number;
+  stockBudgetSeconds: number;
+};
+
+export function getDurationConfig(target: number = DEFAULT_VIDEO_DURATION_TARGET): DurationConfig {
+  return {
+    target,
+    min: Math.max(10, target - 5),
+    realBudgetSeconds: target * REAL_FOOTAGE_RATIO,
+    stockBudgetSeconds: target * (1 - REAL_FOOTAGE_RATIO),
+  };
+}
 
 // Rasio KHUSUS "konten wisata dekat Pelangi Homestay" (2026-08-05, permintaan Agus -
 // "jika konten wisata dekat pelangi homestay pakai footage pexels 60% footage pelangi
@@ -34,14 +53,17 @@ export const STOCK_FOOTAGE_BUDGET_SECONDS = VIDEO_DURATION_TARGET * (1 - REAL_FO
 // menyebut landmark spesifik).
 export const DESTINATION_STOCK_RATIO = 0.6;
 
-export function computeFootageBudgets(isDestinationContent: boolean): {
+export function computeFootageBudgets(
+  isDestinationContent: boolean,
+  target: number = DEFAULT_VIDEO_DURATION_TARGET
+): {
   realBudgetSeconds: number;
   stockBudgetSeconds: number;
 } {
   const stockRatio = isDestinationContent ? DESTINATION_STOCK_RATIO : 1 - REAL_FOOTAGE_RATIO;
   return {
-    realBudgetSeconds: VIDEO_DURATION_TARGET * (1 - stockRatio),
-    stockBudgetSeconds: VIDEO_DURATION_TARGET * stockRatio,
+    realBudgetSeconds: target * (1 - stockRatio),
+    stockBudgetSeconds: target * stockRatio,
   };
 }
 
@@ -132,7 +154,7 @@ const MIN_SCORE_THRESHOLD = 0.35;
 export function selectClips<T extends TranscriptSegment>(
   segments: T[],
   script: string,
-  targetDurationSeconds: number = REAL_FOOTAGE_BUDGET_SECONDS
+  targetDurationSeconds: number = getDurationConfig().realBudgetSeconds
 ): (T & ScoredFields)[] {
   const scored = scoreSegments(segments, script);
   const byScoreDesc = [...scored].sort((a, b) => b.combinedScore - a.combinedScore);

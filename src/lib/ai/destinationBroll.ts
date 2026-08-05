@@ -1,5 +1,5 @@
 import { searchBrollVideo } from "@/lib/assets/broll";
-import { STOCK_FOOTAGE_BUDGET_SECONDS } from "./clipSelect";
+import { getDurationConfig } from "./clipSelect";
 
 // Kombinasi footage asli + Pexels utk video (2026-08-05, permintaan Agus - "jika ada
 // pembahasan wisata seperti danau beratan kebun raya bedugul dan lainnya gunakan
@@ -68,7 +68,7 @@ export type DestinationBrollClip = { videoUrl: string; durationSeconds: number }
 // (processProject.ts) yg putuskan fallback (brollKeywords umum spt sebelumnya).
 export async function fetchDestinationBrollClips(
   script: string,
-  budgetSeconds: number = STOCK_FOOTAGE_BUDGET_SECONDS,
+  budgetSeconds: number = getDurationConfig().stockBudgetSeconds,
   excludeUrls: Set<string> = new Set()
 ): Promise<DestinationBrollClip[]> {
   const queries = detectDestinationMentions(script);

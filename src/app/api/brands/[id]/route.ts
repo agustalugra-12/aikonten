@@ -26,20 +26,62 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     update.logoUrl = body.logoUrl;
   }
 
-  if ("dailyVideoCount" in body || "dailyCarouselCount" in body) {
+  // Volume harian 3 tipe (2026-08-05, revisi Agus - awalnya total WAJIB 10 [2 tipe],
+  // sekarang total BEBAS sejumlah yg di-set ("4 foto, 4 vidio, 4 curasel artinya 12
+  // konten") - validasi cuma masing2 integer >= 0 & totalnya >= 1 (bukan 0 semua).
+  if ("dailyVideoCount" in body || "dailySinglePhotoCount" in body || "dailyCarouselCount" in body) {
     const videoCount = "dailyVideoCount" in body ? Number(body.dailyVideoCount) : existing.dailyVideoCount;
+    const fotoCount = "dailySinglePhotoCount" in body ? Number(body.dailySinglePhotoCount) : existing.dailySinglePhotoCount;
     const carouselCount = "dailyCarouselCount" in body ? Number(body.dailyCarouselCount) : existing.dailyCarouselCount;
-    if (!Number.isInteger(videoCount) || !Number.isInteger(carouselCount) || videoCount < 0 || carouselCount < 0) {
-      return NextResponse.json({ error: "dailyVideoCount/dailyCarouselCount harus integer >= 0" }, { status: 400 });
+    if (
+      !Number.isInteger(videoCount) || !Number.isInteger(fotoCount) || !Number.isInteger(carouselCount) ||
+      videoCount < 0 || fotoCount < 0 || carouselCount < 0
+    ) {
+      return NextResponse.json({ error: "dailyVideoCount/dailySinglePhotoCount/dailyCarouselCount harus integer >= 0" }, { status: 400 });
     }
-    if (videoCount + carouselCount !== 10) {
-      return NextResponse.json(
-        { error: `Total video+foto harus 10 (Content Planner harian selalu 10 ide) - sekarang ${videoCount}+${carouselCount}=${videoCount + carouselCount}` },
-        { status: 400 }
-      );
+    if (videoCount + fotoCount + carouselCount < 1) {
+      return NextResponse.json({ error: "Total video+foto+carousel harus minimal 1" }, { status: 400 });
     }
     update.dailyVideoCount = videoCount;
+    update.dailySinglePhotoCount = fotoCount;
     update.dailyCarouselCount = carouselCount;
+  }
+
+  // Durasi target video (2026-08-05, permintaan Agus - "video 30 detik 60 detik dan
+  // 1.30") - cuma 3 preset ini yg didukung processProject.ts.
+  if ("videoDurationTarget" in body) {
+    const v = Number(body.videoDurationTarget);
+    if (![30, 60, 90].includes(v)) {
+      return NextResponse.json({ error: "videoDurationTarget harus 30, 60, atau 90" }, { status: 400 });
+    }
+    update.videoDurationTarget = v;
+  }
+
+  // Foto per post carousel (2026-08-05, permintaan Agus - "carousel 3 foto, 5 foto, 7
+  // foto") - cuma 3 preset ini yg didukung NewProjectDialog/auto-content route.
+  if ("carouselPhotosPerPost" in body) {
+    const v = Number(body.carouselPhotosPerPost);
+    if (![3, 5, 7].includes(v)) {
+      return NextResponse.json({ error: "carouselPhotosPerPost harus 3, 5, atau 7" }, { status: 400 });
+    }
+    update.carouselPhotosPerPost = v;
+  }
+
+  // Orientasi video (2026-08-05, permintaan Agus - "landscape atau potrait utk YT").
+  if ("videoOrientation" in body) {
+    if (body.videoOrientation !== "portrait" && body.videoOrientation !== "landscape") {
+      return NextResponse.json({ error: "videoOrientation harus 'portrait' atau 'landscape'" }, { status: 400 });
+    }
+    update.videoOrientation = body.videoOrientation;
+  }
+
+  // Knowledge Base manual (2026-08-05, permintaan Agus - "setiap brand bisa mengisi
+  // pengetahuan secara manual") - melengkapi fakta otomatis, bukan menggantikan.
+  if ("manualKnowledge" in body) {
+    if (body.manualKnowledge !== null && typeof body.manualKnowledge !== "string") {
+      return NextResponse.json({ error: "manualKnowledge harus string atau null" }, { status: 400 });
+    }
+    update.manualKnowledge = body.manualKnowledge;
   }
 
   // Knowledge Base per-brand (2026-08-05, permintaan Agus) - "pelangi"/"harmoni" saja yg

@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { ScoredSegment } from "./clipSelect";
-import { fetchPelangiKnowledge } from "./pelangiKnowledge";
+import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
 import { KEYWORD_PRIORITY_LIST } from "./keywordPriority";
 
 function getClient(): OpenAI {
@@ -146,8 +146,11 @@ export const VIDEO_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
 // yg sudah ada di system prompt SEBELUMNYA tidak py data ASLI apa pun utk dicocokkan -
 // cuma janji tanpa pegangan. Return string kosong kalau knowledge base belum
 // terkonfigurasi (fetchPelangiKnowledge sendiri sudah aman gagal-diam, lihat sana).
-async function buildKnowledgeGroundingBlock(knowledgeSite?: string | null): Promise<{ instruction: string; contextBlock: string }> {
-  const knowledge = await fetchPelangiKnowledge(knowledgeSite || "pelangi");
+async function buildKnowledgeGroundingBlock(
+  knowledgeSite?: string | null,
+  manualKnowledge?: string | null
+): Promise<{ instruction: string; contextBlock: string }> {
+  const knowledge = mergeManualKnowledge(await fetchPelangiKnowledge(knowledgeSite || "pelangi"), manualKnowledge);
   if (!knowledge) return { instruction: "", contextBlock: "" };
   return {
     instruction:
@@ -167,11 +170,12 @@ export async function generateCaptionAndHashtags(
   brandName: string,
   script: string,
   selectedClipsText: string,
-  knowledgeSite?: string | null
+  knowledgeSite?: string | null,
+  manualKnowledge?: string | null
 ): Promise<GeneratedVideoContent> {
   const client = getClient();
   const structureTemplate = pickStructureTemplate();
-  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite);
+  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   const system =
     "Kamu content strategist media sosial. Buat caption yang menarik & natural (bukan " +
     "generik/template) plus daftar hashtag relevan berdasarkan skrip & isi klip yang " +
@@ -227,10 +231,11 @@ export async function generateCaptionForImages(
   brandName: string,
   script: string,
   imageUrls: string[],
-  knowledgeSite?: string | null
+  knowledgeSite?: string | null,
+  manualKnowledge?: string | null
 ): Promise<GeneratedImageContent> {
   const client = getClient();
-  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite);
+  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   const system =
     "Kamu content strategist media sosial. Lihat SEMUA foto yang diberikan (bisa lebih " +
     "dari satu, urutan sesuai carousel), lalu buat SATU caption yang merangkum & " +

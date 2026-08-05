@@ -15,7 +15,7 @@ import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { DailyContentPlanner } from "@/components/dashboard/DailyContentPlanner";
 import { StoryboardDialog } from "@/components/dashboard/StoryboardDialog";
 import { FootageBankDialog } from "@/components/dashboard/FootageBankDialog";
-import { BrandLogoDialog } from "@/components/dashboard/BrandLogoDialog";
+import { BrandSettingsSidebar } from "@/components/dashboard/BrandSettingsSidebar";
 import { AutoContentButton } from "@/components/dashboard/AutoContentButton";
 import { toast } from "sonner";
 import type { Brand, Project } from "@/types";
@@ -41,10 +41,10 @@ function DashboardContent() {
   // ContentIdeas.tsx/DailyContentPlanner.tsx. Dipakai sbg `key` remount
   // NewProjectDialog di bawah biar initialScript-nya benar2 baru.
   const [prefillScript, setPrefillScript] = useState<string | null>(null);
-  // Diisi dari Content Planner harian (2026-08-05, permintaan Agus - "3 dibuat foto 7
-  // dibuat video") - tipe yg AI sarankan utk ide yg dipilih. "Ide Konten" lama tidak
-  // pernah isi ini (selalu undefined), NewProjectDialog default ke "video" spt biasa.
-  const [prefillType, setPrefillType] = useState<"video" | "carousel" | undefined>(undefined);
+  // Diisi dari Content Planner harian (2026-08-05, permintaan Agus - "4 foto 4 video 4
+  // carousel") - tipe yg AI sarankan utk ide yg dipilih. "Ide Konten" lama tidak pernah
+  // isi ini (selalu undefined), NewProjectDialog default ke "video" spt biasa.
+  const [prefillType, setPrefillType] = useState<"video" | "foto" | "carousel" | undefined>(undefined);
 
   const loadBrands = useCallback(async () => {
     const res = await fetch("/api/brands");
@@ -126,21 +126,19 @@ function DashboardContent() {
               {selectedBrandId && (
                 <DailyContentPlanner
                   brandId={selectedBrandId}
-                  brand={brands.find((b) => b.id === selectedBrandId) ?? null}
                   onPickIdea={(script, type) => {
                     setPrefillScript(script);
                     setPrefillType(type);
                   }}
-                  onSettingsChanged={loadBrands}
                 />
               )}
               {selectedBrandId && <ContentIdeas brandId={selectedBrandId} onPickIdea={setPrefillScript} />}
               {selectedBrandId && <StoryboardDialog brandId={selectedBrandId} />}
               {selectedBrandId && <FootageBankDialog brandId={selectedBrandId} />}
               {selectedBrandId && (
-                <BrandLogoDialog
+                <BrandSettingsSidebar
                   brandId={selectedBrandId}
-                  logoUrl={brands.find((b) => b.id === selectedBrandId)?.logoUrl ?? null}
+                  brand={brands.find((b) => b.id === selectedBrandId) ?? null}
                   onChanged={loadBrands}
                 />
               )}
@@ -153,6 +151,7 @@ function DashboardContent() {
                   brandId={selectedBrandId}
                   initialScript={prefillScript ?? undefined}
                   initialType={prefillType}
+                  carouselPhotosPerPost={brands.find((b) => b.id === selectedBrandId)?.carouselPhotosPerPost ?? 5}
                   onCreated={() => {
                     loadProjects(selectedBrandId);
                     setPrefillScript(null);

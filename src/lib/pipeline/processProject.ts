@@ -7,7 +7,7 @@ import {
   scoreSegments,
   MAX_CLIP_DURATION,
   computeFootageBudgets,
-  MIN_VIDEO_DURATION_SECONDS,
+  getDurationConfig,
 } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt } from "@/lib/ai/generateContent";
 // Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
@@ -82,6 +82,10 @@ export async function processProject(id: string): Promise<ProcessResult> {
     const [rawFootage] = rawFootageAssets;
 
     const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
+    // Durasi target video (2026-08-05, permintaan Agus - "video 30 detik 60 detik dan
+    // 1.30") - setting per-brand, dipakai SEMUA budget/klip di bawah (video-only, tidak
+    // relevan utk cabang carousel/foto di atas).
+    const durationConfig = getDurationConfig(brand?.videoDurationTarget);
 
     if (project.type === "carousel") {
       const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
@@ -89,7 +93,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
         brand?.name || "Brand",
         project.script,
         photoUrls,
-        brand?.knowledgeSite
+        brand?.knowledgeSite,
+        brand?.manualKnowledge
       );
 
       // Foto TUNGGAL pakai "Pelangi Homestay Poster Design System v1" (2026-08-05, master
@@ -169,8 +174,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
     let selected: SourcedSegment[];
     let selectedText: string;
     // Pool transkrip LENGKAP (semua segmen, bukan cuma yg terpilih) - diisi di cabang
-    // non-stok, dipakai lagi belakangan utk top-up minimum durasi 40 detik (lihat
-    // MIN_VIDEO_DURATION_SECONDS di bawah) kalau seleksi awal masih kurang.
+    // non-stok, dipakai lagi belakangan utk top-up minimum durasi (lihat durationConfig.min
+    // di bawah) kalau seleksi awal masih kurang.
     let pooled: (Awaited<ReturnType<typeof transcribeFootage>>[number] & { sourceUrl: string })[] = [];
 
     if (isStockFootage) {
@@ -232,7 +237,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // konten wisata dekat pelangi homestay pakai footage pexels 60% footage pelangi
       // 40%", KEBALIKAN dari rasio default 7:3 utk video promosi properti biasa - lihat
       // computeFootageBudgets di clipSelect.ts).
-      const footageBudgets = computeFootageBudgets(isDestinationContent(project.script));
+      const footageBudgets = computeFootageBudgets(isDestinationContent(project.script), durationConfig.target);
       const budgeted = selectClips(pooled, project.script, footageBudgets.realBudgetSeconds);
       // Pastikan SEMUA file yg Agus sediakan ikut terwakili (2026-08-05, bug nyata
       // ditemukan lewat tes live - selectClips cuma fallback ke 1 klip TERBAIK dari
@@ -271,7 +276,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
       brand?.name || "Brand",
       project.script,
       selectedText,
-      brand?.knowledgeSite
+      brand?.knowledgeSite,
+      brand?.manualKnowledge
     );
 
     // Kombinasi footage asli + Pexels (2026-08-05, permintaan Agus - "jika ada
@@ -291,7 +297,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
 
     let brollClips: Array<{ videoUrl: string; durationSeconds: number }> = [];
     if (!isStockFootage) {
-      const stockBudget = computeFootageBudgets(isDestinationContent(project.script)).stockBudgetSeconds;
+      const stockBudget = computeFootageBudgets(isDestinationContent(project.script), durationConfig.target).stockBudgetSeconds;
       brollClips = await fetchDestinationBrollClips(project.script, stockBudget, recentlyUsedUrls);
     }
     if (brollClips.length === 0 && brollKeywords) {
@@ -304,13 +310,14 @@ export async function processProject(id: string): Promise<ProcessResult> {
     }
 
     // Aturan KERAS (2026-08-05, permintaan Agus - "aturan konten video tidak boleh
-    // kurang dari 40 detik") - BEDA dari VIDEO_DURATION_TARGET (itu cuma titik tengah
-    // rencana budget SEBELUM tau durasi klip sungguhan - klip asli sering lebih pendek
-    // dari nominal MAX_CLIP_DURATION, bug durasi berulang sebelumnya justru dari sini).
-    // Top-up di SINI pakai durasi SUNGGUHAN (bukan estimasi), prioritas: (1) footage
-    // ASLI dulu (selaras "video didominasi footage Pelangi"), (2) B-roll generik kalau
-    // footage asli sudah habis, (3) GAGAL dgn pesan jelas kalau tetap kurang - drpd
-    // diam2 kirim video di bawah standar yg diwajibkan.
+    // kurang dari 40 detik" [saat target masih tetap 45s - sekarang skala proporsional
+    // ikut durationConfig.min, lihat clipSelect.ts]) - BEDA dari durationConfig.target
+    // (itu cuma titik tengah rencana budget SEBELUM tau durasi klip sungguhan - klip asli
+    // sering lebih pendek dari nominal MAX_CLIP_DURATION, bug durasi berulang sebelumnya
+    // justru dari sini). Top-up di SINI pakai durasi SUNGGUHAN (bukan estimasi), prioritas:
+    // (1) footage ASLI dulu (selaras "video didominasi footage Pelangi"), (2) B-roll
+    // generik kalau footage asli sudah habis, (3) GAGAL dgn pesan jelas kalau tetap kurang
+    // - drpd diam2 kirim video di bawah standar yg diwajibkan.
     const currentTotalDuration = () =>
       selected.reduce((sum, seg) => sum + (seg.end - seg.start), 0) +
       brollClips.reduce((sum, c) => sum + c.durationSeconds, 0);
@@ -319,9 +326,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // tertentu yg sungguhan diserve, jadi total durasi hasil RENDER akhir bisa sedikit di
     // bawah estimasi pre-render walau perhitungan nominal sudah pas di angka minimum).
     // Top-up di sini kejar target LEBIH TINGGI dari minimum sungguhan supaya varian kecil
-    // itu tidak bikin hasil akhir jatuh di bawah 40 detik - pengecekan akhir (setelah
+    // itu tidak bikin hasil akhir jatuh di bawah minimum - pengecekan akhir (setelah
     // render, lihat rendered.durationSeconds di bawah) tetap pakai angka minimum ASLI.
-    const PRE_RENDER_TARGET_SECONDS = MIN_VIDEO_DURATION_SECONDS + 3;
+    const PRE_RENDER_TARGET_SECONDS = durationConfig.min + 3;
 
     if (!isStockFootage && currentTotalDuration() < PRE_RENDER_TARGET_SECONDS) {
       // Tarik segmen ASLI TAMBAHAN dari pool lengkap (bukan cuma yg lolos budget/ambang
@@ -354,9 +361,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
       }
     }
 
-    if (currentTotalDuration() < MIN_VIDEO_DURATION_SECONDS) {
+    if (currentTotalDuration() < durationConfig.min) {
       throw new Error(
-        `Footage/B-roll yg tersedia tidak cukup utk capai minimum ${MIN_VIDEO_DURATION_SECONDS} detik ` +
+        `Footage/B-roll yg tersedia tidak cukup utk capai minimum ${durationConfig.min} detik ` +
           `(cuma dapat ~${Math.round(currentTotalDuration())} detik) - upload lebih banyak footage asli, atau coba ide/skrip lain.`
       );
     }
@@ -405,6 +412,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
       // cabang carousel di atas, sama alasannya.
       logoUrl: brand?.logoUrl,
+      // Orientasi (2026-08-05, permintaan Agus - "landscape atau potrait ini utk
+      // kebutuhan YT") - setting per-brand, default "portrait" kalau belum di-set.
+      orientation: brand?.videoOrientation,
     });
 
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,
@@ -414,10 +424,10 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // meleset. Render yg SUDAH JADI tapi ternyata di bawah standar tetap DIBUANG (bukan
     // dipublikasikan diam2 melanggar aturan "tidak boleh kurang dari 40 detik") - biaya
     // render yg terbuang lebih baik drpd konten yg melanggar aturan keras yg diminta Agus.
-    if (rendered.durationSeconds < MIN_VIDEO_DURATION_SECONDS) {
+    if (rendered.durationSeconds < durationConfig.min) {
       throw new Error(
         `Video hasil render cuma ${rendered.durationSeconds} detik, di bawah minimum ` +
-          `${MIN_VIDEO_DURATION_SECONDS} detik yg diwajibkan (estimasi pre-render meleset - ` +
+          `${durationConfig.min} detik yg diwajibkan (estimasi pre-render meleset - ` +
           `durasi nyata sumber footage beda dari metadata) - coba generate ulang.`
       );
     }

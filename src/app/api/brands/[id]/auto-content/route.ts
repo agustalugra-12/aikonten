@@ -9,6 +9,7 @@ import { isIdeSpesifikProperti } from "@/lib/ai/classifyIdea";
 import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, selectBalancedRealFootage } from "@/lib/ai/footageVariety";
+import { getDurationConfig } from "@/lib/ai/clipSelect";
 import { eq, desc } from "drizzle-orm";
 
 // "⚡ Konten Otomatis" (lihat memory proyek: "otomatis seperti AI blog") - satu klik,
@@ -19,12 +20,16 @@ import { eq, desc } from "drizzle-orm";
 // "ready" (draft), TIDAK auto-publish (lihat DraftReview.tsx).
 // Batas jumlah klip/foto yg dipakai dari hasil matchFootageForScript (2026-08-05,
 // permintaan Agus - "tambahkan sampai 15 klip" biar video bisa capai target 30-60
-// detik lewat gabungan banyak klip pendek, lihat processProject.ts). Foto TETAP
-// dibatasi lebih ketat (sama dgn NewProjectDialog.tsx MAX_CAROUSEL_PHOTOS) - carousel
+// detik lewat gabungan banyak klip pendek, lihat processProject.ts). Dinaikkan ke 20
+// (2026-08-05, sesi sama - permintaan durasi target sampai 90 detik/1.30, butuh ~17
+// klip di rata2 durasi klip asli ~3.7dtk - 15 tidak cukup lagi utk opsi 90 detik).
+// Foto TETAP dibatasi lebih ketat (lihat DEFAULT_CAROUSEL_PHOTOS_AUTO) - carousel
 // terlalu banyak foto tidak masuk akal utk 1 post, beda dgn video yg memang perlu
 // banyak klip pendek utk isi durasi.
-const MAX_VIDEO_CLIPS_AUTO = 15;
-const MAX_CAROUSEL_PHOTOS_AUTO = 5;
+const MAX_VIDEO_CLIPS_AUTO = 20;
+// Default kalau brand belum set carouselPhotosPerPost (row lama sblm migrasi 0012) -
+// brand.carouselPhotosPerPost dipakai kalau ada, lihat pemanggilnya di bawah.
+const DEFAULT_CAROUSEL_PHOTOS_AUTO = 5;
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: brandId } = await params;
@@ -45,7 +50,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .orderBy(desc(projects.createdAt))
         .limit(15);
       const recentScripts = recentProjects.map((p) => p.script).filter((s): s is string => !!s);
-      const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts, 4, [], brand.knowledgeSite);
+      const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts, 4, [], brand.knowledgeSite, brand.manualKnowledge);
       if (ideas.length === 0) {
         return NextResponse.json({ error: "AI tidak berhasil kasih ide konten" }, { status: 500 });
       }
@@ -63,7 +68,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (matchedUrls.length > 0) {
       // Tentukan tipe project dari jenis footage yg cocok pertama - foto bisa lebih dari
-      // 1 (carousel, sudah didukung, dibatasi MAX_CAROUSEL_PHOTOS_AUTO). Video JUGA bisa
+      // 1 (carousel, dibatasi brand.carouselPhotosPerPost - lihat schema.ts, setting
+      // per-brand sejak 2026-08-05). Video JUGA bisa
       // lebih dari 1 klip sekaligus (2026-08-05, permintaan Agus - "video didominasi
       // footage Pelangi", rasio 7:3, target 30-60 detik - 1 klip sendirian sering
       // terlalu pendek, lihat processProject.ts pooling multi-source &
@@ -101,9 +107,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         // otomatis diterapkan di dalamnya.
         // Target jumlah klip (2026-08-05, Agus tanya "kenapa video masih di bawah 30
         // detik" - root cause: klip asli sering <5dtk beneran [segmen whisper pendek],
-        // rata2 nyata ~3.7dtk/klip - 9 klip (~33dtk estimasi) lebih konsisten tembus
-        // target 30-60 detik drpd angka lebih kecil, dites nyata sebelumnya).
-        const TARGET_VIDEO_CLIP_COUNT = 9;
+        // rata2 nyata ~3.7dtk/klip - 9 klip [~33dtk estimasi] lebih konsisten tembus
+        // target 30-60 detik drpd angka lebih kecil, dites nyata sebelumnya). Diskalakan
+        // (2026-08-05, sesi sama) dari angka tetap 9 -> proporsional ke
+        // brand.videoDurationTarget (30/60/90) supaya opsi 90 detik juga benar2 dapat
+        // cukup klip, bukan tetap 9 spt sebelumnya (yg cuma pas utk target lama 45dtk).
+        const durationConfig = getDurationConfig(brand.videoDurationTarget);
+        const TARGET_VIDEO_CLIP_COUNT = Math.ceil(durationConfig.realBudgetSeconds / 3.7);
         const videoCandidates = matchedItems.filter((r) => r.mediaType === "video");
         const allBankVideos = matchedRows.filter((r) => r.mediaType === "video");
         urlsToUse = await selectBalancedRealFootage({
@@ -114,7 +124,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           filterViableSize,
         });
       } else {
-        urlsToUse = matchedUrls.slice(0, MAX_CAROUSEL_PHOTOS_AUTO);
+        urlsToUse = matchedUrls.slice(0, brand.carouselPhotosPerPost || DEFAULT_CAROUSEL_PHOTOS_AUTO);
       }
     } else {
       // Fallback (2026-08-04, permintaan Agus - "kalau footage tidak ada, tetap harus

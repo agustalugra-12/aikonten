@@ -17,11 +17,10 @@ import { newId } from "@/lib/ids";
 // suggestContentIdeas biasa) supaya tiap ide dapat score+reasoning eksplisit sesuai
 // PRD Agus, diurutkan skor tertinggi dulu.
 //
-// Video:Foto split (2026-08-05, permintaan Agus - "dari 10 konten ini 3 dibuat foto 7
-// dibuat video") - jumlah TOTAL tetap 10, tapi rasio video:carousel diambil dari
-// brands.dailyVideoCount/dailyCarouselCount (setting per-brand, default 7:3 PERSIS
-// sesuai permintaan awal - lihat schema.ts & BrandLogoDialog area di page.tsx utk UI
-// pengaturannya).
+// Volume harian per-tipe (2026-08-05, revisi Agus - awalnya "3 foto 7 video" [total
+// tetap 10], DIREVISI hari yg sama jadi 3 tipe TERPISAH tanpa total tetap: "4 foto, 4
+// vidio, 4 curasel artinya 12 konten" - total sekarang murni SEJUMLAH yg di-set Agus
+// (brands.dailyVideoCount + dailySinglePhotoCount + dailyCarouselCount), lihat schema.ts.
 
 export type DailyIdea = {
   id: string;
@@ -29,7 +28,7 @@ export type DailyIdea = {
   used: boolean;
   score: number | null;
   reasoning: string | null;
-  contentType: "video" | "carousel" | null;
+  contentType: "video" | "foto" | "carousel" | null;
 };
 
 export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {
@@ -82,8 +81,8 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
 
   const scoredIdeas = await suggestScoredContentIdeas(
     brand.name, brand.description, recentScripts,
-    brand.dailyVideoCount, brand.dailyCarouselCount,
-    recentClassifications, performanceClassifications, brand.knowledgeSite
+    brand.dailyVideoCount, brand.dailySinglePhotoCount, brand.dailyCarouselCount,
+    recentClassifications, performanceClassifications, brand.knowledgeSite, brand.manualKnowledge
   );
 
   const now = new Date();
