@@ -137,39 +137,6 @@ export async function resizeImageForTiktok(imageUrl: string): Promise<string> {
   });
 }
 
-// GPT Image (edit endpoint) mewajibkan gambar & mask berformat SAMA, ukuran SAMA,
-// kedua sisi kelipatan 16px, rasio panjang:pendek maks 3:1 - foto asli dari HP/frame
-// video jarang otomatis memenuhi ini. Crop ke ukuran PASTI via Cloudinary (smart-crop
-// `gravity: auto` spy tidak asal potong bagian penting foto) + convert PNG. Dipakai utk
-// overlay promo (1024x1024 persegi, lihat prepareSquarePng) MAUPUN thumbnail YouTube
-// (1280x720, 16:9 - lihat thumbnail.ts) - beda rasio, mekanisme sama.
-export async function prepareFixedSizePng(imageUrl: string, width: number, height: number): Promise<Buffer> {
-  configureCloudinary();
-
-  const hash = createHash("sha1").update(`${imageUrl}_${width}x${height}`).digest("hex").slice(0, 16);
-  const publicId = `kontenpilot_fixedsize_${hash}`;
-
-  const uploaded = await cloudinary.uploader.upload(imageUrl, {
-    resource_type: "image",
-    public_id: publicId,
-    overwrite: true,
-  });
-
-  const url = cloudinary.url(uploaded.public_id, {
-    resource_type: "image",
-    format: "png",
-    transformation: [{ width, height, crop: "fill", gravity: "auto" }],
-  });
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Gagal ambil foto yg sudah di-crop ${width}x${height}: ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
-}
-
-export async function prepareSquarePng(imageUrl: string, size: number): Promise<Buffer> {
-  return prepareFixedSizePng(imageUrl, size, size);
-}
-
 // Ambil 1 frame dari video mentah sbg dasar thumbnail YouTube (lihat thumbnail.ts) -
 // pola lazy-URL yg sama dgn resizeImageForTiktok, bukan mekanisme baru. `atSeconds`
 // dijaga TIDAK melebihi durasi video pendek (footage bisa cuma beberapa detik).

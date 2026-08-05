@@ -1,81 +1,65 @@
-import OpenAI, { toFile } from "openai";
+import { fal } from "@fal-ai/client";
 import sharp from "sharp";
-import { prepareFixedSizePng, extractVideoFrame } from "@/lib/render/cloudinary";
+import { extractVideoFrame } from "@/lib/render/cloudinary";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
+function ensureFalConfigured(): void {
+  const apiKey = process.env.FAL_KEY;
+  if (!apiKey) throw new Error("FAL_KEY belum diisi di .env");
+  fal.config({ credentials: apiKey });
 }
 
-// gpt-image-1 CUMA terima size preset tertentu (ditemukan via tes nyata ke API asli:
-// "Invalid size '1280x720'. Supported sizes are 1024x1024, 1024x1536, 1536x1024, and
-// auto.") - TIDAK bisa langsung minta 1280x720 (rasio asli thumbnail YouTube). Jadi
-// generate di preset landscape terdekat (1536x1024), baru crop lokal (sharp, position
-// "bottom" spy area teks di bawah TIDAK ikut kepotong) ke ukuran asli YouTube.
-const GENERATE_WIDTH = 1536;
-const GENERATE_HEIGHT = 1024;
 const FINAL_WIDTH = 1280;
 const FINAL_HEIGHT = 720;
 
-// Mask: transparan (BISA diedit) di PITA BAWAH selebar penuh (bukan pojok kecil spt
-// promoOverlay.ts - teks thumbnail harus kebaca sekilas), opaque (dilindungi) di
-// sisanya. Ada margin bawah (TIDAK sampai piksel paling bawah) spy teksnya tidak ikut
-// terpotong saat crop akhir ke 1280x720 dgn position:"bottom".
-async function buildThumbnailMask(width: number, height: number): Promise<Buffer> {
-  const bandTop = Math.round(height * 0.62);
-  const bandHeight = Math.round(height * 0.28);
-
-  const transparentBand = await sharp({
-    create: { width, height: bandHeight, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-  })
-    .png()
-    .toBuffer();
-
-  return sharp({
-    create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 255 } },
-  })
-    .composite([{ input: transparentBand, left: 0, top: bandTop }])
-    .png()
-    .toBuffer();
-}
-
 // Ambil 1 frame dari footage asli (bukan generate gambar dari nol - konsisten dgn
-// filosofi app ini: berbasis footage asli, lihat memory proyek), lalu GPT Image
-// nempelkan teks hook thumbnail yg BOLD & gampang kebaca di pita bawah SAJA (mask-
-// constrained, sama prinsipnya dgn promoOverlay.ts) - sisa foto TIDAK berubah.
+// filosofi app ini: berbasis footage asli, lihat memory proyek), lalu Nano Banana 2
+// (fal.ai) nempelkan teks hook thumbnail yg BOLD & gampang kebaca di bagian bawah foto.
+//
+// Pindah dari gpt-image-1 ke Nano Banana 2 (2026-08-05, sama alasan dgn posterDesign.ts
+// - permintaan Agus, satu model konsisten utk semua generator gambar) - TRADE-OFF YANG
+// SENGAJA DITERIMA Agus: model ini TIDAK PUNYA fitur mask biner sama sekali (dicek
+// langsung ke skema resmi endpoint-nya, tidak ada field mask), beda dari gpt-image-1
+// yang dipakai sebelumnya di sini (mask keras di pita bawah, area lain TERKUNCI di
+// level piksel). Sekarang jaminan "sisa foto tidak berubah" PENUH bergantung pada
+// instruksi prompt yang tegas, bukan dikunci teknis lagi - kalau ke depan hasil sering
+// mengubah bagian foto di luar teks, itu pertanda perlu balik ke provider yg punya
+// mask (mis. fal-ai/qwen-image-edit/inpaint, sudah dicek support mask_url asli), bukan
+// sekadar menulis ulang prompt berkali-kali.
 export async function generateThumbnail(opts: {
   brandId: string;
   projectId: string;
   rawFootageUrl: string;
   thumbnailText: string;
 }): Promise<string> {
-  const client = getClient();
+  ensureFalConfigured();
 
   const frameUrl = await extractVideoFrame(opts.rawFootageUrl, 1);
-  const baseImage = await prepareFixedSizePng(frameUrl, GENERATE_WIDTH, GENERATE_HEIGHT);
-  const mask = await buildThumbnailMask(GENERATE_WIDTH, GENERATE_HEIGHT);
 
-  const response = await client.images.edit({
-    model: "gpt-image-1",
-    image: await toFile(baseImage, "frame.png", { type: "image/png" }),
-    mask: await toFile(mask, "mask.png", { type: "image/png" }),
-    prompt:
-      `Add bold, large, high-contrast YouTube-thumbnail-style text reading exactly ` +
-      `"${opts.thumbnailText}" inside the highlighted (transparent) band only - thick ` +
-      "readable font, strong outline or drop shadow so it pops against the background. " +
-      "Do not add, remove, or change anything outside the highlighted area - the rest " +
-      "of the photo must stay exactly the same.",
-    size: "1536x1024",
+  const result = await fal.subscribe("fal-ai/nano-banana-2/edit", {
+    input: {
+      prompt:
+        `Add bold, large, high-contrast YouTube-thumbnail-style text reading exactly ` +
+        `"${opts.thumbnailText}" near the bottom of the photo - thick readable font, strong ` +
+        "outline or drop shadow so it pops against the background. Do not add, remove, or " +
+        "change anything else in the photo - the rest of the image must stay exactly the same " +
+        "as the original, only the text is new.",
+      image_urls: [frameUrl],
+      aspect_ratio: "16:9",
+      resolution: "1K",
+    },
   });
 
-  const b64 = response.data?.[0]?.b64_json;
-  if (!b64) throw new Error("GPT Image tidak mengembalikan hasil thumbnail");
+  const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
+  if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil thumbnail");
 
-  // Crop ke rasio asli YouTube (16:9) - position "bottom" spy pita teks di bawah TIDAK
-  // ikut kepotong (kelebihan tinggi dibuang dari ATAS, bukan bawah).
-  const cropped = await sharp(Buffer.from(b64, "base64"))
+  const res = await fetch(imageUrl);
+  if (!res.ok) throw new Error(`Gagal ambil hasil thumbnail dari fal.ai: ${res.status}`);
+  const raw = Buffer.from(await res.arrayBuffer());
+
+  // Crop akhir ke ukuran PASTI YouTube (1280x720) - position "bottom" spy teks di
+  // bagian bawah TIDAK ikut kepotong (kelebihan tinggi dibuang dari ATAS, bukan bawah).
+  const cropped = await sharp(raw)
     .resize(FINAL_WIDTH, FINAL_HEIGHT, { fit: "cover", position: "bottom" })
     .png()
     .toBuffer();
