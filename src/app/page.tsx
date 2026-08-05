@@ -162,6 +162,8 @@ function DashboardContent() {
               )}
             </div>
 
+            {selectedBrandId && <AnalyticsSummary brandId={selectedBrandId} />}
+
             {selectedBrandId && (
               <DraftReview brandId={selectedBrandId} projects={projects} onChange={() => loadProjects(selectedBrandId)} />
             )}
@@ -176,7 +178,6 @@ function DashboardContent() {
             </Card>
 
             {selectedBrandId && <SocialAccounts brandId={selectedBrandId} />}
-            {selectedBrandId && <AnalyticsSummary brandId={selectedBrandId} />}
           </>
         )}
       </main>
