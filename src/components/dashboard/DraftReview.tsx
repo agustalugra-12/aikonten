@@ -115,7 +115,20 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
         <p className="text-sm text-muted-foreground">Memuat pratinjau...</p>
       ) : finalVideo ? (
         <video controls src={finalVideo.fileUrl} className="w-full max-h-[420px] rounded-md bg-black" />
-      ) : finalImages.length > 0 ? (
+      ) : finalImages.length === 1 ? (
+        // Foto TUNGGAL (poster) - tampil PENUH & UTUH (2026-08-05, bug nyata dilaporkan
+        // Agus: sebelumnya poster foto tunggal ikut dipaksa masuk grid-cols-3 yg dibuat
+        // utk carousel BANYAK foto, jadi cuma kelihatan 1/3 lebar & KEPOTONG persegi
+        // (aspect-square + object-cover) - poster teks/badge/layout-nya jadi hilang
+        // sebagian/nyaris tidak kelihatan. object-contain (bukan cover) supaya rasio asli
+        // poster (1:1/4:5) tetap utuh, tidak dipaksa persegi.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={finalImages[0].fileUrl}
+          alt=""
+          className="w-full max-h-[520px] object-contain rounded-md bg-muted"
+        />
+      ) : finalImages.length > 1 ? (
         <div className="grid grid-cols-3 gap-2">
           {finalImages.map((img) => (
             // eslint-disable-next-line @next/next/no-img-element
