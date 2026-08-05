@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { fetchPelangiKnowledge } from "./pelangiKnowledge";
 import { CONTENT_PILLARS, CONTENT_ANGLES, type ContentPillar, type ContentAngle } from "./generateContent";
+import { buildSeasonalContext } from "./seasonalContext";
 
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -93,11 +94,14 @@ export async function suggestContentIdeas(
   const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
   const knowledge = await fetchPelangiKnowledge();
   const distributionBlock = buildDistributionBlock(recentClassifications);
+  const seasonalBlock = buildSeasonalContext();
 
   const system =
     `Kamu content strategist media sosial utk bisnis lokal Indonesia. Usulkan ${count} ide ` +
     "brief konten singkat (1-2 kalimat tiap ide, Bahasa Indonesia) yang RELEVAN dgn " +
-    "niche brand & musim/tanggal sekarang. Ide harus konkret & bisa langsung difilmkan " +
+    "niche brand & musim/tanggal sekarang - manfaatkan # KONTEKS KALENDER di bawah kalau " +
+    "relevan (mis. weekend/libur nasional - ide \"persiapan liburan\"/promo), TAPI JANGAN " +
+    "PAKSA semua ide berbau kalender kalau tidak natural. Ide harus konkret & bisa langsung difilmkan " +
     "dgn footage asli (bukan konsep abstrak) - fokus ke hal yg BENAR-BENAR ada di " +
     "tempat/bisnis semacam ini, JANGAN mengarang fasilitas/promo yg belum tentu ada. " +
     "JANGAN ulangi ide yg mirip dgn skrip yg sudah pernah dipakai brand ini - kalau " +
@@ -126,8 +130,9 @@ export async function suggestContentIdeas(
       : "");
   const user =
     `Brand: ${brandName}\nDeskripsi/niche: ${brandDescription || "(tidak ada deskripsi)"}\n` +
-    `Tanggal hari ini: ${today}\n\n` +
-    (knowledge ? `# KNOWLEDGE BASE ASLI PROPERTI\n${knowledge}\n\n` : "") +
+    `Tanggal hari ini: ${today}\n` +
+    seasonalBlock +
+    (knowledge ? `\n\n# KNOWLEDGE BASE ASLI PROPERTI\n${knowledge}\n\n` : "\n\n") +
     `Skrip yg sudah pernah dipakai (JANGAN diulang, WAJIB beda angle):\n${recentScripts.length ? recentScripts.map((s) => `- ${s}`).join("\n") : "(belum ada)"}\n` +
     distributionBlock +
     `\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"ideas": ["...", "...", "..."]}`;
