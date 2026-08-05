@@ -123,12 +123,26 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lingkaran, proporsional,
       // ditempel di SETIAP foto final (poster tunggal MAUPUN carousel) - dilewati
       // begitu saja kalau brand belum punya logoUrl.
+      //
+      // Per-foto try/catch (2026-08-06, bug nyata ditemukan lewat tes live) - ditemukan
+      // 5 file JPEG di Footage Bank Pelangi yg SECARA STRUKTURAL rusak ("VipsJpeg: Invalid
+      // SOS parameters for sequential JPEG" - lolos baca metadata, tapi crash pas
+      // sharp benar2 decode+composite+encode ulang). SEBELUM ini 1 foto rusak di tengah
+      // batch carousel bikin SELURUH project gagal (Promise.all melempar begitu salah
+      // satu gagal) - sekarang kegagalan logo overlay utk 1 foto SPESIFIK di-skip (pakai
+      // foto TANPA logo utk foto itu saja), bukan gagalkan seluruh batch - foto lain yg
+      // sehat tetap dapat logo normal.
       const brandedImageUrls = brand?.logoUrl
         ? await Promise.all(
             finalImageUrls.map(async (url, i) => {
-              const buffer = await applyLogoToImage(url, brand.logoUrl!);
-              const key = buildAssetKey(project.brandId, id, `logo_${i}.png`);
-              return uploadBuffer(key, buffer, "image/png");
+              try {
+                const buffer = await applyLogoToImage(url, brand.logoUrl!);
+                const key = buildAssetKey(project.brandId, id, `logo_${i}.png`);
+                return await uploadBuffer(key, buffer, "image/png");
+              } catch (err) {
+                console.error(`[processProject] gagal tempel logo di foto ${i} (${url}), pakai foto asli tanpa logo:`, err);
+                return url;
+              }
             })
           )
         : finalImageUrls;

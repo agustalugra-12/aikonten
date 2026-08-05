@@ -49,7 +49,14 @@ export function BrandSettingsSidebar({
   const [videoDuration, setVideoDuration] = useState(String(brand?.videoDurationTarget ?? 60));
   const [carouselPhotos, setCarouselPhotos] = useState(String(brand?.carouselPhotosPerPost ?? 5));
   const [orientation, setOrientation] = useState(brand?.videoOrientation ?? "portrait");
+  const [publishMode, setPublishMode] = useState(brand?.publishMode ?? "draft");
+  const [autoPublishTime, setAutoPublishTime] = useState(brand?.autoPublishTime ?? "08:00");
   const [savingAutomation, setSavingAutomation] = useState(false);
+
+  const [manualIdeaList, setManualIdeaList] = useState<
+    { id: string; idea: string; source: string; used: boolean; createdAt: string }[] | null
+  >(null);
+  const [uploadingIdeas, setUploadingIdeas] = useState(false);
 
   // Sinkron ulang tiap dialog dibuka - brand bisa berubah (ganti brand aktif) atau
   // data terbaru masuk sejak terakhir dibuka.
@@ -63,7 +70,13 @@ export function BrandSettingsSidebar({
     setVideoDuration(String(brand?.videoDurationTarget ?? 60));
     setCarouselPhotos(String(brand?.carouselPhotosPerPost ?? 5));
     setOrientation(brand?.videoOrientation ?? "portrait");
-  }, [open, brand]);
+    setPublishMode(brand?.publishMode ?? "draft");
+    setAutoPublishTime(brand?.autoPublishTime ?? "08:00");
+    fetch(`/api/brands/${brandId}/manual-ideas`)
+      .then((r) => r.json())
+      .then((d) => setManualIdeaList(d.ideas || []))
+      .catch(() => setManualIdeaList([]));
+  }, [open, brand, brandId]);
 
   async function patchBrand(body: Record<string, unknown>): Promise<boolean> {
     const res = await fetch(`/api/brands/${brandId}`, {
@@ -127,10 +140,15 @@ export function BrandSettingsSidebar({
 
   const automationTotal = videoCount + fotoCount + carouselCount;
   const automationInvalid = automationTotal < 1;
+  const autoPublishInvalid = publishMode === "auto" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(autoPublishTime);
 
   async function handleSaveAutomation() {
     if (automationInvalid) {
       toast.error("Total video + foto + carousel harus minimal 1");
+      return;
+    }
+    if (autoPublishInvalid) {
+      toast.error("Jam auto-publish wajib diisi (format HH:MM) kalau mode Auto-Publish dipilih");
       return;
     }
     setSavingAutomation(true);
@@ -141,12 +159,43 @@ export function BrandSettingsSidebar({
       videoDurationTarget: Number(videoDuration),
       carouselPhotosPerPost: Number(carouselPhotos),
       videoOrientation: orientation,
+      publishMode,
+      autoPublishTime: publishMode === "auto" ? autoPublishTime : null,
     });
     setSavingAutomation(false);
     if (ok) {
       toast.success("Pengaturan otomasi disimpan - berlaku mulai batch berikutnya (buat ulang rencana konten, atau otomatis besok)");
       onChanged();
     }
+  }
+
+  async function handleUploadIdeas(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setUploadingIdeas(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/api/brands/${brandId}/manual-ideas`, { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal upload ide");
+      toast.success(`${data.count} ide berhasil ditambahkan ke Bank Ide`);
+      const listRes = await fetch(`/api/brands/${brandId}/manual-ideas`);
+      setManualIdeaList((await listRes.json()).ideas || []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal upload ide");
+    } finally {
+      setUploadingIdeas(false);
+    }
+  }
+
+  async function handleDeleteIdea(ideaId: string) {
+    await fetch(`/api/brands/${brandId}/manual-ideas`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ideaId }),
+    });
+    setManualIdeaList((prev) => prev?.filter((i) => i.id !== ideaId) ?? null);
   }
 
   return (
@@ -160,6 +209,7 @@ export function BrandSettingsSidebar({
           <TabsList className="w-full">
             <TabsTrigger value="logo">Logo</TabsTrigger>
             <TabsTrigger value="knowledge">Knowledge Base</TabsTrigger>
+            <TabsTrigger value="ideabank">Bank Ide</TabsTrigger>
             <TabsTrigger value="automation">Automation</TabsTrigger>
           </TabsList>
 
@@ -218,6 +268,39 @@ export function BrandSettingsSidebar({
             <Button size="sm" onClick={handleSaveKnowledge} disabled={savingKnowledge}>
               {savingKnowledge ? "Menyimpan..." : "Simpan Knowledge Base"}
             </Button>
+          </TabsContent>
+
+          <TabsContent value="ideabank" className="space-y-4 pt-3">
+            <p className="text-sm text-muted-foreground">
+              Upload ide konten sendiri (.xlsx, .xls, atau .pdf - 1 ide per baris). Ide di sini dipakai LEBIH DULU
+              tiap rencana konten harian dibuat, AI cuma isi sisa slot yang belum terpenuhi.
+            </p>
+            <Input type="file" accept=".xlsx,.xls,.pdf" onChange={(e) => handleUploadIdeas(e.target.files)} disabled={uploadingIdeas} />
+            {uploadingIdeas && <p className="text-xs text-muted-foreground">Mengunggah &amp; membaca ide...</p>}
+
+            {manualIdeaList === null ? (
+              <p className="text-xs text-muted-foreground">Memuat...</p>
+            ) : manualIdeaList.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Belum ada ide manual - upload file di atas.</p>
+            ) : (
+              <ul className="space-y-1.5 max-h-60 overflow-y-auto">
+                {manualIdeaList.map((i) => (
+                  <li key={i.id} className="flex items-start gap-2 text-xs rounded-md border p-2">
+                    <span className="flex-1">
+                      {i.idea}
+                      <span className="block text-muted-foreground mt-0.5">
+                        {i.source} {i.used ? "· sudah dipakai" : "· belum dipakai"}
+                      </span>
+                    </span>
+                    {!i.used && (
+                      <Button variant="ghost" size="sm" className="h-6 px-2 shrink-0" onClick={() => handleDeleteIdea(i.id)}>
+                        Hapus
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </TabsContent>
 
           <TabsContent value="automation" className="space-y-4 pt-3">
@@ -293,7 +376,39 @@ export function BrandSettingsSidebar({
               </Select>
             </div>
 
-            <Button size="sm" onClick={handleSaveAutomation} disabled={savingAutomation || automationInvalid}>
+            <div className="space-y-1 pt-1 border-t">
+              <Label htmlFor="publishMode" className="text-xs">🚀 Mode publikasi</Label>
+              <p className="text-xs text-muted-foreground">
+                Draft: konten digenerate lalu MENUNGGU klik manual Agus utk publish (spt sekarang). Auto-Publish:
+                konten tetap digenerate sama persis, TAPI otomatis dipublikasikan sendiri begitu jam di bawah tiba -
+                tidak perlu klik manual.
+              </p>
+              <Select value={publishMode} onValueChange={(v) => setPublishMode((v || "draft") as "draft" | "auto")}>
+                <SelectTrigger id="publishMode" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">Draft (publish manual)</SelectItem>
+                  <SelectItem value="auto">Auto-Publish (terjadwal)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {publishMode === "auto" && (
+              <div className="space-y-1">
+                <Label htmlFor="autoPublishTime" className="text-xs">⏰ Jam auto-publish (WITA)</Label>
+                <Input
+                  id="autoPublishTime"
+                  type="time"
+                  value={autoPublishTime}
+                  onChange={(e) => setAutoPublishTime(e.target.value)}
+                  className="w-32"
+                />
+                {autoPublishInvalid && <p className="text-xs text-destructive">Jam wajib diisi</p>}
+              </div>
+            )}
+
+            <Button size="sm" onClick={handleSaveAutomation} disabled={savingAutomation || automationInvalid || autoPublishInvalid}>
               {savingAutomation ? "Menyimpan..." : "Simpan Automation"}
             </Button>
           </TabsContent>

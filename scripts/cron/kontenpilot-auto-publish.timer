@@ -1,0 +1,14 @@
+[Unit]
+Description=Jadwal KontenPilot AI - cek auto-publish tiap 15 menit
+
+[Timer]
+# SERING (bukan 1x/hari) SENGAJA - tiap brand boleh py jam auto-publish (WITA) BEDA-BEDA
+# (lihat brands.autoPublishTime), jadwal tunggal per-hari tidak cukup fleksibel utk itu.
+# Endpoint-nya sendiri yg hitung "jam WITA sekarang >= autoPublishTime brand ini?" per
+# brand (lihat /api/cron/auto-publish/route.ts) - timer ini cuma perlu jalan CUKUP SERING
+# spy keterlambatan publish minimal, tidak perlu presisi ke menit exact.
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

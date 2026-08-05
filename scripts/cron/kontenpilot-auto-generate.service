@@ -1,0 +1,10 @@
+[Unit]
+Description=KontenPilot AI - proses ide harian jadi draft siap-publish (brand mode Auto-Publish)
+
+[Service]
+Type=oneshot
+# Timeout longgar (2026-08-06) - render video/generate poster per ide bisa makan waktu
+# (ffmpeg + beberapa panggilan API berbayar), dikali beberapa ide sekaligus utk brand
+# auto-publish - default systemd (90s) jelas tidak cukup.
+TimeoutStartSec=1800
+ExecStart=/root/kontenpilot-ai/scripts/cron/call-endpoint.sh /api/cron/auto-generate

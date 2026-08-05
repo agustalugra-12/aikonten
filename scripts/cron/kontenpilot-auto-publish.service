@@ -1,0 +1,6 @@
+[Unit]
+Description=KontenPilot AI - publish otomatis brand yang jam auto-publish-nya sudah tiba
+
+[Service]
+Type=oneshot
+ExecStart=/root/kontenpilot-ai/scripts/cron/call-endpoint.sh /api/cron/auto-publish

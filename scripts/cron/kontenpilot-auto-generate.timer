@@ -1,0 +1,12 @@
+[Unit]
+Description=Jadwal harian KontenPilot AI - proses konten brand auto-publish (03:15 WITA)
+
+[Timer]
+# 15 menit setelah daily-ideas (02:00 WIB) - beri jeda supaya ide hari ini sudah pasti
+# ada sebelum auto-generate mulai jalan (walau auto-generate SENDIRI juga idempotent
+# panggil getOrGenerateDailyIdeas dulu sbg jaring pengaman, urutan ini tetap lebih rapi).
+OnCalendar=*-*-* 02:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

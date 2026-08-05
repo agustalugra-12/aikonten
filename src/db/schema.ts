@@ -65,6 +65,18 @@ export const brands = sqliteTable("brands", {
   // pemanggil (bukan NOT NULL default di sini) - brand yang sudah ada (row lama) otomatis
   // tetap dapat perilaku SAMA PERSIS spt sebelumnya tanpa perlu migrasi data manual.
   knowledgeSite: text("knowledge_site"),
+  // Draft vs Auto-Publish (2026-08-06, permintaan Agus - "aku juga ada fitur pilihan
+  // draft atau langsung publis, jika langsung publis maka hasil generate vidio dan
+  // poster langsung di kirim..., hasil generate akan diam di draft sampai jam yang di
+  // tentukan tiba sistem auto publis") - default "draft" (perilaku SEKARANG, aman utk
+  // brand lama tanpa migrasi data). "auto": konten TETAP digenerate/dirender sama
+  // persis spt draft (lihat cron/auto-generate), CUMA beda di titik akhir - bukan
+  // nunggu klik manual, publishProject() dipanggil otomatis begitu autoPublishTime
+  // (WITA) tiba (lihat cron/auto-publish).
+  publishMode: text("publish_mode", { enum: ["draft", "auto"] }).notNull().default("draft"),
+  // "HH:MM" WITA, nullable - HANYA relevan kalau publishMode="auto". Validasi format di
+  // route.ts PATCH.
+  autoPublishTime: text("auto_publish_time"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -250,5 +262,21 @@ export const dailyIdeas = sqliteTable("daily_ideas", {
   // keduanya). Baris lama (sblm migrasi) tetap valid - nilainya cuma "video"/"carousel",
   // tidak ada yg otomatis jadi "foto" tanpa sengaja.
   contentType: text("content_type", { enum: ["video", "foto", "carousel"] }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+// Bank Ide Manual (2026-08-06, permintaan Agus - "owner juga bisa menambahkan ide
+// konten secara manual dsini dalam bentuk excel maupun pdf jadi akan otomatis
+// disimpan dan diambil sebagai bahan konten jika sudah habis otomatis masuk ke ide
+// konten yang disediakan ai setiap hari") - dikonsumsi FIFO (createdAt terlama dulu)
+// SEBELUM AI generate ide baru tiap hari (lihat dailyContentPlanner.ts), bukan
+// tergantikan - AI cuma isi kekurangan kalau bank ini belum cukup utk target
+// harian.
+export const manualIdeas = sqliteTable("manual_ideas", {
+  id: text("id").primaryKey(),
+  brandId: text("brand_id").notNull().references(() => brands.id),
+  idea: text("idea").notNull(),
+  source: text("source").notNull(), // nama file asal (mis. "ide-agustus.xlsx") - jejak audit, bukan dipakai logika
+  used: integer("used", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

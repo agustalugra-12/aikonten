@@ -31,6 +31,15 @@ export function todayDateKeyWita(): string {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Makassar" }); // "YYYY-MM-DD"
 }
 
+// Jam saat ini di WITA, format "HH:MM" (2026-08-06, permintaan Agus - mode Auto-Publish
+// terjadwal). VPS ini jalan di WIB (Asia/Jakarta, dicek langsung via timedatectl) - 1 jam
+// LEBIH LAMBAT dari WITA, jadi TIDAK BOLEH pakai jam sistem server mentah utk bandingkan
+// ke brands.autoPublishTime (yg diisi Agus dlm WITA, waktu Bedugul/Bali) - selalu konversi
+// eksplisit via timeZone "Asia/Makassar", sama pola dgn todayDateKeyWita di atas.
+export function nowTimeStringWita(): string {
+  return new Date().toLocaleTimeString("sv-SE", { timeZone: "Asia/Makassar", hour: "2-digit", minute: "2-digit" }); // "HH:MM"
+}
+
 // Target komposisi Content Pillar (2026-08-05, PRD Agus, angka PERSIS dari PRD) - dipakai
 // buildDistributionBlock di bawah utk bandingkan realita vs target, BUKAN cuma dijadikan
 // dokumentasi mati.
@@ -245,12 +254,27 @@ export async function suggestScoredContentIdeas(
   recentClassifications: RecentClassification[] = [],
   performanceClassifications: PerformanceClassification[] = [],
   knowledgeSite?: string | null,
-  manualKnowledge?: string | null
+  manualKnowledge?: string | null,
+  // Bank Ide Manual (2026-08-06, permintaan Agus - "ide konten secara manual...
+  // otomatis diambil sebagai bahan konten, jika sudah habis otomatis masuk ke ide
+  // konten yang disediakan ai") - ide dari owner (upload Excel/PDF) WAJIB masuk hasil
+  // apa adanya (boleh dirapikan redaksinya, JANGAN diubah topik/maksudnya), AI cuma
+  // mengisi SISA slot yg belum terisi + tetap kasih score/reasoning/contentType utk
+  // SEMUA ide (termasuk yg dari owner) - satu panggilan API yg sama, bukan 2 panggilan
+  // terpisah.
+  mustIncludeIdeas: string[] = []
 ): Promise<ScoredIdea[]> {
   const client = getClient();
   const count = videoCount + fotoCount + carouselCount;
   const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge);
   const performanceBlock = buildPerformanceInsightBlock(performanceClassifications);
+  const mustIncludeBlock =
+    mustIncludeIdeas.length > 0
+      ? `\n\n# IDE WAJIB DARI OWNER (${mustIncludeIdeas.length} ide, harus ADA di hasil - boleh ` +
+        `dirapikan redaksinya spy natural sbg brief konten, TAPI JANGAN ubah topik/maksudnya):\n` +
+        mustIncludeIdeas.map((i) => `- ${i}`).join("\n") +
+        `\n\nSisanya (${count - mustIncludeIdeas.length} ide) silakan usulkan sendiri sesuai instruksi di atas.`
+      : "";
 
   const scoredSystem =
     system +
@@ -282,7 +306,7 @@ export async function suggestScoredContentIdeas(
     "beberapa slide tanpa alasan, harus ada alasan NYATA butuh multi-foto. JANGAN asal bagi " +
     "rata, pilih yg PALING NATURAL utk tiap format.";
   const scoredUser =
-    `${user}${performanceBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
+    `${user}${performanceBlock}${mustIncludeBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
     `{"ideas": [{"idea": "...", "score": 0, "reasoning": "...", "contentType": "video"}, ...]}`;
 
   const completion = await client.chat.completions.create({

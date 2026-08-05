@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { dailyIdeas, brands, projects } from "@/db/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { dailyIdeas, brands, projects, manualIdeas } from "@/db/schema";
+import { and, eq, desc, asc, inArray } from "drizzle-orm";
 import { suggestScoredContentIdeas, todayDateKeyWita } from "./researchTopics";
 import { syncBrandPerformance } from "./performanceLearning";
 import { newId } from "@/lib/ids";
@@ -79,11 +79,29 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     pillar: p.pillar, angle: p.angle, performanceViews: p.performanceViews,
   }));
 
+  // Bank Ide Manual (2026-08-06, permintaan Agus - "otomatis diambil sebagai bahan
+  // konten jika sudah habis otomatis masuk ke ide konten yang disediakan ai") - ambil
+  // ide BELUM DIPAKAI punya brand ini, FIFO (createdAt terlama dulu - ide yg diupload
+  // duluan dipakai duluan), MAKSIMAL sejumlah target harian (sisanya biar AI generate
+  // sendiri, lihat mustIncludeIdeas di suggestScoredContentIdeas).
+  const dailyTotal = brand.dailyVideoCount + brand.dailySinglePhotoCount + brand.dailyCarouselCount;
+  const manualPool = await db
+    .select()
+    .from(manualIdeas)
+    .where(and(eq(manualIdeas.brandId, brandId), eq(manualIdeas.used, false)))
+    .orderBy(asc(manualIdeas.createdAt))
+    .limit(dailyTotal);
+
   const scoredIdeas = await suggestScoredContentIdeas(
     brand.name, brand.description, recentScripts,
     brand.dailyVideoCount, brand.dailySinglePhotoCount, brand.dailyCarouselCount,
-    recentClassifications, performanceClassifications, brand.knowledgeSite, brand.manualKnowledge
+    recentClassifications, performanceClassifications, brand.knowledgeSite, brand.manualKnowledge,
+    manualPool.map((m) => m.idea)
   );
+
+  if (manualPool.length > 0) {
+    await db.update(manualIdeas).set({ used: true }).where(inArray(manualIdeas.id, manualPool.map((m) => m.id)));
+  }
 
   const now = new Date();
   const rows = scoredIdeas.map((s) => ({

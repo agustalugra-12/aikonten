@@ -8,6 +8,14 @@ export async function proxy(req: NextRequest) {
   if (PUBLIC_PATHS.some((p) => pathname === p) || pathname.startsWith("/_next")) {
     return NextResponse.next();
   }
+  // Cron internal (2026-08-06, permintaan Agus - infra scheduler) - dipanggil systemd
+  // timer via curl LOKAL (bukan browser Agus), TIDAK PERNAH punya cookie sesi login sama
+  // sekali. Auth-nya SENDIRI (X-Cron-Key vs CRON_SECRET, lihat lib/cron/verify.ts) -
+  // dilewatkan proxy ini SUPAYA request-nya benar2 sampai ke route handler & dicek di
+  // sana, bukan ditolak duluan di sini krn tidak punya cookie.
+  if (pathname.startsWith("/api/cron/")) {
+    return NextResponse.next();
+  }
 
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   const valid = token ? await verifySessionToken(token) : false;

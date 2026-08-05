@@ -94,6 +94,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     update.knowledgeSite = body.knowledgeSite;
   }
 
+  // Draft vs Auto-Publish (2026-08-06, permintaan Agus - "pilihan draft atau langsung
+  // publis"). autoPublishTime WAJIB diisi format "HH:MM" kalau publishMode="auto" -
+  // divalidasi di sini SEKALIGUS (bukan 2 field independen) supaya tidak mungkin
+  // tersimpan "auto" tanpa jam, atau jam tanpa mode - kombinasi yg tidak masuk akal.
+  if ("publishMode" in body || "autoPublishTime" in body) {
+    const publishMode = "publishMode" in body ? body.publishMode : existing.publishMode;
+    const autoPublishTime = "autoPublishTime" in body ? body.autoPublishTime : existing.autoPublishTime;
+    if (publishMode !== "draft" && publishMode !== "auto") {
+      return NextResponse.json({ error: "publishMode harus 'draft' atau 'auto'" }, { status: 400 });
+    }
+    if (publishMode === "auto") {
+      if (typeof autoPublishTime !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(autoPublishTime)) {
+        return NextResponse.json({ error: "autoPublishTime wajib diisi format HH:MM (WITA) kalau publishMode='auto'" }, { status: 400 });
+      }
+    }
+    update.publishMode = publishMode;
+    update.autoPublishTime = publishMode === "auto" ? autoPublishTime : null;
+  }
+
   await db.update(brands).set(update).where(eq(brands.id, id));
   const [updated] = await db.select().from(brands).where(eq(brands.id, id));
   return NextResponse.json(updated);

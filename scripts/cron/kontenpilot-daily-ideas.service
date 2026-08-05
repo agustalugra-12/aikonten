@@ -1,0 +1,6 @@
+[Unit]
+Description=KontenPilot AI - generate rencana ide harian semua brand
+
+[Service]
+Type=oneshot
+ExecStart=/root/kontenpilot-ai/scripts/cron/call-endpoint.sh /api/cron/daily-ideas

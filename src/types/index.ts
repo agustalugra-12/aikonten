@@ -12,6 +12,8 @@ export type Brand = {
   videoOrientation: "portrait" | "landscape";
   manualKnowledge: string | null;
   knowledgeSite: string | null;
+  publishMode: "draft" | "auto";
+  autoPublishTime: string | null;
   createdAt: string;
 };
 

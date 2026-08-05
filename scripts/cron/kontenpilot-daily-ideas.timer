@@ -1,0 +1,11 @@
+[Unit]
+Description=Jadwal harian KontenPilot AI - generate ide (03:00 WITA)
+
+[Timer]
+# Server VPS ini jalan di WIB (Asia/Jakarta, dicek via timedatectl) - WITA (zona bisnis
+# Agus, Bedugul/Bali) SELALU 1 jam LEBIH CEPAT dari WIB. Target 03:00 WITA = 02:00 WIB.
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
