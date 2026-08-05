@@ -59,6 +59,8 @@ OUTPUT: resolusi tinggi, social media ready (4:5 atau 1:1), margin rapi, semua t
 VARIASI LAYOUT: boleh beda-beda tiap poster (kiri-kanan, hero image full, split layout, diagonal, magazine, luxury resort poster, minimal travel ads, floating card, modern property ads, editorial hospitality) selama warna/font/ikon/bayangan/nuansa visual tetap konsisten sbg satu brand yg sama.
 
 BATASAN KERAS - JANGAN PERNAH: mengubah logo/identitas visual, pakai warna acak di luar palet di atas, bikin layout terlalu penuh/sesak, menambahkan elemen hotel yang tidak ada di foto asli, menghasilkan foto AI atau gambar stok, mengubah properti/bangunan/taman/kamar/pintu/view asli.
+
+KONTAK: JANGAN PERNAH menambahkan nomor telepon/WhatsApp, alamat website/domain, atau handle media sosial di poster kecuali disebutkan eksplisit di KONTEN POSTER INI di bawah - kalau tidak disebutkan, JANGAN tampilkan footer kontak/website/social handle apa pun, jangan mengarang nomor atau username. Sama seperti aturan harga: lebih baik tidak ada info kontak sama sekali daripada info yang salah/mengarang.
 `.trim();
 
 function buildPosterPrompt(copy: PosterCopy): string {
