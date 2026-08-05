@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { fetchPelangiKnowledge } from "./pelangiKnowledge";
+import { CONTENT_PILLARS, CONTENT_ANGLES, type ContentPillar, type ContentAngle } from "./generateContent";
 
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -27,15 +28,71 @@ export function todayDateKeyWita(): string {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Makassar" }); // "YYYY-MM-DD"
 }
 
+// Target komposisi Content Pillar (2026-08-05, PRD Agus, angka PERSIS dari PRD) - dipakai
+// buildDistributionBlock di bawah utk bandingkan realita vs target, BUKAN cuma dijadikan
+// dokumentasi mati.
+const PILLAR_TARGET_PERCENT: Record<ContentPillar, number> = {
+  "Pelangi Homestay": 40, "Wisata Sekitar": 25, "Tips Liburan Bedugul": 15,
+  "Kuliner Sekitar": 10, "Travel Tips": 10,
+};
+
+export type RecentClassification = { pillar: string | null; angle: string | null };
+
+// Duplicate Checker & Content Pillar NYATA (2026-08-05, PRD modul 6 & 11, permintaan
+// Agus) - BEDA dari sebelumnya (instruksi teks "jangan monoton" doang, GPT nebak
+// sendiri dari teks skrip mentah): sekarang dihitung dari KLASIFIKASI ASLI konten yg
+// SUDAH dibuat (projects.pillar/angle, diisi generateContent.ts tiap generate), lalu
+// distribusi SEBENARNYA (bukan tebakan) disuntik eksplisit ke prompt supaya AI benar2
+// tahu pilar/angle mana yg SUDAH terlalu sering & mana yg kurang - bukan lagi cuma
+// "usahakan beda", tapi ada angka nyata sbg pegangan.
+function buildDistributionBlock(classifications: RecentClassification[]): string {
+  if (classifications.length === 0) return "";
+
+  const pillarCounts: Record<string, number> = {};
+  const angleCounts: Record<string, number> = {};
+  for (const c of classifications) {
+    if (c.pillar) pillarCounts[c.pillar] = (pillarCounts[c.pillar] || 0) + 1;
+    if (c.angle) angleCounts[c.angle] = (angleCounts[c.angle] || 0) + 1;
+  }
+  const total = classifications.length;
+
+  const pillarLines = CONTENT_PILLARS.map((p) => {
+    const count = pillarCounts[p] || 0;
+    const actualPercent = Math.round((count / total) * 100);
+    const target = PILLAR_TARGET_PERCENT[p];
+    const flag = actualPercent < target - 5 ? " <- KURANG, prioritaskan" : actualPercent > target + 10 ? " <- KELEBIHAN, hindari dulu" : "";
+    return `- ${p}: ${count}x (${actualPercent}%, target ${target}%)${flag}`;
+  }).join("\n");
+
+  const angleLines = CONTENT_ANGLES.map((a) => `- ${a}: ${angleCounts[a] || 0}x`)
+    .sort((x, y) => {
+      const cx = parseInt(x.match(/: (\d+)x/)?.[1] || "0", 10);
+      const cy = parseInt(y.match(/: (\d+)x/)?.[1] || "0", 10);
+      return cx - cy;
+    })
+    .join("\n");
+
+  return (
+    `\n\n# DISTRIBUSI PILAR & ANGLE KONTEN TERAKHIR (${total} konten, data ASLI bukan tebakan)\n` +
+    `Pilar (target komposisi dari Agus):\n${pillarLines}\n\n` +
+    `Angle (diurutkan dari PALING JARANG - prioritaskan yg di atas):\n${angleLines}\n\n` +
+    "WAJIB pertimbangkan distribusi ini: prioritaskan pilar yg ditandai KURANG & angle yg " +
+    "jarang dipakai, JANGAN tambah pilar/angle yg sudah KELEBIHAN kecuali memang tidak ada " +
+    "opsi lain yg relevan dgn musim/tanggal sekarang."
+  );
+}
+
 export async function suggestContentIdeas(
   brandName: string,
   brandDescription: string | null,
   recentScripts: string[],
-  count: number = 4
+  count: number = 4,
+  recentClassifications: RecentClassification[] = []
 ): Promise<string[]> {
   const client = getClient();
   const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
   const knowledge = await fetchPelangiKnowledge();
+  const distributionBlock = buildDistributionBlock(recentClassifications);
 
   const system =
     `Kamu content strategist media sosial utk bisnis lokal Indonesia. Usulkan ${count} ide ` +
@@ -71,8 +128,9 @@ export async function suggestContentIdeas(
     `Brand: ${brandName}\nDeskripsi/niche: ${brandDescription || "(tidak ada deskripsi)"}\n` +
     `Tanggal hari ini: ${today}\n\n` +
     (knowledge ? `# KNOWLEDGE BASE ASLI PROPERTI\n${knowledge}\n\n` : "") +
-    `Skrip yg sudah pernah dipakai (JANGAN diulang, WAJIB beda angle):\n${recentScripts.length ? recentScripts.map((s) => `- ${s}`).join("\n") : "(belum ada)"}\n\n` +
-    `Balas HARUS JSON valid (tanpa markdown code fence): {"ideas": ["...", "...", "..."]}`;
+    `Skrip yg sudah pernah dipakai (JANGAN diulang, WAJIB beda angle):\n${recentScripts.length ? recentScripts.map((s) => `- ${s}`).join("\n") : "(belum ada)"}\n` +
+    distributionBlock +
+    `\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"ideas": ["...", "...", "..."]}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",

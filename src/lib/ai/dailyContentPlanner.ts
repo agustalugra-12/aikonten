@@ -36,14 +36,20 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
   // Histori lebih lebar drpd "Ide Konten" on-demand (15 -> 30 skrip terakhir) - batch
   // 10 ide sekaligus butuh lebih banyak konteks anti-pengulangan drpd cuma 3-5 ide.
   const recentProjects = await db
-    .select({ script: projects.script })
+    .select({ script: projects.script, pillar: projects.pillar, angle: projects.angle })
     .from(projects)
     .where(eq(projects.brandId, brandId))
     .orderBy(desc(projects.createdAt))
     .limit(30);
   const recentScripts = recentProjects.map((p) => p.script).filter((s): s is string => !!s);
+  // Duplicate Checker & Content Pillar NYATA (2026-08-05) - kirim klasifikasi ASLI (bukan
+  // cuma teks skrip mentah) supaya distribusi pilar/angle SEBENARNYA dipertimbangkan,
+  // lihat buildDistributionBlock di researchTopics.ts.
+  const recentClassifications = recentProjects.map((p) => ({ pillar: p.pillar, angle: p.angle }));
 
-  const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts, DAILY_IDEA_COUNT);
+  const ideas = await suggestContentIdeas(
+    brand.name, brand.description, recentScripts, DAILY_IDEA_COUNT, recentClassifications
+  );
 
   const now = new Date();
   const rows = ideas.map((idea) => ({

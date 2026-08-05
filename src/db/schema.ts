@@ -69,6 +69,19 @@ export const projects = sqliteTable("projects", {
   clipSelection: text("clip_selection"), // JSON: chosen segments + heuristic scores
   generatedCaption: text("generated_caption"),
   generatedHashtags: text("generated_hashtags"), // JSON array as text
+  // Content Pillar & Duplicate Checker (2026-08-05, PRD "AI Content Brain" modul 6 & 11,
+  // permintaan Agus) - diklasifikasi AI SEKALI saat caption/hashtag digenerate (bukan
+  // panggilan terpisah, lihat generateContent.ts) - dipakai dailyContentPlanner.ts utk
+  // liat distribusi ASLI konten yg SUDAH dibuat (bukan cuma teks skrip mentah), supaya
+  // ide/pilar berikutnya benar2 diarahkan ke yg jarang dipakai, bukan cuma "kelihatan
+  // beda" dari sisi kalimat. Nullable - project lama (sblm fitur ini) tetap null, tidak
+  // retroaktif diklasifikasi.
+  pillar: text("pillar", {
+    enum: ["Pelangi Homestay", "Wisata Sekitar", "Tips Liburan Bedugul", "Kuliner Sekitar", "Travel Tips"],
+  }),
+  angle: text("angle", {
+    enum: ["harga", "lokasi", "fasilitas", "suasana", "target_tamu", "momen", "faq", "perbandingan"],
+  }),
   errorMessage: text("error_message"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

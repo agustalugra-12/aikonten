@@ -19,9 +19,39 @@ function stripHashPrefix(tags: string[]): string[] {
   return tags.map((t) => t.replace(/^#+/, ""));
 }
 
+// Content Pillar & Duplicate Checker (2026-08-05, PRD "AI Content Brain" modul 6 & 11,
+// permintaan Agus) - target komposisi Pelangi Homestay 40% / Wisata Sekitar 25% / Tips
+// Liburan Bedugul 15% / Kuliner Sekitar 10% / Travel Tips 10% (angka dari PRD Agus
+// persis). "angle" - sudut pandang konten (harga/lokasi/fasilitas/dst) - dipakai
+// dailyContentPlanner.ts liat distribusi ASLI konten yg SUDAH dibuat (bukan cuma tebak
+// dari teks skrip mentah), supaya ide/pilar berikutnya diarahkan ke yg jarang dipakai.
+export const CONTENT_PILLARS = [
+  "Pelangi Homestay", "Wisata Sekitar", "Tips Liburan Bedugul", "Kuliner Sekitar", "Travel Tips",
+] as const;
+export const CONTENT_ANGLES = [
+  "harga", "lokasi", "fasilitas", "suasana", "target_tamu", "momen", "faq", "perbandingan",
+] as const;
+export type ContentPillar = (typeof CONTENT_PILLARS)[number];
+export type ContentAngle = (typeof CONTENT_ANGLES)[number];
+
+function normalizePillar(v: unknown): ContentPillar | null {
+  return (CONTENT_PILLARS as readonly string[]).includes(v as string) ? (v as ContentPillar) : null;
+}
+function normalizeAngle(v: unknown): ContentAngle | null {
+  return (CONTENT_ANGLES as readonly string[]).includes(v as string) ? (v as ContentAngle) : null;
+}
+
+const CLASSIFICATION_PROMPT_FRAGMENT =
+  ` Sertakan juga pillar (WAJIB SALAH SATU PERSIS): ${CONTENT_PILLARS.map((p) => `"${p}"`).join(", ")}, ` +
+  `dan angle (WAJIB SALAH SATU PERSIS): ${CONTENT_ANGLES.map((a) => `"${a}"`).join(", ")} - ` +
+  "klasifikasi ini dipakai sistem melacak variasi konten, JAWAB SEJUJURNYA sesuai isi konten ini, " +
+  "bukan asal pilih.";
+
 export type GeneratedContent = {
   caption: string;
   hashtags: string[];
+  pillar: ContentPillar | null;
+  angle: ContentAngle | null;
 };
 
 export type GeneratedImageContent = GeneratedContent & {
@@ -144,8 +174,9 @@ export async function generateCaptionAndHashtags(
     "garden\"), atau null kalau topiknya tidak cocok disandingkan stok footage generik. " +
     "Sertakan juga thumbnailText: teks hook SANGAT singkat (2-5 kata, Bahasa Indonesia, " +
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
-    "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas.";
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null}`;
+    "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
+    CLASSIFICATION_PROMPT_FRAGMENT;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "..."}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -165,6 +196,8 @@ export async function generateCaptionAndHashtags(
     brollKeywords: parsed.brollKeywords || null,
     thumbnailText: parsed.thumbnailText || null,
     structureTemplate: structureTemplate.name,
+    pillar: normalizePillar(parsed.pillar),
+    angle: normalizeAngle(parsed.angle),
   };
 }
 
@@ -190,8 +223,9 @@ export async function generateCaptionForImages(
     " Kalau skrip menyebutkan harga/promo/diskon, tulis juga versi SINGKAT teks itu " +
     "(mis. \"Rp175.000\" atau \"Promo 20%\") di field promoText - ini akan ditempel " +
     "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
-    "TIDAK menyebut harga/promo sama sekali, promoText HARUS null.";
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null}`;
+    "TIDAK menyebut harga/promo sama sekali, promoText HARUS null." +
+    CLASSIFICATION_PROMPT_FRAGMENT;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "..."}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -215,6 +249,8 @@ export async function generateCaptionForImages(
     caption: parsed.caption || "",
     hashtags: stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : []),
     promoText: parsed.promoText || null,
+    pillar: normalizePillar(parsed.pillar),
+    angle: normalizeAngle(parsed.angle),
   };
 }
 
