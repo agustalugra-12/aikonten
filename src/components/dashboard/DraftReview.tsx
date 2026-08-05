@@ -14,6 +14,14 @@ const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
   tiktok: "TikTok",
 };
 
+// Lewatkan pratinjau lewat domain aplikasi sendiri, bukan hotlink langsung ke r2.dev
+// (2026-08-05, lihat catatan lengkap di api/media-proxy/route.ts - domain r2.dev
+// kemungkinan kena blokir jaringan di sisi Agus, publish sungguhan tidak lewat jalur ini
+// sama sekali jadi tidak terdampak).
+function previewUrl(fileUrl: string): string {
+  return `/api/media-proxy?url=${encodeURIComponent(fileUrl)}`;
+}
+
 // Draft review (2026-08-04, permintaan Agus - "biar aku cek di draft AI konten" sblm
 // tayang). Konten AI (video/carousel/⚡ Konten Otomatis) sekarang berhenti di status
 // "ready" & TIDAK auto-publish lagi (lihat processProject.ts) - di sinilah Agus lihat
@@ -114,7 +122,7 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
       {!detail ? (
         <p className="text-sm text-muted-foreground">Memuat pratinjau...</p>
       ) : finalVideo ? (
-        <video controls src={finalVideo.fileUrl} className="w-full max-h-[420px] rounded-md bg-black" />
+        <video controls src={previewUrl(finalVideo.fileUrl)} className="w-full max-h-[420px] rounded-md bg-black" />
       ) : finalImages.length === 1 ? (
         // Foto TUNGGAL (poster) - tampil PENUH & UTUH (2026-08-05, bug nyata dilaporkan
         // Agus: sebelumnya poster foto tunggal ikut dipaksa masuk grid-cols-3 yg dibuat
@@ -124,7 +132,7 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
         // poster (1:1/4:5) tetap utuh, tidak dipaksa persegi.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={finalImages[0].fileUrl}
+          src={previewUrl(finalImages[0].fileUrl)}
           alt=""
           className="w-full max-h-[520px] object-contain rounded-md bg-muted"
         />
@@ -132,7 +140,7 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
         <div className="grid grid-cols-3 gap-2">
           {finalImages.map((img) => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={img.id} src={img.fileUrl} alt="" className="w-full aspect-square object-cover rounded-md" />
+            <img key={img.id} src={previewUrl(img.fileUrl)} alt="" className="w-full aspect-square object-cover rounded-md" />
           ))}
         </div>
       ) : (
