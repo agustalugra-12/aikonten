@@ -10,7 +10,10 @@ import {
   MAX_CLIP_DURATION,
 } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt } from "@/lib/ai/generateContent";
-import { renderFinalVideo } from "@/lib/render/cloudinary";
+// Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
+// free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
+// CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
+import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
 import { generatePosterCopy } from "@/lib/ai/posterCopy";
 import { applyPosterDesign } from "@/lib/ai/posterDesign";
@@ -269,6 +272,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
 
     const rendered = await renderFinalVideo({
       projectId: id,
+      brandId: project.brandId,
       segments: selected,
       srtContent: srt,
       brollClips,
