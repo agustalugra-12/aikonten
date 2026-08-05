@@ -12,6 +12,14 @@ function ensureFalConfigured(): void {
 // Agus, dipakai APA ADANYA - ini brief art-direction penuh, bukan sesuatu yg boleh
 // disederhanakan sepihak) - CUMA berlaku jalur foto TUNGGAL (lihat processProject.ts),
 // beda dari applyPromoOverlay (badge kecil 1 pojok, dipakai carousel multi-foto).
+// Disinkronkan ulang (2026-08-05, sesi sama) ke versi prompt Agus yang lebih lengkap -
+// dicek Agus sendiri vs kode, 90% sudah identik (konfirmasi arsitektur "DNA desain
+// statis + konten per-poster dinamis" sudah persis sesuai maksud beliau), 4 bagian
+// ditambah biar sinkron penuh: GALLERY (gaya multi-foto), TARGET AUDIENS, rasio OUTPUT
+// jadi "4:5 atau 1:1" (sebelumnya cuma 1:1), 3 nama gaya layout tambahan. Guard anti-
+// karang harga (BADGE HARGA, "kalau tidak ada harga JANGAN mengarang angka") SENGAJA
+// dipertahankan walau tidak ada di teks asli Agus - itu jaring pengaman tambahan yg
+// sudah terbukti berguna di seluruh sesi ini, bukan sesuatu yg diminta dihapus.
 const MASTER_STYLE_PROMPT = `
 Kamu adalah seorang Senior Graphic Designer spesialis hospitality, hotel, dan travel advertisement.
 Seluruh desain HARUS mengikuti identitas visual Pelangi Homestay. Yang berubah cuma: judul, promo, CTA, foto, harga, isi tulisan - gaya desain HARUS tetap konsisten.
@@ -38,13 +46,17 @@ BADGE HARGA: kalau ada harga/promo, bentuknya lingkaran/rounded badge/price tag/
 
 EFEK: soft shadow, soft glow, gradient overlay, light blur, depth, floating element, glassmorphism ringan. Jangan berlebihan/norak.
 
+GALLERY: kalau ada lebih dari 1 foto, gunakan gaya polaroid modern, atau floating photo, atau overlapping card, dengan shadow lembut - konsisten dgn gaya card/shadow di atas.
+
 CTA: harus sangat mencolok, warna orange.
+
+TARGET AUDIENS: wisatawan umum, pasangan, keluarga, pekerja remote (long stay), dan tamu day use - poster boleh condong ke salah satu tergantung konten (mis. promo keluarga vs promo romantis) selama gaya visual brand tetap konsisten.
 
 SUASANA yang harus terasa: nyaman, tenang, asri, bersih, premium, homey, natural, refreshing, family friendly.
 
-OUTPUT: resolusi tinggi, social media ready (1:1), margin rapi, semua tulisan harus mudah dibaca dgn jelas, tidak ada elemen yang saling bertabrakan/tumpang tindih secara berantakan.
+OUTPUT: resolusi tinggi, social media ready (4:5 atau 1:1), margin rapi, semua tulisan harus mudah dibaca dgn jelas, tidak ada elemen yang saling bertabrakan/tumpang tindih secara berantakan.
 
-VARIASI LAYOUT: boleh beda-beda tiap poster (kiri-kanan, hero image full, split layout, diagonal, magazine, floating card, editorial hospitality) selama warna/font/ikon/bayangan/nuansa visual tetap konsisten sbg satu brand yg sama.
+VARIASI LAYOUT: boleh beda-beda tiap poster (kiri-kanan, hero image full, split layout, diagonal, magazine, luxury resort poster, minimal travel ads, floating card, modern property ads, editorial hospitality) selama warna/font/ikon/bayangan/nuansa visual tetap konsisten sbg satu brand yg sama.
 
 BATASAN KERAS - JANGAN PERNAH: mengubah logo/identitas visual, pakai warna acak di luar palet di atas, bikin layout terlalu penuh/sesak, menambahkan elemen hotel yang tidak ada di foto asli, menghasilkan foto AI atau gambar stok, mengubah properti/bangunan/taman/kamar/pintu/view asli.
 `.trim();
