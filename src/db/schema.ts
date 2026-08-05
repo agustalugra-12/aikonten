@@ -185,5 +185,11 @@ export const dailyIdeas = sqliteTable("daily_ideas", {
   date: text("date").notNull(), // "YYYY-MM-DD" WITA
   idea: text("idea").notNull(),
   used: integer("used", { mode: "boolean" }).notNull().default(false),
+  // Opportunity Finder (2026-08-05, PRD Agus - fitur "senjata": skor tiap ide berdasar
+  // relevansi/potensi menarik/variasi/dukungan keyword prioritas, lihat
+  // researchTopics.ts suggestScoredContentIdeas). Nullable - batch lama (sblm fitur
+  // ini) tetap null.
+  score: integer("score"), // 0-100
+  reasoning: text("reasoning"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

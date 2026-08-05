@@ -40,6 +40,32 @@ const PILLAR_TARGET_PERCENT: Record<ContentPillar, number> = {
 
 export type RecentClassification = KeywordClassification & { pillar: string | null; angle: string | null };
 
+// Content Restriction (2026-08-05, PRD modul 8, permintaan Agus - "AI DILARANG membuat
+// konten politik/agama/gosip/artis/crypto/trading/sepak bola/drama/semua yg tidak
+// berhubungan dgn Pelangi/Bedugul/Travel"). Risiko rendah krn ide SUDAH di-scope ketat
+// ke brand+niche+Knowledge Base (lihat prompt di bawah), TAPI tetap dipasang jaring
+// pengaman KODE (bukan cuma instruksi prompt yg bisa saja diabaikan model) - sama
+// disiplin dgn guard "LARANGAN KERAS" di ai-chat-bot (deteksi + koreksi kode, bukan
+// cuma percaya instruksi teks). Kata kunci Bahasa Indonesia & Inggris umum, longgar
+// tapi cukup utk nangkep topik yg JELAS di luar jalur.
+const RESTRICTED_TOPIC_KEYWORDS = [
+  "politik", "pemilu", "capres", "partai politik", "agama", "gereja", "masjid", "pura",
+  "vihara", "gosip", "artis", "selebriti", "crypto", "cryptocurrency", "bitcoin", "trading",
+  "saham", "forex", "sepak bola", "sepakbola", "liga champions", "piala dunia", "drama korea",
+  "sinetron", "gibah",
+];
+
+function isRestrictedIdea(idea: string): boolean {
+  const lower = idea.toLowerCase();
+  return RESTRICTED_TOPIC_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+const RESTRICTION_PROMPT_FRAGMENT =
+  " LARANGAN KERAS: JANGAN PERNAH usulkan ide bertema politik, agama, gosip/artis/" +
+  "selebriti, crypto/trading/saham, olahraga (sepak bola dst), atau drama/hiburan yg " +
+  "TIDAK ADA hubungannya dgn Pelangi Homestay/Bedugul/travel - SEMUA ide WAJIB " +
+  "berhubungan langsung dgn properti, wisata sekitar, atau travel tips yg relevan.";
+
 // Duplicate Checker & Content Pillar NYATA (2026-08-05, PRD modul 6 & 11, permintaan
 // Agus) - BEDA dari sebelumnya (instruksi teks "jangan monoton" doang, GPT nebak
 // sendiri dari teks skrip mentah): sekarang dihitung dari KLASIFIKASI ASLI konten yg
@@ -84,14 +110,17 @@ function buildDistributionBlock(classifications: RecentClassification[]): string
   );
 }
 
-export async function suggestContentIdeas(
+// Diekstrak (2026-08-05) supaya dipakai BARENG oleh suggestContentIdeas (on-demand,
+// balikin string[] polos) & suggestScoredContentIdeas (Opportunity Finder - PRD modul
+// "senjata", balikin skor per-ide) - konteks (grounding/kalender/distribusi/keyword)
+// SAMA PERSIS, cuma instruksi format balasan JSON di ujung yg beda.
+async function buildIdeaPromptBase(
   brandName: string,
   brandDescription: string | null,
   recentScripts: string[],
-  count: number = 4,
-  recentClassifications: RecentClassification[] = []
-): Promise<string[]> {
-  const client = getClient();
+  count: number,
+  recentClassifications: RecentClassification[]
+): Promise<{ system: string; user: string }> {
   const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
   const knowledge = await fetchPelangiKnowledge();
   const distributionBlock = buildDistributionBlock(recentClassifications);
@@ -129,7 +158,8 @@ export async function suggestContentIdeas(
         "DISEBUT di Knowledge Base (radius dekat properti) - JANGAN usulkan destinasi " +
         "di luar radius itu (mis. Kuta/Seminyak/Nusa Penida), itu tidak relevan & " +
         "menyesatkan calon tamu yg cari penginapan DEKAT lokasi spesifik ini."
-      : "");
+      : "") +
+    RESTRICTION_PROMPT_FRAGMENT;
   const user =
     `Brand: ${brandName}\nDeskripsi/niche: ${brandDescription || "(tidak ada deskripsi)"}\n` +
     `Tanggal hari ini: ${today}\n` +
@@ -137,14 +167,34 @@ export async function suggestContentIdeas(
     (knowledge ? `\n\n# KNOWLEDGE BASE ASLI PROPERTI\n${knowledge}\n\n` : "\n\n") +
     `Skrip yg sudah pernah dipakai (JANGAN diulang, WAJIB beda angle):\n${recentScripts.length ? recentScripts.map((s) => `- ${s}`).join("\n") : "(belum ada)"}\n` +
     distributionBlock +
-    keywordBlock +
-    `\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"ideas": ["...", "...", "..."]}`;
+    keywordBlock;
+
+  return { system, user };
+}
+
+function filterRestricted(ideas: string[]): string[] {
+  const filtered = ideas.filter((idea) => !isRestrictedIdea(idea));
+  if (filtered.length < ideas.length) {
+    console.warn(`[researchTopics] ${ideas.length - filtered.length} ide di-filter (topik di luar jalur - politik/gosip/dst)`);
+  }
+  return filtered;
+}
+
+export async function suggestContentIdeas(
+  brandName: string,
+  brandDescription: string | null,
+  recentScripts: string[],
+  count: number = 4,
+  recentClassifications: RecentClassification[] = []
+): Promise<string[]> {
+  const client = getClient();
+  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications);
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
     messages: [
       { role: "system", content: system },
-      { role: "user", content: user },
+      { role: "user", content: `${user}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"ideas": ["...", "...", "..."]}` },
     ],
     temperature: 0.8,
   });
@@ -152,5 +202,77 @@ export async function suggestContentIdeas(
   const raw = completion.choices[0]?.message?.content?.trim() || "{}";
   const cleaned = raw.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
   const parsed = JSON.parse(cleaned);
-  return Array.isArray(parsed.ideas) ? parsed.ideas : [];
+  const ideas: string[] = Array.isArray(parsed.ideas) ? parsed.ideas : [];
+  // Jaring pengaman KODE (2026-08-05) - filter lagi di sini, JANGAN cuma percaya
+  // instruksi prompt di atas (sama disiplin dgn guard ai-chat-bot: instruksi teks bisa
+  // saja diabaikan model, filter kode tidak).
+  return filterRestricted(ideas);
+}
+
+export type ScoredIdea = {
+  idea: string;
+  score: number; // 0-100
+  reasoning: string;
+};
+
+// Opportunity Finder (2026-08-05, PRD "AI Content Brain" - fitur yg Agus sendiri sebut
+// "senjata": "membaca keyword target utama, melihat knowledge base, menghasilkan ide
+// BARU, memberi skor tiap ide berdasarkan relevansi/potensi menarik/variasi/dukungan
+// keyword utama"). Reuse PERSIS konteks yg sama dgn suggestContentIdeas (grounding/
+// kalender/distribusi/keyword priority sudah dibangun modul2 sebelumnya - fondasinya
+// SUDAH ADA, ini cuma nambah lapisan SKOR eksplisit di atasnya) - dipakai
+// dailyContentPlanner.ts (batch 10 ide/hari), BUKAN on-demand "Ide Konten" cepat (biar
+// tetap ringan/cepat spt sebelumnya, tidak semua jalur butuh skor).
+export async function suggestScoredContentIdeas(
+  brandName: string,
+  brandDescription: string | null,
+  recentScripts: string[],
+  count: number,
+  recentClassifications: RecentClassification[] = []
+): Promise<ScoredIdea[]> {
+  const client = getClient();
+  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications);
+
+  const scoredSystem =
+    system +
+    " SETIAP ide WAJIB diberi score 0-100 (integer) berdasarkan 4 kriteria PERSIS ini " +
+    "(pertimbangkan SEMUA, bukan cuma 1): (1) RELEVANSI dgn Pelangi Homestay/Bedugul - " +
+    "seberapa langsung ide ini berhubungan dgn properti/lokasinya. (2) POTENSI MENARIK " +
+    "calon tamu - seberapa besar kemungkinan ide ini bikin orang berhenti scroll & " +
+    "tertarik. (3) VARIASI dari konten sebelumnya - lihat distribusi pilar/angle di atas, " +
+    "ide yg mengisi kekosongan dapat skor lebih tinggi drpd yg mengulang yg sudah banyak. " +
+    "(4) DUKUNGAN KEYWORD PRIORITAS - ide yg menargetkan keyword Level 1/2 yg masih " +
+    "under-served dapat skor lebih tinggi. Sertakan jg reasoning SINGKAT (1 kalimat, " +
+    "Bahasa Indonesia) kenapa skor itu diberikan - WAJIB jujur & spesifik (mis. \"skor " +
+    "tinggi krn isi kekosongan pilar Kuliner Sekitar & keyword Level 1 blm pernah " +
+    "dipakai\"), bukan pujian generik.";
+  const scoredUser =
+    `${user}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
+    `{"ideas": [{"idea": "...", "score": 0, "reasoning": "..."}, ...]}`;
+
+  const completion = await client.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [
+      { role: "system", content: scoredSystem },
+      { role: "user", content: scoredUser },
+    ],
+    temperature: 0.8,
+  });
+
+  const raw = completion.choices[0]?.message?.content?.trim() || "{}";
+  const cleaned = raw.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+  const parsed = JSON.parse(cleaned);
+  const rawIdeas: unknown[] = Array.isArray(parsed.ideas) ? parsed.ideas : [];
+  const scored: ScoredIdea[] = rawIdeas
+    .filter((i): i is { idea: string; score: number; reasoning: string } =>
+      !!i && typeof i === "object" && typeof (i as Record<string, unknown>).idea === "string"
+    )
+    .map((i) => ({
+      idea: i.idea,
+      score: Math.max(0, Math.min(100, Math.round(Number(i.score) || 0))),
+      reasoning: typeof i.reasoning === "string" ? i.reasoning : "",
+    }));
+
+  const filteredIdeaTexts = new Set(filterRestricted(scored.map((s) => s.idea)));
+  return scored.filter((s) => filteredIdeaTexts.has(s.idea)).sort((a, b) => b.score - a.score);
 }

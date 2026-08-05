@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { dailyIdeas, brands, projects } from "@/db/schema";
 import { and, eq, desc } from "drizzle-orm";
-import { suggestContentIdeas, todayDateKeyWita } from "./researchTopics";
+import { suggestScoredContentIdeas, todayDateKeyWita } from "./researchTopics";
 import { newId } from "@/lib/ids";
 
 // AI Content Planner (2026-08-05, permintaan Agus, PRD "AI Content Brain" modul 10 -
@@ -11,12 +11,18 @@ import { newId } from "@/lib/ids";
 // timer, jadi ini pola paling sederhana yg mencapai hasil praktis sama: "10 ide segar
 // tiap hari" tanpa nambah komponen infra baru) & DIPERSIST (dailyIdeas) supaya
 // konsisten sepanjang hari - refresh halaman tidak menghasilkan batch baru yg beda.
+//
+// Opportunity Finder (2026-08-05) - pakai suggestScoredContentIdeas (BUKAN
+// suggestContentIdeas biasa) supaya tiap ide dapat score+reasoning eksplisit sesuai
+// PRD Agus, diurutkan skor tertinggi dulu.
 const DAILY_IDEA_COUNT = 10;
 
 export type DailyIdea = {
   id: string;
   idea: string;
   used: boolean;
+  score: number | null;
+  reasoning: string | null;
 };
 
 export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {
@@ -27,7 +33,9 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     .from(dailyIdeas)
     .where(and(eq(dailyIdeas.brandId, brandId), eq(dailyIdeas.date, today)));
   if (existing.length > 0) {
-    return existing.map((r) => ({ id: r.id, idea: r.idea, used: r.used }));
+    return existing
+      .map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning }))
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
 
   const [brand] = await db.select().from(brands).where(eq(brands.id, brandId));
@@ -53,23 +61,25 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     pillar: p.pillar, angle: p.angle, targetKeyword: p.targetKeyword, keywordLevel: p.keywordLevel,
   }));
 
-  const ideas = await suggestContentIdeas(
+  const scoredIdeas = await suggestScoredContentIdeas(
     brand.name, brand.description, recentScripts, DAILY_IDEA_COUNT, recentClassifications
   );
 
   const now = new Date();
-  const rows = ideas.map((idea) => ({
+  const rows = scoredIdeas.map((s) => ({
     id: newId("idea"),
     brandId,
     date: today,
-    idea,
+    idea: s.idea,
     used: false,
+    score: s.score,
+    reasoning: s.reasoning,
     createdAt: now,
   }));
   if (rows.length > 0) {
     await db.insert(dailyIdeas).values(rows);
   }
-  return rows.map((r) => ({ id: r.id, idea: r.idea, used: r.used }));
+  return rows.map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning }));
 }
 
 export async function forceRegenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {

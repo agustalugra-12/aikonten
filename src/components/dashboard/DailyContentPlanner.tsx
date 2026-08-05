@@ -12,13 +12,24 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
-type DailyIdea = { id: string; idea: string; used: boolean };
+type DailyIdea = { id: string; idea: string; used: boolean; score: number | null; reasoning: string | null };
+
+function scoreColor(score: number): string {
+  if (score >= 75) return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
+  if (score >= 50) return "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200";
+  return "bg-muted text-muted-foreground";
+}
 
 // AI Content Planner (2026-08-05, permintaan Agus, PRD "AI Content Brain" modul 10 -
 // "setiap pagi AI membuat 10 ide") - BEDA dari ContentIdeas.tsx (itu on-demand 3-5 ide
 // baru tiap diklik, tidak tersimpan) - ini batch 10 ide TETAP sepanjang hari (sama
 // walau dashboard dibuka berkali-kali), digenerate SEKALI per hari WITA
 // (dailyContentPlanner.ts), grounded ke Knowledge Base Pelangi asli.
+//
+// Opportunity Finder (2026-08-05) - tiap ide dapat score 0-100 + reasoning (kenapa)
+// dari suggestScoredContentIdeas, diurutkan skor tertinggi dulu - sesuai PRD Agus
+// ("memberi skor setiap ide berdasarkan relevansi/potensi menarik/variasi/dukungan
+// keyword utama").
 export function DailyContentPlanner({ brandId, onPickIdea }: { brandId: string; onPickIdea: (script: string) => void }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -98,13 +109,23 @@ export function DailyContentPlanner({ brandId, onPickIdea }: { brandId: string; 
                   <button
                     type="button"
                     onClick={() => handlePick(idea)}
-                    className="w-full text-left text-sm rounded-md border p-3 hover:bg-muted transition-colors flex items-start gap-2"
+                    className="w-full text-left text-sm rounded-md border p-3 hover:bg-muted transition-colors space-y-1"
                   >
-                    <span className="flex-1">{idea.idea}</span>
-                    {idea.used && (
-                      <Badge variant="secondary" className="text-xs shrink-0">
-                        sudah dipakai
-                      </Badge>
+                    <div className="flex items-start gap-2">
+                      {idea.score !== null && (
+                        <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium tabular-nums ${scoreColor(idea.score)}`}>
+                          {idea.score}
+                        </span>
+                      )}
+                      <span className="flex-1">{idea.idea}</span>
+                      {idea.used && (
+                        <Badge variant="secondary" className="text-xs shrink-0">
+                          sudah dipakai
+                        </Badge>
+                      )}
+                    </div>
+                    {idea.reasoning && (
+                      <p className="text-xs text-muted-foreground pl-0.5">{idea.reasoning}</p>
                     )}
                   </button>
                 </li>
