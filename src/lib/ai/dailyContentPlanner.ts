@@ -16,7 +16,12 @@ import { newId } from "@/lib/ids";
 // Opportunity Finder (2026-08-05) - pakai suggestScoredContentIdeas (BUKAN
 // suggestContentIdeas biasa) supaya tiap ide dapat score+reasoning eksplisit sesuai
 // PRD Agus, diurutkan skor tertinggi dulu.
-const DAILY_IDEA_COUNT = 10;
+//
+// Video:Foto split (2026-08-05, permintaan Agus - "dari 10 konten ini 3 dibuat foto 7
+// dibuat video") - jumlah TOTAL tetap 10, tapi rasio video:carousel diambil dari
+// brands.dailyVideoCount/dailyCarouselCount (setting per-brand, default 7:3 PERSIS
+// sesuai permintaan awal - lihat schema.ts & BrandLogoDialog area di page.tsx utk UI
+// pengaturannya).
 
 export type DailyIdea = {
   id: string;
@@ -24,6 +29,7 @@ export type DailyIdea = {
   used: boolean;
   score: number | null;
   reasoning: string | null;
+  contentType: "video" | "carousel" | null;
 };
 
 export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {
@@ -35,7 +41,7 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     .where(and(eq(dailyIdeas.brandId, brandId), eq(dailyIdeas.date, today)));
   if (existing.length > 0) {
     return existing
-      .map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning }))
+      .map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning, contentType: r.contentType }))
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
 
@@ -75,7 +81,9 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
   }));
 
   const scoredIdeas = await suggestScoredContentIdeas(
-    brand.name, brand.description, recentScripts, DAILY_IDEA_COUNT, recentClassifications, performanceClassifications
+    brand.name, brand.description, recentScripts,
+    brand.dailyVideoCount, brand.dailyCarouselCount,
+    recentClassifications, performanceClassifications
   );
 
   const now = new Date();
@@ -87,12 +95,13 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     used: false,
     score: s.score,
     reasoning: s.reasoning,
+    contentType: s.contentType,
     createdAt: now,
   }));
   if (rows.length > 0) {
     await db.insert(dailyIdeas).values(rows);
   }
-  return rows.map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning }));
+  return rows.map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning, contentType: r.contentType }));
 }
 
 export async function forceRegenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {

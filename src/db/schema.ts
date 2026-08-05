@@ -25,6 +25,14 @@ export const brands = sqliteTable("brands", {
   // lingkaran & ditempel proporsional (bukan nutupin konten) di SETIAP foto & video
   // final. Nullable - brand tanpa logo tetap jalan normal, overlay cuma dilewati.
   logoUrl: text("logo_url"),
+  // Rasio video:foto di batch Content Planner harian (2026-08-05, permintaan Agus -
+  // "dari 10 konten ini 3 dibuat foto 7 dibuat video") - default 7:3 PERSIS sesuai
+  // permintaan, TAPI disimpan sbg setting per-brand (bukan hardcode) krn "aku mau di
+  // setting" menyiratkan Agus mau bisa ubah nanti, bukan cuma sekali pakai. Jumlah
+  // keduanya WAJIB = DAILY_IDEA_COUNT (10, lihat dailyContentPlanner.ts) - divalidasi
+  // di route.ts saat disimpan.
+  dailyVideoCount: integer("daily_video_count").notNull().default(7),
+  dailyCarouselCount: integer("daily_carousel_count").notNull().default(3),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -200,5 +208,11 @@ export const dailyIdeas = sqliteTable("daily_ideas", {
   // ini) tetap null.
   score: integer("score"), // 0-100
   reasoning: text("reasoning"),
+  // Tipe konten yg disarankan (2026-08-05, permintaan Agus - "3 dibuat foto 7 dibuat
+  // video") - diklasifikasi AI SEKALI bareng score/reasoning (lihat
+  // suggestScoredContentIdeas), dgn jumlah persis sesuai brands.dailyVideoCount/
+  // dailyCarouselCount. Dipakai isi otomatis pilihan tipe di NewProjectDialog.tsx
+  // saat ide ini diklik, Agus tetap BOLEH ganti manual kalau mau.
+  contentType: text("content_type", { enum: ["video", "carousel"] }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

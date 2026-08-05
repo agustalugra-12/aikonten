@@ -37,9 +37,14 @@ function DashboardContent() {
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  // Diisi kalau Agus klik salah satu "Ide Konten" - lihat ContentIdeas.tsx. Dipakai
-  // sbg `key` remount NewProjectDialog di bawah biar initialScript-nya benar2 baru.
+  // Diisi kalau Agus klik salah satu "Ide Konten"/Content Planner - lihat
+  // ContentIdeas.tsx/DailyContentPlanner.tsx. Dipakai sbg `key` remount
+  // NewProjectDialog di bawah biar initialScript-nya benar2 baru.
   const [prefillScript, setPrefillScript] = useState<string | null>(null);
+  // Diisi dari Content Planner harian (2026-08-05, permintaan Agus - "3 dibuat foto 7
+  // dibuat video") - tipe yg AI sarankan utk ide yg dipilih. "Ide Konten" lama tidak
+  // pernah isi ini (selalu undefined), NewProjectDialog default ke "video" spt biasa.
+  const [prefillType, setPrefillType] = useState<"video" | "carousel" | undefined>(undefined);
 
   const loadBrands = useCallback(async () => {
     const res = await fetch("/api/brands");
@@ -118,7 +123,17 @@ function DashboardContent() {
                 <BrandSwitcher brands={brands} selectedBrandId={selectedBrandId} onSelect={setSelectedBrandId} />
                 <NewBrandDialog onCreated={loadBrands} />
               </div>
-              {selectedBrandId && <DailyContentPlanner brandId={selectedBrandId} onPickIdea={setPrefillScript} />}
+              {selectedBrandId && (
+                <DailyContentPlanner
+                  brandId={selectedBrandId}
+                  brand={brands.find((b) => b.id === selectedBrandId) ?? null}
+                  onPickIdea={(script, type) => {
+                    setPrefillScript(script);
+                    setPrefillType(type);
+                  }}
+                  onSettingsChanged={loadBrands}
+                />
+              )}
               {selectedBrandId && <ContentIdeas brandId={selectedBrandId} onPickIdea={setPrefillScript} />}
               {selectedBrandId && <StoryboardDialog brandId={selectedBrandId} />}
               {selectedBrandId && <FootageBankDialog brandId={selectedBrandId} />}
@@ -137,9 +152,11 @@ function DashboardContent() {
                   key={prefillScript ?? "default"}
                   brandId={selectedBrandId}
                   initialScript={prefillScript ?? undefined}
+                  initialType={prefillType}
                   onCreated={() => {
                     loadProjects(selectedBrandId);
                     setPrefillScript(null);
+                    setPrefillType(undefined);
                   }}
                 />
               )}

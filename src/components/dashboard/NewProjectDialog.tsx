@@ -33,16 +33,21 @@ export function NewProjectDialog({
   brandId,
   onCreated,
   initialScript,
+  initialType,
 }: {
   brandId: string;
   onCreated: () => void;
-  // Diisi kalau dialog ini dibuka dari "Ide Konten" (ContentIdeas.tsx) - lihat
-  // page.tsx, komponen ini di-remount pakai `key` tiap initialScript berubah biar
-  // useState di bawah selalu mulai dari nilai baru.
+  // Diisi kalau dialog ini dibuka dari "Ide Konten"/Content Planner (ContentIdeas.tsx/
+  // DailyContentPlanner.tsx) - lihat page.tsx, komponen ini di-remount pakai `key`
+  // tiap initialScript berubah biar useState di bawah selalu mulai dari nilai baru.
   initialScript?: string;
+  // Diisi dari Content Planner harian (2026-08-05, permintaan Agus - "3 dibuat foto 7
+  // dibuat video") - tipe yg AI sarankan utk ide ini, Agus tetap BOLEH ganti manual di
+  // dropdown. "Ide Konten" lama (ContentIdeas.tsx) tidak isi ini, default tetap "video".
+  initialType?: "video" | "carousel";
 }) {
   const [open, setOpen] = useState(!!initialScript);
-  const [type, setType] = useState<"video" | "carousel">("video");
+  const [type, setType] = useState<"video" | "carousel">(initialType || "video");
   const [script, setScript] = useState(initialScript || "");
   const [files, setFiles] = useState<File[]>([]);
   const [stage, setStage] = useState<string | null>(null);

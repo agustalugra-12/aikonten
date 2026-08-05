@@ -214,6 +214,7 @@ export type ScoredIdea = {
   idea: string;
   score: number; // 0-100
   reasoning: string;
+  contentType: "video" | "carousel";
 };
 
 // Opportunity Finder (2026-08-05, PRD "AI Content Brain" - fitur yg Agus sendiri sebut
@@ -224,15 +225,23 @@ export type ScoredIdea = {
 // SUDAH ADA, ini cuma nambah lapisan SKOR eksplisit di atasnya) - dipakai
 // dailyContentPlanner.ts (batch 10 ide/hari), BUKAN on-demand "Ide Konten" cepat (biar
 // tetap ringan/cepat spt sebelumnya, tidak semua jalur butuh skor).
+//
+// videoCount/carouselCount (2026-08-05, permintaan Agus - "dari 10 konten ini 3 dibuat
+// foto 7 dibuat video") - GPT diminta assign contentType per ide TAPI jumlah PERSIS
+// dipaksa di kode (enforceContentTypeSplit di bawah), bukan cuma percaya model
+// menghitung benar - sama disiplin dgn guard lain sesi ini (instruksi teks + jaring
+// pengaman kode).
 export async function suggestScoredContentIdeas(
   brandName: string,
   brandDescription: string | null,
   recentScripts: string[],
-  count: number,
+  videoCount: number,
+  carouselCount: number,
   recentClassifications: RecentClassification[] = [],
   performanceClassifications: PerformanceClassification[] = []
 ): Promise<ScoredIdea[]> {
   const client = getClient();
+  const count = videoCount + carouselCount;
   const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications);
   const performanceBlock = buildPerformanceInsightBlock(performanceClassifications);
 
@@ -250,10 +259,16 @@ export async function suggestScoredContentIdeas(
     "SINGKAT (1 kalimat, Bahasa Indonesia) kenapa skor itu diberikan - WAJIB jujur & " +
     "spesifik (mis. \"skor tinggi krn isi kekosongan pilar Kuliner Sekitar & keyword " +
     "Level 1 blm pernah dipakai\", atau \"pilar Wisata Sekitar terbukti performa tinggi " +
-    "dari data views nyata\"), bukan pujian generik.";
+    "dari data views nyata\"), bukan pujian generik. " +
+    `Sertakan jg contentType ("video" atau "carousel") - dari ${count} ide, TEPAT ${videoCount} ` +
+    `harus "video" & TEPAT ${carouselCount} harus "carousel" (JANGAN meleset dari angka ini). ` +
+    "Pilih ide MANA yg cocok jadi video (butuh gerakan/proses/beberapa momen berurutan - " +
+    "mis. tur kamar, aktivitas, perbandingan) vs foto/carousel (1 momen visual kuat yg " +
+    "cukup diwakili gambar diam - mis. highlight 1 fasilitas spesifik, 1 sudut estetik, " +
+    "promo harga simpel) - JANGAN asal bagi rata, pilih yg PALING NATURAL utk tiap format.";
   const scoredUser =
     `${user}${performanceBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
-    `{"ideas": [{"idea": "...", "score": 0, "reasoning": "..."}, ...]}`;
+    `{"ideas": [{"idea": "...", "score": 0, "reasoning": "...", "contentType": "video"}, ...]}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -269,15 +284,46 @@ export async function suggestScoredContentIdeas(
   const parsed = JSON.parse(cleaned);
   const rawIdeas: unknown[] = Array.isArray(parsed.ideas) ? parsed.ideas : [];
   const scored: ScoredIdea[] = rawIdeas
-    .filter((i): i is { idea: string; score: number; reasoning: string } =>
+    .filter((i): i is { idea: string; score: number; reasoning: string; contentType?: unknown } =>
       !!i && typeof i === "object" && typeof (i as Record<string, unknown>).idea === "string"
     )
     .map((i) => ({
       idea: i.idea,
       score: Math.max(0, Math.min(100, Math.round(Number(i.score) || 0))),
       reasoning: typeof i.reasoning === "string" ? i.reasoning : "",
+      contentType: i.contentType === "carousel" ? ("carousel" as const) : ("video" as const),
     }));
 
   const filteredIdeaTexts = new Set(filterRestricted(scored.map((s) => s.idea)));
-  return scored.filter((s) => filteredIdeaTexts.has(s.idea)).sort((a, b) => b.score - a.score);
+  const filtered = scored.filter((s) => filteredIdeaTexts.has(s.idea));
+  return enforceContentTypeSplit(filtered, videoCount, carouselCount).sort((a, b) => b.score - a.score);
+}
+
+// Jaring pengaman KODE (2026-08-05) - GPT sering meleset hitung jumlah exact dari
+// instruksi teks (bug class yg sama berulang sesi ini: model "hampir benar" tapi
+// tidak bisa diandalkan 100% utk aritmatika sederhana). Kalau split hasil GPT tidak
+// PERSIS videoCount/carouselCount, koreksi deterministik: pindahkan ide dgn SKOR
+// TERENDAH dari kategori kelebihan ke kategori kekurangan, sampai pas - bukan
+// panggil API lagi (lebih cepat & pasti berhasil).
+function enforceContentTypeSplit(ideas: ScoredIdea[], videoCount: number, carouselCount: number): ScoredIdea[] {
+  const result = [...ideas];
+  const total = videoCount + carouselCount;
+  if (result.length !== total) return result; // filterRestricted bisa kurangi jumlah - jangan paksa split kalau total sudah beda
+
+  const videos = result.filter((i) => i.contentType === "video").sort((a, b) => a.score - b.score);
+  const carousels = result.filter((i) => i.contentType === "carousel").sort((a, b) => a.score - b.score);
+
+  while (videos.length > videoCount && carousels.length < carouselCount) {
+    const moved = videos.shift();
+    if (!moved) break;
+    moved.contentType = "carousel";
+    carousels.push(moved);
+  }
+  while (carousels.length > carouselCount && videos.length < videoCount) {
+    const moved = carousels.shift();
+    if (!moved) break;
+    moved.contentType = "video";
+    videos.push(moved);
+  }
+  return result;
 }

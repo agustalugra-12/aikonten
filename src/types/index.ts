@@ -4,6 +4,8 @@ export type Brand = {
   name: string;
   description: string | null;
   logoUrl: string | null;
+  dailyVideoCount: number;
+  dailyCarouselCount: number;
   createdAt: string;
 };
 
