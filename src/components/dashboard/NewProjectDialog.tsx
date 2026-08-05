@@ -28,6 +28,24 @@ const MAX_CAROUSEL_PHOTOS = 5;
 // (2026-08-05, permintaan eksplisit Agus) - klip asli Agus sering pendek (2-6 detik),
 // perlu cukup banyak digabung utk benar-benar capai target 30-60 detik.
 const MAX_VIDEO_CLIPS = 15;
+// Foto tunggal WAJIB 1 file - beda dari carousel (2-5 foto). Batas ini SENGAJA
+// dipisah dari MAX_CAROUSEL_PHOTOS (2026-08-05, permintaan Agus - "kenapa tidak ada
+// pilihan foto tunggal?") walau di DB kedua mode SAMA-SAMA type="carousel"
+// (processProject.ts sudah lama membedakan poster foto tunggal vs carousel murni dari
+// JUMLAH foto yg diupload, bukan field terpisah - lihat processProject.ts
+// finalImageUrls) - "mode" di sini CUMA soal kejelasan UI, bukan skema data baru.
+const SINGLE_PHOTO_MAX = 1;
+const MIN_CAROUSEL_PHOTOS = 2;
+
+// "mode" (3 pilihan UI) vs "type" (2 nilai backend "video"|"carousel") SENGAJA
+// dipisah - foto tunggal & carousel SAMA-SAMA type="carousel" di project (perbedaan
+// poster-tunggal vs carousel-badge sudah ditentukan processProject.ts dari JUMLAH
+// foto), jadi tidak perlu migrasi skema, cukup UI yg lebih jelas.
+type ContentMode = "video" | "photo" | "carousel";
+
+function modeToType(mode: ContentMode): "video" | "carousel" {
+  return mode === "video" ? "video" : "carousel";
+}
 
 export function NewProjectDialog({
   brandId,
@@ -43,17 +61,23 @@ export function NewProjectDialog({
   initialScript?: string;
   // Diisi dari Content Planner harian (2026-08-05, permintaan Agus - "3 dibuat foto 7
   // dibuat video") - tipe yg AI sarankan utk ide ini, Agus tetap BOLEH ganti manual di
-  // dropdown. "Ide Konten" lama (ContentIdeas.tsx) tidak isi ini, default tetap "video".
+  // dropdown. "carousel" dari planner DIPETAKAN ke mode "photo" (bukan "carousel") -
+  // prompt Opportunity Finder (researchTopics.ts) memang mendeskripsikan ide "foto"
+  // sbg 1 momen visual kuat (poster tunggal), bukan carousel multi-foto - Agus tetap
+  // BOLEH ganti manual ke "carousel" kalau mau. "Ide Konten" lama (ContentIdeas.tsx)
+  // tidak isi ini, default tetap "video".
   initialType?: "video" | "carousel";
 }) {
   const [open, setOpen] = useState(!!initialScript);
-  const [type, setType] = useState<"video" | "carousel">(initialType || "video");
+  const [mode, setMode] = useState<ContentMode>(initialType === "carousel" ? "photo" : "video");
   const [script, setScript] = useState(initialScript || "");
   const [files, setFiles] = useState<File[]>([]);
   const [stage, setStage] = useState<string | null>(null);
 
-  const maxFiles = type === "carousel" ? MAX_CAROUSEL_PHOTOS : MAX_VIDEO_CLIPS;
-  const hasFiles = files.length > 0;
+  const type = modeToType(mode);
+  const maxFiles = mode === "photo" ? SINGLE_PHOTO_MAX : mode === "carousel" ? MAX_CAROUSEL_PHOTOS : MAX_VIDEO_CLIPS;
+  const minFiles = mode === "carousel" ? MIN_CAROUSEL_PHOTOS : 1;
+  const hasFiles = files.length >= minFiles;
 
   async function uploadOneFile(projectId: string, f: File): Promise<string> {
     const presignRes = await fetch(`/api/projects/${projectId}/upload-url`, {
@@ -124,9 +148,9 @@ export function NewProjectDialog({
           <div className="space-y-2">
             <Label>Tipe konten</Label>
             <Select
-              value={type}
+              value={mode}
               onValueChange={(v) => {
-                setType(v as "video" | "carousel");
+                setMode(v as ContentMode);
                 setFiles([]);
               }}
             >
@@ -135,7 +159,8 @@ export function NewProjectDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="video">Video</SelectItem>
-                <SelectItem value="carousel">Carousel</SelectItem>
+                <SelectItem value="photo">Foto Tunggal</SelectItem>
+                <SelectItem value="carousel">Carousel (multi-foto)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -151,18 +176,23 @@ export function NewProjectDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="footage">
-              {type === "carousel" ? `Foto (maks ${maxFiles})` : `Footage mentah (boleh >1 klip, maks ${maxFiles})`}
+              {mode === "photo"
+                ? "Foto (1 foto - jadi poster)"
+                : mode === "carousel"
+                  ? `Foto (${MIN_CAROUSEL_PHOTOS}-${maxFiles} foto)`
+                  : `Footage mentah (boleh >1 klip, maks ${maxFiles})`}
             </Label>
             <Input
               id="footage"
               type="file"
-              accept={type === "carousel" ? "image/*" : "video/*"}
-              multiple
+              accept={mode === "video" ? "video/*" : "image/*"}
+              multiple={mode !== "photo"}
               onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, maxFiles))}
             />
             {files.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                {files.length} {type === "carousel" ? "foto" : "klip"} dipilih
+                {files.length} {mode === "video" ? "klip" : "foto"} dipilih
+                {mode === "carousel" && files.length < MIN_CAROUSEL_PHOTOS && ` - minimal ${MIN_CAROUSEL_PHOTOS} foto utk carousel`}
               </p>
             )}
           </div>
