@@ -1,0 +1,1 @@
+ALTER TABLE `brands` ADD `logo_url` text;

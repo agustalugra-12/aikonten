@@ -21,6 +21,10 @@ export const brands = sqliteTable("brands", {
   userId: text("user_id").notNull().references(() => users.id),
   name: text("name").notNull(),
   description: text("description"),
+  // Logo brand (2026-08-05, permintaan Agus) - dipakai lib/ai/logoOverlay.ts, di-crop
+  // lingkaran & ditempel proporsional (bukan nutupin konten) di SETIAP foto & video
+  // final. Nullable - brand tanpa logo tetap jalan normal, overlay cuma dilewati.
+  logoUrl: text("logo_url"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -76,7 +80,12 @@ export const mediaAssets = sqliteTable("media_assets", {
   type: text("type", {
     // "thumbnail" - foto sampul custom utk YouTube saja (satu2nya platform yg punya
     // slot thumbnail terpisah dari videonya) - lihat lib/ai/thumbnail.ts.
-    enum: ["raw_footage", "final_video", "final_image", "subtitle_file", "thumbnail"],
+    // "broll_used" - CATATAN historis klip Pexels/Pixabay yg sudah dipakai project ini
+    // (2026-08-05, permintaan Agus - "footage pexels jangan monoton, TikTok anggap
+    // konten berulang") - dibaca lib/ai/footageVariety.ts utk MENGHINDARI klip B-roll
+    // yg sama dipakai berulang di video berikutnya. Bukan aset yg ditampilkan di UI,
+    // murni riwayat internal.
+    enum: ["raw_footage", "final_video", "final_image", "subtitle_file", "thumbnail", "broll_used"],
   }).notNull(),
   fileUrl: text("file_url").notNull(),
   durationSeconds: integer("duration_seconds"),

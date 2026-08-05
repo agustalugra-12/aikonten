@@ -59,7 +59,8 @@ export type DestinationBrollClip = { videoUrl: string; durationSeconds: number }
 // (processProject.ts) yg putuskan fallback (brollKeywords umum spt sebelumnya).
 export async function fetchDestinationBrollClips(
   script: string,
-  budgetSeconds: number = STOCK_FOOTAGE_BUDGET_SECONDS
+  budgetSeconds: number = STOCK_FOOTAGE_BUDGET_SECONDS,
+  excludeUrls: Set<string> = new Set()
 ): Promise<DestinationBrollClip[]> {
   const queries = detectDestinationMentions(script);
   const clips: DestinationBrollClip[] = [];
@@ -68,7 +69,7 @@ export async function fetchDestinationBrollClips(
   for (const query of queries) {
     if (usedSeconds >= budgetSeconds) break;
     try {
-      const broll = await searchBrollVideo(query);
+      const broll = await searchBrollVideo(query, excludeUrls);
       if (broll) {
         const durationSeconds = Math.min(broll.durationSeconds, CLIP_DURATION_CAP);
         clips.push({ videoUrl: broll.videoUrl, durationSeconds });

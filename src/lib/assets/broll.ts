@@ -11,10 +11,13 @@ export type BrollResult = {
 // kalau Pexels tidak ketemu hasil - lebih kaya pilihan footage (permintaan Agus).
 // Kedua sumber OPSIONAL: kalau API key salah satu belum diisi, tahap itu dilewati
 // (bukan dianggap error) - B-roll tetap "pendamping", bukan bagian wajib pipeline.
-export async function searchBrollVideo(query: string): Promise<BrollResult | null> {
+//
+// excludeUrls (2026-08-05, anti-monoton - lihat footageVariety.ts) diteruskan ke kedua
+// sumber, supaya klip yg BARU dipakai brand ini tidak terpilih lagi persis sama.
+export async function searchBrollVideo(query: string, excludeUrls: Set<string> = new Set()): Promise<BrollResult | null> {
   if (process.env.PEXELS_API_KEY) {
     try {
-      const pexels = await searchPexelsVideo(query);
+      const pexels = await searchPexelsVideo(query, excludeUrls);
       if (pexels) return { ...pexels, source: "pexels" };
     } catch (err) {
       console.error("[broll] Pexels gagal, coba Pixabay:", err);
@@ -23,7 +26,7 @@ export async function searchBrollVideo(query: string): Promise<BrollResult | nul
 
   if (process.env.PIXABAY_API_KEY) {
     try {
-      const pixabay = await searchPixabayVideo(query);
+      const pixabay = await searchPixabayVideo(query, excludeUrls);
       if (pixabay) return { ...pixabay, source: "pixabay" };
     } catch (err) {
       console.error("[broll] Pixabay juga gagal:", err);

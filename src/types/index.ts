@@ -3,6 +3,7 @@ export type Brand = {
   userId: string;
   name: string;
   description: string | null;
+  logoUrl: string | null;
   createdAt: string;
 };
 
@@ -24,7 +25,7 @@ export type Project = {
 export type MediaAsset = {
   id: string;
   projectId: string;
-  type: "raw_footage" | "final_video" | "final_image" | "subtitle_file" | "thumbnail";
+  type: "raw_footage" | "final_video" | "final_image" | "subtitle_file" | "thumbnail" | "broll_used";
   fileUrl: string;
   durationSeconds: number | null;
   createdAt: string;

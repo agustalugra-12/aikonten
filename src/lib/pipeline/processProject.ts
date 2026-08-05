@@ -20,6 +20,9 @@ import { applyPosterDesign } from "@/lib/ai/posterDesign";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { fetchDestinationBrollClips } from "@/lib/ai/destinationBroll";
+import { getRecentlyUsedFootageUrls } from "@/lib/ai/footageVariety";
+import { applyLogoToImage } from "@/lib/ai/logoOverlay";
+import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { newId } from "@/lib/ids";
 
 export type ProcessResult = {
@@ -130,6 +133,19 @@ export async function processProject(id: string): Promise<ProcessResult> {
               )
             );
 
+      // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lingkaran, proporsional,
+      // ditempel di SETIAP foto final (poster tunggal MAUPUN carousel) - dilewati
+      // begitu saja kalau brand belum punya logoUrl.
+      const brandedImageUrls = brand?.logoUrl
+        ? await Promise.all(
+            finalImageUrls.map(async (url, i) => {
+              const buffer = await applyLogoToImage(url, brand.logoUrl!);
+              const key = buildAssetKey(project.brandId, id, `logo_${i}.png`);
+              return uploadBuffer(key, buffer, "image/png");
+            })
+          )
+        : finalImageUrls;
+
       await db
         .update(projects)
         .set({
@@ -146,7 +162,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // percabangan khusus foto tunggal. Efek zoom-ke-video (applyZoomToImage) yang
       // dulu otomatis jalan di sini sudah DIHAPUS dari alur ini per keputusan Agus ini
       // (supersede keputusan sebelumnya "bangun untuk foto saja" - Ken Burns zoom).
-      for (const url of finalImageUrls) {
+      for (const url of brandedImageUrls) {
         await db.insert(mediaAssets).values({
           id: newId("asset"),
           projectId: id,
@@ -157,7 +173,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
         });
       }
 
-      return { caption, hashtags, promoText, photoCount: finalImageUrls.length };
+      return { caption, hashtags, promoText, photoCount: brandedImageUrls.length };
     }
 
     const isStockFootage = rawFootageAssets.every((a) => isStockFootageUrl(a.fileUrl));
@@ -271,14 +287,21 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // yg perlu dikombinasi). Tiap landmark yg disebut skrip dapat klip Pexels sendiri,
     // ditempel sbg "peak"/highlight SETELAH bagian fasilitas footage asli (lihat
     // renderFinalVideo - brollClips selalu di akhir urutan splice).
+    // Anti-monoton (2026-08-05, permintaan Agus - "footage pexels jangan monoton,
+    // TikTok anggap konten berulang, ini penting sekali") - kumpulkan url footage asli
+    // MAUPUN klip Pexels/Pixabay yg BARU dipakai brand ini (5 project video terakhir,
+    // lihat footageVariety.ts), diteruskan ke pencarian B-roll di bawah supaya klip yg
+    // sama tidak kepilih lagi persis di video berikutnya.
+    const recentlyUsedUrls = await getRecentlyUsedFootageUrls(project.brandId);
+
     let brollClips: Array<{ videoUrl: string; durationSeconds: number }> = [];
     if (!isStockFootage) {
-      brollClips = await fetchDestinationBrollClips(project.script, STOCK_FOOTAGE_BUDGET_SECONDS);
+      brollClips = await fetchDestinationBrollClips(project.script, STOCK_FOOTAGE_BUDGET_SECONDS, recentlyUsedUrls);
     }
     if (brollClips.length === 0 && brollKeywords) {
       // Fallback lama - skrip tidak menyebut landmark spesifik apa pun, tetap kasih 1
       // klip suasana umum spt sebelumnya (mis. "tropical homestay garden").
-      const broll = await searchBrollVideo(brollKeywords);
+      const broll = await searchBrollVideo(brollKeywords, recentlyUsedUrls);
       if (broll) {
         brollClips = [{ videoUrl: broll.videoUrl, durationSeconds: Math.min(broll.durationSeconds, 5) }];
       }
@@ -323,6 +346,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // Agus), reuse caption yg sudah di-generate sbg naskah narasi - tidak perlu
       // panggilan GPT terpisah.
       voiceoverText: caption,
+      // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
+      // cabang carousel di atas, sama alasannya.
+      logoUrl: brand?.logoUrl,
     });
 
     await db.insert(mediaAssets).values({
@@ -333,6 +359,20 @@ export async function processProject(id: string): Promise<ProcessResult> {
       durationSeconds: rendered.durationSeconds,
       createdAt: new Date(),
     });
+
+    // Catat klip Pexels/Pixabay yg baru dipakai (anti-monoton, lihat
+    // getRecentlyUsedFootageUrls di atas) - dibaca project VIDEO berikutnya brand ini
+    // supaya klip yg sama tidak kepilih lagi persis.
+    for (const c of brollClips) {
+      await db.insert(mediaAssets).values({
+        id: newId("asset"),
+        projectId: id,
+        type: "broll_used",
+        fileUrl: c.videoUrl,
+        durationSeconds: c.durationSeconds,
+        createdAt: new Date(),
+      });
+    }
 
     if (thumbnailText) {
       const [ytAccount] = await db

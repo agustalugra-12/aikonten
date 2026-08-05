@@ -8,6 +8,7 @@ import { processProject } from "@/lib/pipeline/processProject";
 import { isIdeSpesifikProperti } from "@/lib/ai/classifyIdea";
 import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { searchBrollVideo } from "@/lib/assets/broll";
+import { getRecentlyUsedFootageUrls, isRoomFootage } from "@/lib/ai/footageVariety";
 import { eq, desc } from "drizzle-orm";
 
 // "⚡ Konten Otomatis" (lihat memory proyek: "otomatis seperti AI blog") - satu klik,
@@ -74,9 +75,43 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const matchedItems = matchedRows.filter((r) => matchedUrls.includes(r.fileUrl));
       const isVideo = matchedItems[0]?.mediaType === "video";
       type = isVideo ? "video" : "carousel";
-      urlsToUse = isVideo
-        ? matchedItems.filter((r) => r.mediaType === "video").map((r) => r.fileUrl).slice(0, MAX_VIDEO_CLIPS_AUTO)
-        : matchedUrls.slice(0, MAX_CAROUSEL_PHOTOS_AUTO);
+      if (isVideo) {
+        // Anti-monoton (2026-08-05, permintaan Agus - "footage jangan monoton",
+        // "ini penting sekali") - utamakan klip yg BELUM dipakai di 5 video terakhir
+        // brand ini (lihat footageVariety.ts). Kalau footage segar kurang dari 3 klip
+        // (bank terbatas), tetap backfill pakai yg pernah dipakai drpd gagal total -
+        // variasi lebih baik drpd tidak ada, tapi jangan sampai video gagal digenerate.
+        const videoCandidates = matchedItems.filter((r) => r.mediaType === "video");
+        const recentlyUsed = await getRecentlyUsedFootageUrls(brandId);
+        const fresh = videoCandidates.filter((r) => !recentlyUsed.has(r.fileUrl));
+        const pool = fresh.length >= 3 ? fresh : videoCandidates;
+        urlsToUse = pool.map((r) => r.fileUrl).slice(0, MAX_VIDEO_CLIPS_AUTO);
+
+        // Pastikan ada footage "kamar" Pelangi ditampilkan (2026-08-05, permintaan
+        // Agus - "di setiap pembuatan video ada menampilkan room Pelangi dari
+        // footage") - kalau belum ada satu pun klip room di hasil pilihan, cari di
+        // SELURUH bank (bukan cuma yg matchFootageForScript anggap relevan tema-nya -
+        // room selalu relevan ditampilkan, terlepas topik skrip), prioritaskan yg
+        // belum baru dipakai, tempel di akhir (gantikan slot terakhir kalau sudah
+        // penuh MAX_VIDEO_CLIPS_AUTO drpd melebihi batas).
+        if (!pool.some((r) => isRoomFootage(r.description, r.tags))) {
+          const allVideos = matchedRows.filter((r) => r.mediaType === "video");
+          const roomCandidates = allVideos.filter(
+            (r) => isRoomFootage(r.description, r.tags) && !urlsToUse.includes(r.fileUrl)
+          );
+          const freshRoom = roomCandidates.filter((r) => !recentlyUsed.has(r.fileUrl));
+          const roomPick = freshRoom[0] || roomCandidates[0];
+          if (roomPick) {
+            if (urlsToUse.length >= MAX_VIDEO_CLIPS_AUTO) {
+              urlsToUse[urlsToUse.length - 1] = roomPick.fileUrl;
+            } else {
+              urlsToUse.push(roomPick.fileUrl);
+            }
+          }
+        }
+      } else {
+        urlsToUse = matchedUrls.slice(0, MAX_CAROUSEL_PHOTOS_AUTO);
+      }
     } else {
       // Fallback (2026-08-04, permintaan Agus - "kalau footage tidak ada, tetap harus
       // bisa digenerate") - dua jalur TERPISAH, TIDAK BOLEH tertukar:

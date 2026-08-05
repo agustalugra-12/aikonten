@@ -8,26 +8,40 @@ export type PixabayVideoResult = {
 
 // Sumber KEDUA utk B-roll (lihat pexels.ts) - dipakai sbg fallback kalau Pexels tidak
 // ketemu hasil relevan, biar pilihan footage lebih kaya (permintaan Agus).
-export async function searchPixabayVideo(query: string): Promise<PixabayVideoResult | null> {
+//
+// Anti-monoton (2026-08-05, sama alasannya dgn pexels.ts) - dulu per_page=3, SELALU
+// ambil hasil PERTAMA. Sekarang pilih ACAK di antara kandidat, excludeUrls (riwayat
+// klip yg baru dipakai brand ini) disingkirkan dulu kalau memungkinkan.
+export async function searchPixabayVideo(
+  query: string,
+  excludeUrls: Set<string> = new Set()
+): Promise<PixabayVideoResult | null> {
   const apiKey = process.env.PIXABAY_API_KEY;
   if (!apiKey) throw new Error("PIXABAY_API_KEY belum diisi di .env");
 
-  const url = `${PIXABAY_VIDEO_SEARCH_URL}?key=${apiKey}&q=${encodeURIComponent(query)}&per_page=3&safesearch=true`;
+  const url = `${PIXABAY_VIDEO_SEARCH_URL}?key=${apiKey}&q=${encodeURIComponent(query)}&per_page=8&safesearch=true`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Pixabay API error: ${res.status} ${await res.text()}`);
 
   const data = await res.json();
-  const hit = data.hits?.[0];
-  if (!hit) return null;
+  const hits = data.hits || [];
+  if (hits.length === 0) return null;
 
-  // "small" (1920x1080) - kualitas cukup utk sosmed, tidak sebesar "large"/"medium" yg
-  // bikin upload+transcode Cloudinary lebih lama.
-  const file = hit.videos?.small || hit.videos?.medium || hit.videos?.tiny;
-  if (!file) return null;
+  type PixabayHit = { videos?: { small?: { url: string }; medium?: { url: string }; tiny?: { url: string } }; duration: number; user?: string };
 
-  return {
-    videoUrl: file.url,
-    durationSeconds: Math.round(hit.duration),
-    photographer: hit.user || "Pixabay",
-  };
+  const candidates = (hits as PixabayHit[])
+    .map((hit) => {
+      // "small" (1920x1080) - kualitas cukup utk sosmed, tidak sebesar "large"/"medium" yg
+      // bikin proses lebih lama.
+      const file = hit.videos?.small || hit.videos?.medium || hit.videos?.tiny;
+      if (!file) return null;
+      return { videoUrl: file.url, durationSeconds: Math.round(hit.duration), photographer: hit.user || "Pixabay" };
+    })
+    .filter((c): c is PixabayVideoResult => c !== null);
+
+  if (candidates.length === 0) return null;
+
+  const fresh = candidates.filter((c) => !excludeUrls.has(c.videoUrl));
+  const pool = fresh.length > 0 ? fresh : candidates;
+  return pool[Math.floor(Math.random() * pool.length)];
 }

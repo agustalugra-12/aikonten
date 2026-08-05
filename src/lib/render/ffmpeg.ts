@@ -6,6 +6,7 @@ import path from "path";
 import type { ScoredSegment } from "@/lib/ai/clipSelect";
 import { generateVoiceover } from "@/lib/ai/dubbing";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
+import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/ai/logoOverlay";
 
 const execFileAsync = promisify(execFile);
 
@@ -116,6 +117,10 @@ export async function renderFinalVideo(opts: {
   srtContent: string;
   brollClips?: Array<{ videoUrl: string; durationSeconds: number }>;
   voiceoverText?: string;
+  // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - ditempel lingkaran, ukuran
+  // proporsional (lihat logoOverlay.ts), pojok kanan-atas, JANGAN dianggap wajib -
+  // brand tanpa logoUrl dilewati begitu saja.
+  logoUrl?: string | null;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -164,7 +169,18 @@ export async function renderFinalVideo(opts: {
     const assPath = path.join(workDir, "subtitles.ass");
     await writeFile(assPath, buildAssContent(opts.srtContent));
 
-    // 4) AI Dubbing - GANTI TOTAL audio asli dgn TTS baca caption (lihat memory
+    // 4) Logo brand OPSIONAL (2026-08-05, permintaan Agus) - crop lingkaran +
+    // ukuran proporsional (logoOverlay.ts, dipakai jg utk foto - konsisten), disiapkan
+    // sbg file PNG lokal dulu (ffmpeg overlay filter butuh input file, bukan URL).
+    let logoPath: string | null = null;
+    if (opts.logoUrl) {
+      const logoSize = Math.round(TARGET_WIDTH * LOGO_SIZE_RATIO);
+      const logoPngBuffer = await buildCircularLogoPng(opts.logoUrl, logoSize);
+      logoPath = path.join(workDir, "logo.png");
+      await writeFile(logoPath, logoPngBuffer);
+    }
+
+    // 5) AI Dubbing - GANTI TOTAL audio asli dgn TTS baca caption (lihat memory
     // proyek, keputusan eksplisit Agus) - reuse generateVoiceover yg sudah ada
     // (dubbing.ts, model tts-1 murah).
     let audioPath: string | null = null;
@@ -174,17 +190,40 @@ export async function renderFinalVideo(opts: {
       await writeFile(audioPath, voiceoverBuffer);
     }
 
-    // 5) Bakar subtitle + mux audio TTS. PENTING (bug nyata ditemukan lewat tes -
-    // "-vf" simple-filter DIGABUNG dgn "-map" eksplisit bikin filter subtitle
-    // SENYAP tidak pernah kepakai, walau tidak ada error sama sekali): WAJIB pakai
-    // -filter_complex dgn label output eksplisit ([vout]) baru di-map, bukan -vf biasa.
+    // 6) Bakar subtitle + overlay logo + mux audio TTS. PENTING (bug nyata ditemukan
+    // lewat tes - "-vf" simple-filter DIGABUNG dgn "-map" eksplisit bikin filter
+    // subtitle SENYAP tidak pernah kepakai, walau tidak ada error sama sekali): WAJIB
+    // pakai -filter_complex dgn label output eksplisit ([vout]) baru di-map, bukan -vf
+    // biasa. Urutan input: 0=video gabungan, lalu logo (kalau ada), lalu audio (kalau
+    // ada) - index dilacak manual krn keduanya opsional & urutannya penting.
     const finalPath = path.join(workDir, "final.mp4");
     const finalArgs = ["-y", "-i", concatenatedPath];
-    if (audioPath) finalArgs.push("-i", audioPath);
-    finalArgs.push("-filter_complex", `[0:v]ass=${escapeFilterPath(assPath)}[vout]`);
-    finalArgs.push("-map", "[vout]");
+    let nextInputIdx = 1;
+    let logoInputIdx: number | null = null;
+    if (logoPath) {
+      finalArgs.push("-i", logoPath);
+      logoInputIdx = nextInputIdx++;
+    }
+    let audioInputIdx: number | null = null;
     if (audioPath) {
-      finalArgs.push("-map", "1:a", "-shortest");
+      finalArgs.push("-i", audioPath);
+      audioInputIdx = nextInputIdx++;
+    }
+
+    const logoMargin = Math.round(TARGET_WIDTH * LOGO_MARGIN_RATIO);
+    const filterStages: string[] = [];
+    let curLabel = "0:v";
+    const subLabel = logoInputIdx !== null ? "subbed" : "vout";
+    filterStages.push(`[${curLabel}]ass=${escapeFilterPath(assPath)}[${subLabel}]`);
+    curLabel = subLabel;
+    if (logoInputIdx !== null) {
+      filterStages.push(`[${logoInputIdx}:v]format=rgba[logofmt]`);
+      filterStages.push(`[${curLabel}][logofmt]overlay=W-w-${logoMargin}:${logoMargin}[vout]`);
+    }
+    finalArgs.push("-filter_complex", filterStages.join(";"));
+    finalArgs.push("-map", "[vout]");
+    if (audioInputIdx !== null) {
+      finalArgs.push("-map", `${audioInputIdx}:a`, "-shortest");
     }
     finalArgs.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-pix_fmt", "yuv420p", finalPath);
     await run("ffmpeg", finalArgs);
