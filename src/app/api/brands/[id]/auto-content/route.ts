@@ -126,6 +126,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             }
           }
         }
+
+        // Top-up JUMLAH klip kalau masih kurang dari cukup utk capai target durasi
+        // 30-60 detik (2026-08-05, Agus tanya "kenapa video masih di bawah 30 detik" -
+        // root cause NYATA: matchFootageForScript (GPT) sering cuma anggap SEDIKIT klip
+        // "relevan tema" utk skrip yg sempit topiknya, padahal tiap klip asli maks
+        // kontribusi 5 detik [MAX_CLIP_DURATION] - < 7 klip asli = otomatis < 35 detik,
+        // tidak peduli seberapa bagus skrip/caption-nya). Fix: kalau msh kurang dari
+        // MIN_VIDEO_CLIPS_FOR_LENGTH, tambah klip ASLI LAIN dari SELURUH bank (bukan
+        // andalkan LEBIH BANYAK stock Pexels utk isi durasi - itu JUSTRU berlawanan dgn
+        // permintaan Agus "video didominasi footage Pelangi") - sama pola dgn jaminan
+        // room di atas, room bukan satu2nya yg "selalu boleh dipakai walau di luar tema
+        // literal skrip".
+        // 7 klip (asumsi 5dtk/klip) di tes nyata cuma hasilkan 26 detik - klip
+        // SUNGGUHAN sering < 5dtk (segmen whisper pendek), rata2 nyata ~3.7dtk/klip.
+        // Dinaikkan ke 9 (~33dtk estimasi nyata) biar lebih konsisten tembus 30dtk.
+        const MIN_VIDEO_CLIPS_FOR_LENGTH = 9;
+        if (urlsToUse.length < MIN_VIDEO_CLIPS_FOR_LENGTH) {
+          const unusedVideos = matchedRows.filter(
+            (r) => r.mediaType === "video" && !urlsToUse.includes(r.fileUrl)
+          );
+          const viableUnused = await filterViableSize(unusedVideos);
+          const freshUnused = viableUnused.filter((r) => !recentlyUsed.has(r.fileUrl));
+          const orderedTopUp = [...freshUnused, ...viableUnused.filter((r) => !freshUnused.includes(r))];
+          for (const extra of orderedTopUp) {
+            if (urlsToUse.length >= MIN_VIDEO_CLIPS_FOR_LENGTH) break;
+            urlsToUse.push(extra.fileUrl);
+          }
+        }
       } else {
         urlsToUse = matchedUrls.slice(0, MAX_CAROUSEL_PHOTOS_AUTO);
       }

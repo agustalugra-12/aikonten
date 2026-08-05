@@ -113,6 +113,10 @@ export async function generateCaptionAndHashtags(
     "ini JUGA jadi naskah voiceover (dibacakan TTS, GANTI TOTAL audio asli video) - " +
     `WAJIB ikuti struktur narasi berikut (jangan tulis label section-nya literal, cukup ` +
     `alirkan sbg 1 caption utuh yg mengikuti urutan ide ini): ${structureTemplate.guide} ` +
+    "Bagian CTA di akhir WAJIB mengarahkan audiens menghubungi admin (mis. \"chat admin " +
+    "kami\" atau \"hubungi WA admin kami\", boleh divariasikan kalimatnya tapi maksudnya " +
+    "harus itu) - JANGAN pakai CTA generik lain (mis. \"pesan sekarang\", \"booking " +
+    "sekarang\") tanpa menyebut kontak admin. " +
     "Sertakan juga brollKeywords: 2-4 kata kunci Bahasa INGGRIS singkat utk cari video " +
     "stok (B-roll) pendamping yg relevan dgn suasana/topik ini (mis. \"tropical homestay " +
     "garden\"), atau null kalau topiknya tidak cocok disandingkan stok footage generik. " +
