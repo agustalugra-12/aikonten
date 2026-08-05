@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { ScoredSegment } from "./clipSelect";
+import { fetchPelangiKnowledge } from "./pelangiKnowledge";
 
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -95,6 +96,25 @@ export const VIDEO_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
   },
 ];
 
+// Knowledge Base grounding (2026-08-05, permintaan Agus - sama alasannya dgn
+// researchTopics.ts: "supaya konteks konten tidak keluar jalur") - dipakai caption/
+// hashtag generation JUGA (bukan cuma ide), krn instruksi "JANGAN mengarang fasilitas"
+// yg sudah ada di system prompt SEBELUMNYA tidak py data ASLI apa pun utk dicocokkan -
+// cuma janji tanpa pegangan. Return string kosong kalau knowledge base belum
+// terkonfigurasi (fetchPelangiKnowledge sendiri sudah aman gagal-diam, lihat sana).
+async function buildKnowledgeGroundingBlock(): Promise<{ instruction: string; contextBlock: string }> {
+  const knowledge = await fetchPelangiKnowledge();
+  if (!knowledge) return { instruction: "", contextBlock: "" };
+  return {
+    instruction:
+      " KAMU PUNYA KNOWLEDGE BASE ASLI PROPERTI DI KONTEKS - SEMUA klaim fasilitas/harga " +
+      "WAJIB berasal dari situ, dan kalau Knowledge Base eksplisit bilang properti TIDAK " +
+      "punya sesuatu (mis. kolam renang/rental motor/jemput bandara/ruang meeting), JANGAN " +
+      "PERNAH tulis caption yg mengklaim/menyiratkan itu ada.",
+    contextBlock: `\n\n# KNOWLEDGE BASE ASLI PROPERTI\n${knowledge}\n`,
+  };
+}
+
 function pickStructureTemplate(): { name: string; guide: string } {
   return VIDEO_STRUCTURE_TEMPLATES[Math.floor(Math.random() * VIDEO_STRUCTURE_TEMPLATES.length)];
 }
@@ -106,11 +126,13 @@ export async function generateCaptionAndHashtags(
 ): Promise<GeneratedVideoContent> {
   const client = getClient();
   const structureTemplate = pickStructureTemplate();
+  const grounding = await buildKnowledgeGroundingBlock();
   const system =
     "Kamu content strategist media sosial. Buat caption yang menarik & natural (bukan " +
     "generik/template) plus daftar hashtag relevan berdasarkan skrip & isi klip yang " +
-    "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip. Caption " +
-    "ini JUGA jadi naskah voiceover (dibacakan TTS, GANTI TOTAL audio asli video) - " +
+    "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip." +
+    grounding.instruction +
+    " Caption ini JUGA jadi naskah voiceover (dibacakan TTS, GANTI TOTAL audio asli video) - " +
     `WAJIB ikuti struktur narasi berikut (jangan tulis label section-nya literal, cukup ` +
     `alirkan sbg 1 caption utuh yg mengikuti urutan ide ini): ${structureTemplate.guide} ` +
     "Bagian CTA di akhir WAJIB mengarahkan audiens menghubungi admin (mis. \"chat admin " +
@@ -123,7 +145,7 @@ export async function generateCaptionAndHashtags(
     "Sertakan juga thumbnailText: teks hook SANGAT singkat (2-5 kata, Bahasa Indonesia, " +
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas.";
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -158,16 +180,18 @@ export async function generateCaptionForImages(
   imageUrls: string[]
 ): Promise<GeneratedImageContent> {
   const client = getClient();
+  const grounding = await buildKnowledgeGroundingBlock();
   const system =
     "Kamu content strategist media sosial. Lihat SEMUA foto yang diberikan (bisa lebih " +
     "dari satu, urutan sesuai carousel), lalu buat SATU caption yang merangkum & " +
     "menarik & natural (bukan generik/template) plus daftar hashtag relevan berdasarkan " +
-    "ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto. " +
-    "Kalau skrip menyebutkan harga/promo/diskon, tulis juga versi SINGKAT teks itu " +
+    "ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto." +
+    grounding.instruction +
+    " Kalau skrip menyebutkan harga/promo/diskon, tulis juga versi SINGKAT teks itu " +
     "(mis. \"Rp175.000\" atau \"Promo 20%\") di field promoText - ini akan ditempel " +
     "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
     "TIDAK menyebut harga/promo sama sekali, promoText HARUS null.";
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
