@@ -43,7 +43,9 @@ export async function generateThumbnail(opts: {
       `"${opts.thumbnailText}" near the bottom of the photo - thick readable font, strong ` +
       "outline or drop shadow so it pops against the background. Do not add, remove, or " +
       "change anything else in the photo - the rest of the image must stay exactly the same " +
-      "as the original, only the text is new.",
+      "as the original, only the text is new. Do NOT draw any logo, brand badge, verified/" +
+      "certified seal, or watermark anywhere - the real brand logo (if any) is composited " +
+      "separately after this step, outside your control.",
     image_urls: [frameUrl],
     aspect_ratio: "16:9",
     resolution: "1K",

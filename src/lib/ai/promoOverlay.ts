@@ -40,7 +40,9 @@ export async function applyPromoOverlay(opts: {
       "discount sticker (solid accent color background, bold readable text, subtle shadow) - the " +
       "badge should take up roughly the bottom-right 40% width x 28% height corner of the image, " +
       "not the whole photo. Do not add, remove, or change ANYTHING else in the photo outside that " +
-      "badge corner - the rest of the image must stay exactly the same as the original.",
+      "badge corner - the rest of the image must stay exactly the same as the original. Do NOT draw " +
+      "any logo, brand badge, verified/certified seal, or watermark anywhere - the real brand logo " +
+      "(if any) is composited separately after this step, outside your control.",
     image_urls: [opts.imageUrl],
     aspect_ratio: "1:1",
     resolution: "1K",

@@ -62,6 +62,8 @@ VARIASI LAYOUT: boleh beda-beda tiap poster (kiri-kanan, hero image full, split 
 BATASAN KERAS - JANGAN PERNAH: mengubah logo/identitas visual, pakai warna acak di luar palet di atas, bikin layout terlalu penuh/sesak, menambahkan elemen hotel yang tidak ada di foto asli, menghasilkan foto AI atau gambar stok, mengubah properti/bangunan/taman/kamar/pintu/view asli.
 
 KONTAK: JANGAN PERNAH menambahkan nomor telepon/WhatsApp, alamat website/domain, atau handle media sosial di poster kecuali disebutkan eksplisit di KONTEN POSTER INI di bawah - kalau tidak disebutkan, JANGAN tampilkan footer kontak/website/social handle apa pun, jangan mengarang nomor atau username. Sama seperti aturan harga: lebih baik tidak ada info kontak sama sekali daripada info yang salah/mengarang.
+
+LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified"/"certified", watermark, atau simbol apa pun yang menyerupai identitas brand - JANGAN sekalipun sekadar elemen dekoratif. Logo ASLI Pelangi Homestay/Harmoni Hills (kalau brand ini punya) ditempel TERPISAH sesudah gambar ini jadi, lewat proses lain di luar kendalimu - tugasmu HANYA desain poster tanpa logo apa pun, jangan mengisi "kekosongan" itu dengan logo karangan.
 `.trim();
 
 function buildPosterPrompt(copy: PosterCopy): string {
