@@ -34,7 +34,11 @@ const TARGET_HEIGHT = 1920; // vertikal (9:16) - sama dgn Cloudinary sebelumnya 
 // EKSPLISIT dgn PlayResX/PlayResY = resolusi video SUNGGUHAN, style Alignment=2 (bottom-
 // center) + MarginV dihitung dari SITU - jadi predictable & dites benar2 pas di tengah-
 // bawah lewat rendering nyata sblm dipakai di pipeline.
-const SUBTITLE_FONT_SIZE = 26; // ~50% dari ukuran umum caption video vertikal (biasanya ~50-56px)
+// 26px (permintaan awal "kecilkan 50%") ternyata KETERLALUAN kecil - direvisi
+// (2026-08-05, permintaan Agus "besarkan agar proporsional") ke 60px, standar umum
+// caption video vertikal 1080 lebar (mis. gaya CapCut/TikTok auto-caption, ~5.5% dari
+// lebar frame) - cukup besar utk terbaca di HP kecil, tapi tidak menutupi footage.
+const SUBTITLE_FONT_SIZE = 60;
 const SUBTITLE_MARGIN_V = 760; // dari tepi bawah, dlm skala PlayResY=1920 sungguhan - diuji visual: jatuh di ~tengah, sedikit di bawah tengah asli
 
 async function run(cmd: string, args: string[]): Promise<void> {

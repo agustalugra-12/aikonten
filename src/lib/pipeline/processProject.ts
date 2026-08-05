@@ -47,6 +47,25 @@ function isStockFootageUrl(url: string): boolean {
   return STOCK_FOOTAGE_DOMAINS.some((domain) => url.includes(domain));
 }
 
+// Footage asli TERLALU PANJANG/BESAR TIDAK PERNAH dipakai utk transkripsi (2026-08-05,
+// larangan eksplisit Agus - "jangan pernah pakai 1 footage panjang dalam pembuatan
+// video", setelah ditemukan bug nyata lewat tes langsung: Whisper keras menolak file
+// >25MB, "413 Maximum content size limit exceeded", 1 klip HP modern gampang >25MB).
+// Selaras jg dgn gaya video yg memang didominasi BANYAK klip pendek (bukan 1 klip
+// panjang mendominasi) - jadi ini bukan cuma workaround teknis, tapi juga keputusan
+// gaya konten yg sudah ada (lihat MAX_CLIP_DURATION di clipSelect.ts).
+const MAX_FOOTAGE_BYTES = 24 * 1024 * 1024; // Whisper batas keras 25MB (26.214.400 byte) - margin aman
+
+async function getRemoteFileSizeBytes(url: string): Promise<number | null> {
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    const len = res.headers.get("content-length");
+    return len ? parseInt(len, 10) : null;
+  } catch {
+    return null;
+  }
+}
+
 // Pipeline Fase 1 (lihat memory proyek) - DIPAKAI BERSAMA oleh
 // POST /api/projects/[id]/process (dipicu manual dari NewProjectDialog) MAUPUN
 // POST /api/brands/[id]/auto-content ("⚡ Konten Otomatis", lihat matchFootageBank.ts)
@@ -168,6 +187,30 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // cukup, krn ini jalur ide UMUM yg tidak butuh detail spesifik properti).
       selectedText = "";
     } else {
+      // Skip footage yg kelewat panjang/besar SEBELUM transkripsi (lihat catatan
+      // MAX_FOOTAGE_BYTES di atas) - cek size via HEAD dulu (murah, tidak perlu download
+      // penuh), JANGAN coba-coba transkripsi lalu gagal di tengah pipeline (bug nyata yg
+      // ditemukan sblm larangan ini ada).
+      const sizeChecked = await Promise.all(
+        rawFootageAssets.map(async (asset) => ({ asset, size: await getRemoteFileSizeBytes(asset.fileUrl) }))
+      );
+      const oversized = sizeChecked.filter((s) => s.size !== null && s.size > MAX_FOOTAGE_BYTES);
+      const usableAssets = sizeChecked
+        .filter((s) => s.size === null || s.size <= MAX_FOOTAGE_BYTES)
+        .map((s) => s.asset);
+      if (oversized.length > 0) {
+        console.warn(
+          `[processProject] skip footage terlalu panjang/besar (>24MB), TIDAK dipakai: ${oversized
+            .map((s) => `${s.asset.fileUrl} (${Math.round((s.size || 0) / 1024 / 1024)}MB)`)
+            .join(", ")}`
+        );
+      }
+      if (usableAssets.length === 0) {
+        throw new Error(
+          "Semua footage yg diupload terlalu panjang/besar (>24MB) - potong dulu jadi beberapa klip pendek (beberapa detik tiap klip), jangan upload 1 video panjang."
+        );
+      }
+
       // Kumpulkan footage dari SEMUA file asli sekaligus (2026-08-05, permintaan Agus -
       // "1 video didominasi footage Pelangi", rasio 7:3 - 1 file asli sendirian sering
       // terlalu pendek [ada yg cuma ~4 detik] utk isi 70% dari target 30-60 detik).
@@ -175,7 +218,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // renderFinalVideo tahu tiap klip terpilih harus dipotong dari file MANA.
       const pooled: (Awaited<ReturnType<typeof transcribeFootage>>[number] & { sourceUrl: string })[] = [];
       segments = [];
-      for (const asset of rawFootageAssets) {
+      for (const asset of usableAssets) {
         const t = await transcribeFootage(asset.fileUrl);
         segments = segments.concat(t);
         pooled.push(...t.map((s) => ({ ...s, sourceUrl: asset.fileUrl })));
@@ -190,7 +233,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // kebetulan tertinggi - top-up klip terbaik PER FILE yg belum terwakili di hasil
       // selectClips.
       const representedSources = new Set(budgeted.map((s) => s.sourceUrl));
-      const missingSources = rawFootageAssets.filter((a) => !representedSources.has(a.fileUrl));
+      const missingSources = usableAssets.filter((a) => !representedSources.has(a.fileUrl));
       const topUps = missingSources
         .map((asset) => {
           const ownSegments = pooled.filter((s) => s.sourceUrl === asset.fileUrl);
