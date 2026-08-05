@@ -82,6 +82,14 @@ export const projects = sqliteTable("projects", {
   angle: text("angle", {
     enum: ["harga", "lokasi", "fasilitas", "suasana", "target_tamu", "momen", "faq", "perbandingan"],
   }),
+  // Keyword Priority & Search Intent Engine (2026-08-05, PRD modul 4 & 9, permintaan
+  // Agus) - keyword TARGET SEO (dari daftar prioritas Level 1/2/3 persis PRD, lihat
+  // keywordPriority.ts) yg paling didukung konten ini, diklasifikasi bareng
+  // pillar/angle (1 panggilan GPT yg sama, tidak ada biaya tambahan). Nullable -
+  // konten yg genuinely tidak menargetkan keyword spesifik apa pun (mis. cuma
+  // suasana umum) boleh null, tidak dipaksa.
+  targetKeyword: text("target_keyword"),
+  keywordLevel: integer("keyword_level"), // 1, 2, atau 3 - null kalau targetKeyword null
   errorMessage: text("error_message"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

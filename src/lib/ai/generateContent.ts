@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ScoredSegment } from "./clipSelect";
 import { fetchPelangiKnowledge } from "./pelangiKnowledge";
+import { KEYWORD_PRIORITY_LIST } from "./keywordPriority";
 
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -40,18 +41,31 @@ function normalizePillar(v: unknown): ContentPillar | null {
 function normalizeAngle(v: unknown): ContentAngle | null {
   return (CONTENT_ANGLES as readonly string[]).includes(v as string) ? (v as ContentAngle) : null;
 }
+// Keyword Priority & Search Intent (2026-08-05, PRD modul 4 & 9) - normalisasi longgar
+// (bandingkan case-insensitive) krn keyword ASLI (bukan enum ketat spt pillar/angle) -
+// GPT kadang beda kapitalisasi kecil, tetap dianggap valid selama cocok satu daftar.
+function normalizeTargetKeyword(v: unknown): { targetKeyword: string | null; keywordLevel: number | null } {
+  if (typeof v !== "string" || !v.trim()) return { targetKeyword: null, keywordLevel: null };
+  const match = KEYWORD_PRIORITY_LIST.find((k) => k.keyword.toLowerCase() === v.trim().toLowerCase());
+  return match ? { targetKeyword: match.keyword, keywordLevel: match.level } : { targetKeyword: null, keywordLevel: null };
+}
 
 const CLASSIFICATION_PROMPT_FRAGMENT =
   ` Sertakan juga pillar (WAJIB SALAH SATU PERSIS): ${CONTENT_PILLARS.map((p) => `"${p}"`).join(", ")}, ` +
   `dan angle (WAJIB SALAH SATU PERSIS): ${CONTENT_ANGLES.map((a) => `"${a}"`).join(", ")} - ` +
   "klasifikasi ini dipakai sistem melacak variasi konten, JAWAB SEJUJURNYA sesuai isi konten ini, " +
-  "bukan asal pilih.";
+  "bukan asal pilih. Sertakan juga targetKeyword: SALAH SATU PERSIS dari daftar keyword " +
+  `prioritas ini kalau konten ini benar2 menargetkannya (${KEYWORD_PRIORITY_LIST.map((k) => `"${k.keyword}"`).join(", ")}), ` +
+  "atau null kalau konten ini tidak spesifik menargetkan salah satu keyword itu (JANGAN " +
+  "dipaksakan kalau memang tidak relevan).";
 
 export type GeneratedContent = {
   caption: string;
   hashtags: string[];
   pillar: ContentPillar | null;
   angle: ContentAngle | null;
+  targetKeyword: string | null;
+  keywordLevel: number | null;
 };
 
 export type GeneratedImageContent = GeneratedContent & {
@@ -176,7 +190,7 @@ export async function generateCaptionAndHashtags(
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
     CLASSIFICATION_PROMPT_FRAGMENT;
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "..."}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -198,6 +212,7 @@ export async function generateCaptionAndHashtags(
     structureTemplate: structureTemplate.name,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
+    ...normalizeTargetKeyword(parsed.targetKeyword),
   };
 }
 
@@ -225,7 +240,7 @@ export async function generateCaptionForImages(
     "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
     "TIDAK menyebut harga/promo sama sekali, promoText HARUS null." +
     CLASSIFICATION_PROMPT_FRAGMENT;
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "..."}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "...", "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -251,6 +266,7 @@ export async function generateCaptionForImages(
     promoText: parsed.promoText || null,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
+    ...normalizeTargetKeyword(parsed.targetKeyword),
   };
 }
 

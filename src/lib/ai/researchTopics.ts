@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { fetchPelangiKnowledge } from "./pelangiKnowledge";
 import { CONTENT_PILLARS, CONTENT_ANGLES, type ContentPillar, type ContentAngle } from "./generateContent";
 import { buildSeasonalContext } from "./seasonalContext";
+import { buildKeywordPriorityBlock, type KeywordClassification } from "./keywordPriority";
 
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -37,7 +38,7 @@ const PILLAR_TARGET_PERCENT: Record<ContentPillar, number> = {
   "Kuliner Sekitar": 10, "Travel Tips": 10,
 };
 
-export type RecentClassification = { pillar: string | null; angle: string | null };
+export type RecentClassification = KeywordClassification & { pillar: string | null; angle: string | null };
 
 // Duplicate Checker & Content Pillar NYATA (2026-08-05, PRD modul 6 & 11, permintaan
 // Agus) - BEDA dari sebelumnya (instruksi teks "jangan monoton" doang, GPT nebak
@@ -95,6 +96,7 @@ export async function suggestContentIdeas(
   const knowledge = await fetchPelangiKnowledge();
   const distributionBlock = buildDistributionBlock(recentClassifications);
   const seasonalBlock = buildSeasonalContext();
+  const keywordBlock = buildKeywordPriorityBlock(recentClassifications);
 
   const system =
     `Kamu content strategist media sosial utk bisnis lokal Indonesia. Usulkan ${count} ide ` +
@@ -135,6 +137,7 @@ export async function suggestContentIdeas(
     (knowledge ? `\n\n# KNOWLEDGE BASE ASLI PROPERTI\n${knowledge}\n\n` : "\n\n") +
     `Skrip yg sudah pernah dipakai (JANGAN diulang, WAJIB beda angle):\n${recentScripts.length ? recentScripts.map((s) => `- ${s}`).join("\n") : "(belum ada)"}\n` +
     distributionBlock +
+    keywordBlock +
     `\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"ideas": ["...", "...", "..."]}`;
 
   const completion = await client.chat.completions.create({

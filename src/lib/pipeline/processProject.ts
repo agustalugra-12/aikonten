@@ -85,7 +85,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
 
     if (project.type === "carousel") {
       const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
-      const { caption, hashtags, promoText, pillar, angle } = await generateCaptionForImages(
+      const { caption, hashtags, promoText, pillar, angle, targetKeyword, keywordLevel } = await generateCaptionForImages(
         brand?.name || "Brand",
         project.script,
         photoUrls
@@ -135,6 +135,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
           generatedHashtags: JSON.stringify(hashtags),
           pillar,
           angle,
+          targetKeyword,
+          keywordLevel,
           updatedAt: new Date(),
         })
         .where(eq(projects.id, id));
@@ -264,7 +266,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       selected = hook ? [hook, ...rest] : rest;
       selectedText = selected.map((s) => s.text).join(" ");
     }
-    const { caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle } = await generateCaptionAndHashtags(
+    const { caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, targetKeyword, keywordLevel } = await generateCaptionAndHashtags(
       brand?.name || "Brand",
       project.script,
       selectedText
@@ -373,6 +375,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
         generatedHashtags: JSON.stringify(hashtags),
         pillar,
         angle,
+        targetKeyword,
+        keywordLevel,
         updatedAt: new Date(),
       })
       .where(eq(projects.id, id));
