@@ -24,8 +24,10 @@ const MAX_CAROUSEL_PHOTOS = 5;
 // Video BOLEH >1 klip sekaligus (2026-08-05, permintaan Agus - "video didominasi
 // footage Pelangi", rasio 7:3 - 1 klip sendirian sering terlalu pendek/panjang utk isi
 // 70% target 30-60 detik, lihat processProject.ts REAL_FOOTAGE_BUDGET_SECONDS & pooling
-// multi-source di renderFinalVideo). Dulu cuma 1 file video per project.
-const MAX_VIDEO_CLIPS = 5;
+// multi-source di renderFinalVideo). Dulu cuma 1 file video per project. Dinaikkan ke 15
+// (2026-08-05, permintaan eksplisit Agus) - klip asli Agus sering pendek (2-6 detik),
+// perlu cukup banyak digabung utk benar-benar capai target 30-60 detik.
+const MAX_VIDEO_CLIPS = 15;
 
 export function NewProjectDialog({
   brandId,

@@ -16,6 +16,15 @@ import { eq, desc } from "drizzle-orm";
 // footage yg cocok (BUKAN upload baru - fileUrl bank dipakai langsung), (4) proses spt
 // biasa (processProject, sama persis dipakai /process manual) - berhenti di status
 // "ready" (draft), TIDAK auto-publish (lihat DraftReview.tsx).
+// Batas jumlah klip/foto yg dipakai dari hasil matchFootageForScript (2026-08-05,
+// permintaan Agus - "tambahkan sampai 15 klip" biar video bisa capai target 30-60
+// detik lewat gabungan banyak klip pendek, lihat processProject.ts). Foto TETAP
+// dibatasi lebih ketat (sama dgn NewProjectDialog.tsx MAX_CAROUSEL_PHOTOS) - carousel
+// terlalu banyak foto tidak masuk akal utk 1 post, beda dgn video yg memang perlu
+// banyak klip pendek utk isi durasi.
+const MAX_VIDEO_CLIPS_AUTO = 15;
+const MAX_CAROUSEL_PHOTOS_AUTO = 5;
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: brandId } = await params;
   const body = await req.json().catch(() => ({}));
@@ -53,20 +62,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (matchedUrls.length > 0) {
       // Tentukan tipe project dari jenis footage yg cocok pertama - foto bisa lebih dari
-      // 1 (carousel, sudah didukung). Video JUGA bisa lebih dari 1 klip sekaligus
-      // (2026-08-05, permintaan Agus - "video didominasi footage Pelangi", rasio 7:3 -
-      // 1 klip sendirian sering terlalu pendek/panjang, lihat processProject.ts pooling
-      // multi-source & REAL_FOOTAGE_BUDGET_SECONDS) - pakai SEMUA klip video yg cocok
-      // (matchFootageForScript sendiri sudah membatasi maks 1-3 kandidat paling relevan,
-      // tidak perlu dibatasi lagi di sini). matchFootageForScript cuma balikin fileUrl,
-      // jadi query bank lagi utk tau mediaType tiap item yg cocok.
+      // 1 (carousel, sudah didukung, dibatasi MAX_CAROUSEL_PHOTOS_AUTO). Video JUGA bisa
+      // lebih dari 1 klip sekaligus (2026-08-05, permintaan Agus - "video didominasi
+      // footage Pelangi", rasio 7:3, target 30-60 detik - 1 klip sendirian sering
+      // terlalu pendek, lihat processProject.ts pooling multi-source &
+      // REAL_FOOTAGE_BUDGET_SECONDS) - pakai klip video yg cocok sampai
+      // MAX_VIDEO_CLIPS_AUTO (matchFootageForScript sendiri sekarang boleh balikin
+      // sampai 15 kandidat, lihat matchFootageBank.ts). matchFootageForScript cuma
+      // balikin fileUrl, jadi query bank lagi utk tau mediaType tiap item yg cocok.
       const matchedRows = await db.select().from(footageBank).where(eq(footageBank.brandId, brandId));
       const matchedItems = matchedRows.filter((r) => matchedUrls.includes(r.fileUrl));
       const isVideo = matchedItems[0]?.mediaType === "video";
       type = isVideo ? "video" : "carousel";
       urlsToUse = isVideo
-        ? matchedItems.filter((r) => r.mediaType === "video").map((r) => r.fileUrl)
-        : matchedUrls;
+        ? matchedItems.filter((r) => r.mediaType === "video").map((r) => r.fileUrl).slice(0, MAX_VIDEO_CLIPS_AUTO)
+        : matchedUrls.slice(0, MAX_CAROUSEL_PHOTOS_AUTO);
     } else {
       // Fallback (2026-08-04, permintaan Agus - "kalau footage tidak ada, tetap harus
       // bisa digenerate") - dua jalur TERPISAH, TIDAK BOLEH tertukar:

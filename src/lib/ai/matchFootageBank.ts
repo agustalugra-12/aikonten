@@ -23,8 +23,10 @@ export async function matchFootageForScript(brandId: string, script: string): Pr
 
   const system =
     "Kamu editor konten. Diberikan skrip/ide baru & daftar footage yg TERSEDIA di bank " +
-    "(bernomor), pilih 1-3 nomor footage yg PALING relevan dgn skrip ini. Kalau tidak " +
-    "ada yg relevan sama sekali, balas array kosong - JANGAN paksa pilih yg tidak cocok.";
+    "(bernomor), pilih SEMUA nomor footage yg RELEVAN dgn skrip ini (boleh 1 sampai " +
+    "15 - lebih banyak footage video asli yg relevan LEBIH BAIK drpd dikit, video final " +
+    "akan digabung dari beberapa klip sekaligus). Kalau tidak ada yg relevan sama " +
+    "sekali, balas array kosong - JANGAN paksa pilih yg tidak cocok.";
   const user =
     `Skrip/ide:\n${script}\n\nFootage tersedia:\n${catalog}\n\n` +
     `Balas HARUS JSON valid (tanpa markdown code fence): {"indices": [0, 2]}`;
