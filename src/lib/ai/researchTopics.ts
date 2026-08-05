@@ -120,10 +120,11 @@ async function buildIdeaPromptBase(
   brandDescription: string | null,
   recentScripts: string[],
   count: number,
-  recentClassifications: RecentClassification[]
+  recentClassifications: RecentClassification[],
+  knowledgeSite?: string | null
 ): Promise<{ system: string; user: string }> {
   const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
-  const knowledge = await fetchPelangiKnowledge();
+  const knowledge = await fetchPelangiKnowledge(knowledgeSite || "pelangi");
   const distributionBlock = buildDistributionBlock(recentClassifications);
   const seasonalBlock = buildSeasonalContext();
   const keywordBlock = buildKeywordPriorityBlock(recentClassifications);
@@ -186,10 +187,11 @@ export async function suggestContentIdeas(
   brandDescription: string | null,
   recentScripts: string[],
   count: number = 4,
-  recentClassifications: RecentClassification[] = []
+  recentClassifications: RecentClassification[] = [],
+  knowledgeSite?: string | null
 ): Promise<string[]> {
   const client = getClient();
-  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications);
+  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite);
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -238,11 +240,12 @@ export async function suggestScoredContentIdeas(
   videoCount: number,
   carouselCount: number,
   recentClassifications: RecentClassification[] = [],
-  performanceClassifications: PerformanceClassification[] = []
+  performanceClassifications: PerformanceClassification[] = [],
+  knowledgeSite?: string | null
 ): Promise<ScoredIdea[]> {
   const client = getClient();
   const count = videoCount + carouselCount;
-  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications);
+  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite);
   const performanceBlock = buildPerformanceInsightBlock(performanceClassifications);
 
   const scoredSystem =

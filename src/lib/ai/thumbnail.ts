@@ -1,4 +1,5 @@
 import { fal } from "@fal-ai/client";
+import { subscribeFalWithRetry } from "./falRetry";
 import sharp from "sharp";
 import { extractVideoFrame } from "@/lib/render/cloudinary";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
@@ -36,18 +37,16 @@ export async function generateThumbnail(opts: {
 
   const frameUrl = await extractVideoFrame(opts.rawFootageUrl, 1);
 
-  const result = await fal.subscribe("fal-ai/nano-banana-2/edit", {
-    input: {
-      prompt:
-        `Add bold, large, high-contrast YouTube-thumbnail-style text reading exactly ` +
-        `"${opts.thumbnailText}" near the bottom of the photo - thick readable font, strong ` +
-        "outline or drop shadow so it pops against the background. Do not add, remove, or " +
-        "change anything else in the photo - the rest of the image must stay exactly the same " +
-        "as the original, only the text is new.",
-      image_urls: [frameUrl],
-      aspect_ratio: "16:9",
-      resolution: "1K",
-    },
+  const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
+    prompt:
+      `Add bold, large, high-contrast YouTube-thumbnail-style text reading exactly ` +
+      `"${opts.thumbnailText}" near the bottom of the photo - thick readable font, strong ` +
+      "outline or drop shadow so it pops against the background. Do not add, remove, or " +
+      "change anything else in the photo - the rest of the image must stay exactly the same " +
+      "as the original, only the text is new.",
+    image_urls: [frameUrl],
+    aspect_ratio: "16:9",
+    resolution: "1K",
   });
 
   const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;

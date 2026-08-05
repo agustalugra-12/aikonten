@@ -6,6 +6,7 @@ export type Brand = {
   logoUrl: string | null;
   dailyVideoCount: number;
   dailyCarouselCount: number;
+  knowledgeSite: string | null;
   createdAt: string;
 };
 

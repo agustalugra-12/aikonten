@@ -33,6 +33,14 @@ export const brands = sqliteTable("brands", {
   // di route.ts saat disimpan.
   dailyVideoCount: integer("daily_video_count").notNull().default(7),
   dailyCarouselCount: integer("daily_carousel_count").notNull().default(3),
+  // Knowledge Base per-brand (2026-08-05, permintaan Agus - "sebaiknya ditambahkan di
+  // setiap brand") - sebelumnya fetchPelangiKnowledge() (pelangiKnowledge.ts) HARDCODE
+  // site="pelangi" di titik panggilnya (researchTopics.ts/generateContent.ts), tidak
+  // masalah selama brand cuma 1 (Pelangi Homestay) tapi akan salah ambil fakta Pelangi
+  // kalau brand Harmoni Hills ditambahkan nanti. Nullable + fallback "pelangi" di kode
+  // pemanggil (bukan NOT NULL default di sini) - brand yang sudah ada (row lama) otomatis
+  // tetap dapat perilaku SAMA PERSIS spt sebelumnya tanpa perlu migrasi data manual.
+  knowledgeSite: text("knowledge_site"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

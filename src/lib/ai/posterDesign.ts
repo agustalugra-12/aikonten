@@ -1,4 +1,5 @@
 import { fal } from "@fal-ai/client";
+import { subscribeFalWithRetry } from "./falRetry";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import type { PosterCopy } from "./posterCopy";
 
@@ -97,12 +98,10 @@ export async function applyPosterDesign(opts: {
 }): Promise<string> {
   ensureFalConfigured();
 
-  const result = await fal.subscribe("fal-ai/nano-banana-2/edit", {
-    input: {
-      prompt: buildPosterPrompt(opts.copy),
-      image_urls: [opts.imageUrl],
-      resolution: "1K",
-    },
+  const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
+    prompt: buildPosterPrompt(opts.copy),
+    image_urls: [opts.imageUrl],
+    resolution: "1K",
   });
 
   const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;

@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .orderBy(desc(projects.createdAt))
         .limit(15);
       const recentScripts = recentProjects.map((p) => p.script).filter((s): s is string => !!s);
-      const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts);
+      const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts, 4, [], brand.knowledgeSite);
       if (ideas.length === 0) {
         return NextResponse.json({ error: "AI tidak berhasil kasih ide konten" }, { status: 500 });
       }

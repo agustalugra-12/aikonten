@@ -88,7 +88,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
       const { caption, hashtags, promoText, pillar, angle, targetKeyword, keywordLevel } = await generateCaptionForImages(
         brand?.name || "Brand",
         project.script,
-        photoUrls
+        photoUrls,
+        brand?.knowledgeSite
       );
 
       // Foto TUNGGAL pakai "Pelangi Homestay Poster Design System v1" (2026-08-05, master
@@ -269,7 +270,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
     const { caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, targetKeyword, keywordLevel } = await generateCaptionAndHashtags(
       brand?.name || "Brand",
       project.script,
-      selectedText
+      selectedText,
+      brand?.knowledgeSite
     );
 
     // Kombinasi footage asli + Pexels (2026-08-05, permintaan Agus - "jika ada

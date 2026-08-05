@@ -1,4 +1,5 @@
 import { fal } from "@fal-ai/client";
+import { subscribeFalWithRetry } from "./falRetry";
 import sharp from "sharp";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 
@@ -32,19 +33,17 @@ export async function applyPromoOverlay(opts: {
 }): Promise<string> {
   ensureFalConfigured();
 
-  const result = await fal.subscribe("fal-ai/nano-banana-2/edit", {
-    input: {
-      prompt:
-        `Add a bold, eye-catching promotional price badge/sticker showing exactly "${opts.promoText}" ` +
-        "in the bottom-right corner of the photo ONLY, styled like a real hospitality/travel marketing " +
-        "discount sticker (solid accent color background, bold readable text, subtle shadow) - the " +
-        "badge should take up roughly the bottom-right 40% width x 28% height corner of the image, " +
-        "not the whole photo. Do not add, remove, or change ANYTHING else in the photo outside that " +
-        "badge corner - the rest of the image must stay exactly the same as the original.",
-      image_urls: [opts.imageUrl],
-      aspect_ratio: "1:1",
-      resolution: "1K",
-    },
+  const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
+    prompt:
+      `Add a bold, eye-catching promotional price badge/sticker showing exactly "${opts.promoText}" ` +
+      "in the bottom-right corner of the photo ONLY, styled like a real hospitality/travel marketing " +
+      "discount sticker (solid accent color background, bold readable text, subtle shadow) - the " +
+      "badge should take up roughly the bottom-right 40% width x 28% height corner of the image, " +
+      "not the whole photo. Do not add, remove, or change ANYTHING else in the photo outside that " +
+      "badge corner - the rest of the image must stay exactly the same as the original.",
+    image_urls: [opts.imageUrl],
+    aspect_ratio: "1:1",
+    resolution: "1K",
   });
 
   const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;

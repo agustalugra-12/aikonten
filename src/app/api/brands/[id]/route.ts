@@ -42,6 +42,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     update.dailyCarouselCount = carouselCount;
   }
 
+  // Knowledge Base per-brand (2026-08-05, permintaan Agus) - "pelangi"/"harmoni" saja yg
+  // valid (satu2nya situs yg didukung endpoint content-facts web-pelangi, lihat
+  // pelangiKnowledge.ts), null = belum di-set (fallback ke "pelangi" di kode pemanggil).
+  if ("knowledgeSite" in body) {
+    if (body.knowledgeSite !== null && body.knowledgeSite !== "pelangi" && body.knowledgeSite !== "harmoni") {
+      return NextResponse.json({ error: "knowledgeSite harus 'pelangi', 'harmoni', atau null" }, { status: 400 });
+    }
+    update.knowledgeSite = body.knowledgeSite;
+  }
+
   await db.update(brands).set(update).where(eq(brands.id, id));
   const [updated] = await db.select().from(brands).where(eq(brands.id, id));
   return NextResponse.json(updated);

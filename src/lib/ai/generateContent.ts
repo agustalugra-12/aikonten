@@ -146,8 +146,8 @@ export const VIDEO_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
 // yg sudah ada di system prompt SEBELUMNYA tidak py data ASLI apa pun utk dicocokkan -
 // cuma janji tanpa pegangan. Return string kosong kalau knowledge base belum
 // terkonfigurasi (fetchPelangiKnowledge sendiri sudah aman gagal-diam, lihat sana).
-async function buildKnowledgeGroundingBlock(): Promise<{ instruction: string; contextBlock: string }> {
-  const knowledge = await fetchPelangiKnowledge();
+async function buildKnowledgeGroundingBlock(knowledgeSite?: string | null): Promise<{ instruction: string; contextBlock: string }> {
+  const knowledge = await fetchPelangiKnowledge(knowledgeSite || "pelangi");
   if (!knowledge) return { instruction: "", contextBlock: "" };
   return {
     instruction:
@@ -166,11 +166,12 @@ function pickStructureTemplate(): { name: string; guide: string } {
 export async function generateCaptionAndHashtags(
   brandName: string,
   script: string,
-  selectedClipsText: string
+  selectedClipsText: string,
+  knowledgeSite?: string | null
 ): Promise<GeneratedVideoContent> {
   const client = getClient();
   const structureTemplate = pickStructureTemplate();
-  const grounding = await buildKnowledgeGroundingBlock();
+  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite);
   const system =
     "Kamu content strategist media sosial. Buat caption yang menarik & natural (bukan " +
     "generik/template) plus daftar hashtag relevan berdasarkan skrip & isi klip yang " +
@@ -225,10 +226,11 @@ export async function generateCaptionAndHashtags(
 export async function generateCaptionForImages(
   brandName: string,
   script: string,
-  imageUrls: string[]
+  imageUrls: string[],
+  knowledgeSite?: string | null
 ): Promise<GeneratedImageContent> {
   const client = getClient();
-  const grounding = await buildKnowledgeGroundingBlock();
+  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite);
   const system =
     "Kamu content strategist media sosial. Lihat SEMUA foto yang diberikan (bisa lebih " +
     "dari satu, urutan sesuai carousel), lalu buat SATU caption yang merangkum & " +

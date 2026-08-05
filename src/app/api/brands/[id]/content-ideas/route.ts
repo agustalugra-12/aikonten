@@ -25,7 +25,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const recentScripts = recentProjects.map((p) => p.script).filter((s): s is string => !!s);
 
   try {
-    const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts);
+    const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts, 4, [], brand.knowledgeSite);
     return NextResponse.json({ ideas });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

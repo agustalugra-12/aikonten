@@ -1,0 +1,1 @@
+ALTER TABLE `brands` ADD `knowledge_site` text;

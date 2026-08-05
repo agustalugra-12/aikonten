@@ -83,7 +83,7 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
   const scoredIdeas = await suggestScoredContentIdeas(
     brand.name, brand.description, recentScripts,
     brand.dailyVideoCount, brand.dailyCarouselCount,
-    recentClassifications, performanceClassifications
+    recentClassifications, performanceClassifications, brand.knowledgeSite
   );
 
   const now = new Date();

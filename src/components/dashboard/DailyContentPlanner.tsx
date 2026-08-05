@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -65,6 +65,7 @@ export function DailyContentPlanner({
   const [showSettings, setShowSettings] = useState(false);
   const [videoCount, setVideoCount] = useState(brand?.dailyVideoCount ?? 7);
   const [carouselCount, setCarouselCount] = useState(brand?.dailyCarouselCount ?? 3);
+  const [knowledgeSite, setKnowledgeSite] = useState(brand?.knowledgeSite ?? "pelangi");
   const [savingSettings, setSavingSettings] = useState(false);
 
   async function loadIdeas() {
@@ -85,6 +86,7 @@ export function DailyContentPlanner({
     if (next) {
       setVideoCount(brand?.dailyVideoCount ?? 7);
       setCarouselCount(brand?.dailyCarouselCount ?? 3);
+      setKnowledgeSite(brand?.knowledgeSite ?? "pelangi");
       if (ideas === null) await loadIdeas();
     }
   }
@@ -111,7 +113,7 @@ export function DailyContentPlanner({
     const res = await fetch(`/api/brands/${brandId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dailyVideoCount: videoCount, dailyCarouselCount: carouselCount }),
+      body: JSON.stringify({ dailyVideoCount: videoCount, dailyCarouselCount: carouselCount, knowledgeSite }),
     });
     const data = await res.json();
     setSavingSettings(false);
@@ -125,8 +127,11 @@ export function DailyContentPlanner({
   }
 
   async function handlePick(idea: DailyIdea) {
-    // Tandai dipakai (best-effort, tidak blocking) - murni sinyal visual "sudah
-    // dipakai" di panel, TIDAK menghalangi Agus pilih ide yg sama lagi kalau mau.
+    // Tandai dipakai (best-effort, tidak blocking). Ide yang sudah dipakai LANGSUNG
+    // HILANG dari daftar (2026-08-05, permintaan Agus - "setiap konten dikerjakan ide
+    // konten otomatis menghilang") - bukan cuma badge "sudah dipakai" spt sebelumnya,
+    // lihat visibleIdeas di bawah. "🔄 Buat Ulang" tetap mengembalikan rencana ke 10 ide
+    // baru (handleRegenerate, sudah ada) - tidak ada perubahan di situ.
     fetch(`/api/brands/${brandId}/daily-ideas`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -137,6 +142,7 @@ export function DailyContentPlanner({
     setOpen(false);
   }
 
+  const visibleIdeas = ideas?.filter((i) => !i.used) ?? [];
   const settingsSumInvalid = videoCount + carouselCount !== DAILY_TOTAL;
 
   return (
@@ -150,7 +156,7 @@ export function DailyContentPlanner({
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
               {DAILY_TOTAL} ide baru tiap hari ({brand?.dailyVideoCount ?? 7} video, {brand?.dailyCarouselCount ?? 3} foto) -
-              tetap sama sepanjang hari ini kecuali dibuat ulang.
+              tetap sama sepanjang hari ini kecuali dibuat ulang. {ideas && ideas.length > 0 ? `${visibleIdeas.length} dari ${DAILY_TOTAL} belum dikerjakan.` : ""}
             </p>
             <div className="flex items-center gap-1 shrink-0">
               <Button variant="ghost" size="sm" onClick={() => setShowSettings((v) => !v)}>
@@ -204,6 +210,23 @@ export function DailyContentPlanner({
               {settingsSumInvalid && (
                 <p className="text-xs text-destructive">Total harus {DAILY_TOTAL} (sekarang {videoCount + carouselCount})</p>
               )}
+              <div className="space-y-1 pt-1 border-t">
+                <Label htmlFor="knowledgeSite" className="text-xs">
+                  📚 Knowledge Base - properti sumber data
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  AI ambil fakta kamar/harga/fasilitas dari properti ini supaya ide & caption tidak keluar jalur.
+                </p>
+                <Select value={knowledgeSite} onValueChange={(v) => setKnowledgeSite(v || "pelangi")}>
+                  <SelectTrigger id="knowledgeSite" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pelangi">Pelangi Homestay</SelectItem>
+                    <SelectItem value="harmoni">Harmoni Hills</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
 
@@ -211,9 +234,13 @@ export function DailyContentPlanner({
             <p className="text-sm text-muted-foreground">Menyusun rencana konten hari ini...</p>
           ) : !ideas || ideas.length === 0 ? (
             <p className="text-sm text-muted-foreground">Belum ada ide - coba lagi nanti.</p>
+          ) : visibleIdeas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Semua {DAILY_TOTAL} ide hari ini sudah dikerjakan - klik &quot;🔄 Buat Ulang&quot; kalau mau rencana baru.
+            </p>
           ) : (
             <ul className="space-y-2">
-              {ideas.map((idea) => (
+              {visibleIdeas.map((idea) => (
                 <li key={idea.id}>
                   <button
                     type="button"
@@ -232,11 +259,6 @@ export function DailyContentPlanner({
                         </span>
                       )}
                       <span className="flex-1">{idea.idea}</span>
-                      {idea.used && (
-                        <Badge variant="secondary" className="text-xs shrink-0">
-                          sudah dipakai
-                        </Badge>
-                      )}
                     </div>
                     {idea.reasoning && (
                       <p className="text-xs text-muted-foreground pl-0.5">{idea.reasoning}</p>
