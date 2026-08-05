@@ -18,10 +18,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "url wajib diisi" }, { status: 400 });
   }
 
-  // Validasi ketat: HARUS berasal dari storage kita sendiri - cegah proxy ini disalahgunakan
-  // jadi open proxy/SSRF ke URL sembarangan.
-  const allowedBase = process.env.STORAGE_PUBLIC_BASE_URL?.replace(/\/$/, "");
-  if (!allowedBase || !url.startsWith(`${allowedBase}/`)) {
+  // Validasi ketat: HARUS berasal dari storage/render kita sendiri - cegah proxy ini
+  // disalahgunakan jadi open proxy/SSRF ke URL sembarangan. DUA sumber sah (2026-08-05,
+  // bug nyata ditemukan - video draft gagal diputar krn cek sebelumnya CUMA izinkan R2,
+  // padahal final_video hasil renderFinalVideo() di-hosting Cloudinary/res.cloudinary.com,
+  // bukan R2 - proxy nolak 403 tiap kali video diminta): R2 (foto poster & footage
+  // mentah) DAN Cloudinary cloud kita sendiri (video hasil render).
+  const r2Base = process.env.STORAGE_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  const cloudinaryCloud = process.env.CLOUDINARY_CLOUD_NAME;
+  const allowedPrefixes = [
+    r2Base ? `${r2Base}/` : null,
+    cloudinaryCloud ? `https://res.cloudinary.com/${cloudinaryCloud}/` : null,
+  ].filter((p): p is string => !!p);
+
+  if (allowedPrefixes.length === 0 || !allowedPrefixes.some((prefix) => url.startsWith(prefix))) {
     return NextResponse.json({ error: "URL tidak diizinkan" }, { status: 403 });
   }
 
