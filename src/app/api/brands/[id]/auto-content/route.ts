@@ -8,7 +8,7 @@ import { processProject } from "@/lib/pipeline/processProject";
 import { isIdeSpesifikProperti } from "@/lib/ai/classifyIdea";
 import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { searchBrollVideo } from "@/lib/assets/broll";
-import { getRecentlyUsedFootageUrls, isRoomFootage } from "@/lib/ai/footageVariety";
+import { getRecentlyUsedFootageUrls, isRoomFootage, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
 import { eq, desc } from "drizzle-orm";
 
 // "⚡ Konten Otomatis" (lihat memory proyek: "otomatis seperti AI blog") - satu klik,
@@ -76,15 +76,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const isVideo = matchedItems[0]?.mediaType === "video";
       type = isVideo ? "video" : "carousel";
       if (isVideo) {
+        const recentlyUsed = await getRecentlyUsedFootageUrls(brandId);
+
+        // Footage kelewat besar (2026-08-05, larangan eksplisit Agus - "jangan pernah
+        // pakai 1 footage panjang", lihat processProject.ts MAX_FOOTAGE_BYTES) TIDAK
+        // PERNAH dipilih DI SINI - dicek LEBIH AWAL, bukan cuma diandalkan ke guard di
+        // processProject.ts. Bug nyata ditemukan lewat tes: klip room lolos seleksi
+        // tema tapi ternyata >24MB, di-skip diam2 belakangan oleh processProject.ts -
+        // "jaminan room" jadi TIDAK BENERAN ada di video final walau logic di sini
+        // sukses milihnya. Sekarang size dicek SEBELUM masuk pool, bukan sesudah.
+        async function filterViableSize<T extends { fileUrl: string }>(items: T[]): Promise<T[]> {
+          const sized = await Promise.all(
+            items.map(async (r) => ({ item: r, size: await getRemoteFileSizeBytes(r.fileUrl) }))
+          );
+          return sized.filter((s) => s.size === null || s.size <= MAX_FOOTAGE_BYTES).map((s) => s.item);
+        }
+
         // Anti-monoton (2026-08-05, permintaan Agus - "footage jangan monoton",
         // "ini penting sekali") - utamakan klip yg BELUM dipakai di 5 video terakhir
         // brand ini (lihat footageVariety.ts). Kalau footage segar kurang dari 3 klip
         // (bank terbatas), tetap backfill pakai yg pernah dipakai drpd gagal total -
         // variasi lebih baik drpd tidak ada, tapi jangan sampai video gagal digenerate.
         const videoCandidates = matchedItems.filter((r) => r.mediaType === "video");
-        const recentlyUsed = await getRecentlyUsedFootageUrls(brandId);
-        const fresh = videoCandidates.filter((r) => !recentlyUsed.has(r.fileUrl));
-        const pool = fresh.length >= 3 ? fresh : videoCandidates;
+        const viableCandidates = await filterViableSize(videoCandidates);
+        const fresh = viableCandidates.filter((r) => !recentlyUsed.has(r.fileUrl));
+        const pool = fresh.length >= 3 ? fresh : viableCandidates.length > 0 ? viableCandidates : videoCandidates;
         urlsToUse = pool.map((r) => r.fileUrl).slice(0, MAX_VIDEO_CLIPS_AUTO);
 
         // Pastikan ada footage "kamar" Pelangi ditampilkan (2026-08-05, permintaan
@@ -99,8 +115,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           const roomCandidates = allVideos.filter(
             (r) => isRoomFootage(r.description, r.tags) && !urlsToUse.includes(r.fileUrl)
           );
-          const freshRoom = roomCandidates.filter((r) => !recentlyUsed.has(r.fileUrl));
-          const roomPick = freshRoom[0] || roomCandidates[0];
+          const viableRoom = await filterViableSize(roomCandidates);
+          const freshRoom = viableRoom.filter((r) => !recentlyUsed.has(r.fileUrl));
+          const roomPick = freshRoom[0] || viableRoom[0];
           if (roomPick) {
             if (urlsToUse.length >= MAX_VIDEO_CLIPS_AUTO) {
               urlsToUse[urlsToUse.length - 1] = roomPick.fileUrl;

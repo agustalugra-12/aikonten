@@ -20,7 +20,7 @@ import { applyPosterDesign } from "@/lib/ai/posterDesign";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { fetchDestinationBrollClips } from "@/lib/ai/destinationBroll";
-import { getRecentlyUsedFootageUrls } from "@/lib/ai/footageVariety";
+import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
 import { applyLogoToImage } from "@/lib/ai/logoOverlay";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { newId } from "@/lib/ids";
@@ -48,25 +48,6 @@ const STOCK_FOOTAGE_MAX_DURATION = 20; // detik - jaga video tetap gaya konten p
 
 function isStockFootageUrl(url: string): boolean {
   return STOCK_FOOTAGE_DOMAINS.some((domain) => url.includes(domain));
-}
-
-// Footage asli TERLALU PANJANG/BESAR TIDAK PERNAH dipakai utk transkripsi (2026-08-05,
-// larangan eksplisit Agus - "jangan pernah pakai 1 footage panjang dalam pembuatan
-// video", setelah ditemukan bug nyata lewat tes langsung: Whisper keras menolak file
-// >25MB, "413 Maximum content size limit exceeded", 1 klip HP modern gampang >25MB).
-// Selaras jg dgn gaya video yg memang didominasi BANYAK klip pendek (bukan 1 klip
-// panjang mendominasi) - jadi ini bukan cuma workaround teknis, tapi juga keputusan
-// gaya konten yg sudah ada (lihat MAX_CLIP_DURATION di clipSelect.ts).
-const MAX_FOOTAGE_BYTES = 24 * 1024 * 1024; // Whisper batas keras 25MB (26.214.400 byte) - margin aman
-
-async function getRemoteFileSizeBytes(url: string): Promise<number | null> {
-  try {
-    const res = await fetch(url, { method: "HEAD" });
-    const len = res.headers.get("content-length");
-    return len ? parseInt(len, 10) : null;
-  } catch {
-    return null;
-  }
 }
 
 // Pipeline Fase 1 (lihat memory proyek) - DIPAKAI BERSAMA oleh

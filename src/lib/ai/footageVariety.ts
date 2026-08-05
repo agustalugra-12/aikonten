@@ -31,6 +31,25 @@ export async function getRecentlyUsedFootageUrls(brandId: string): Promise<Set<s
   );
 }
 
+// Batas ukuran footage yg BOLEH dipakai (2026-08-05, larangan Agus - "jangan pernah
+// pakai 1 footage panjang", lihat processProject.ts) - dipindah ke sini (bukan private
+// di processProject.ts lagi) krn auto-content/route.ts JUGA perlu tahu ini SEBELUM
+// memilih klip room (bug nyata ditemukan lewat tes: klip room kepilih lolos seleksi tema
+// tapi ternyata >24MB, jadi di-skip diam2 oleh guard di processProject.ts - room yg
+// "dijamin" jadi TIDAK BENERAN ada di video final. Sekarang kedua tempat pakai fungsi
+// SAMA, jadi yg dipilih di awal sudah pasti lolos guard di akhir).
+export const MAX_FOOTAGE_BYTES = 24 * 1024 * 1024; // Whisper batas keras 25MB (26.214.400 byte) - margin aman
+
+export async function getRemoteFileSizeBytes(url: string): Promise<number | null> {
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    const len = res.headers.get("content-length");
+    return len ? parseInt(len, 10) : null;
+  } catch {
+    return null;
+  }
+}
+
 const ROOM_REGEX = /\bkamar\b|\broom\b/i;
 
 // Deteksi footage "kamar" (2026-08-05, permintaan Agus - "aku mau di setiap pembuatan
