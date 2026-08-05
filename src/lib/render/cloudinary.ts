@@ -92,8 +92,12 @@ export type RenderResult = {
 // notification_url drpd blocking di sini.
 export async function renderFinalVideo(opts: {
   projectId: string;
-  rawFootageUrl: string;
-  segments: ScoredSegment[];
+  // Footage asli - BISA dari >1 file sekaligus (2026-08-05, permintaan Agus - "video
+  // didominasi footage Pelangi", 1 file asli sering terlalu pendek/kepanjangan sendirian
+  // utk isi 70% dari target 30-60 detik, lihat clipSelect.ts REAL_FOOTAGE_BUDGET_SECONDS).
+  // Tiap segmen bawa sourceUrl sendiri - source UNIK diupload SEKALI (dicache per URL),
+  // bukan 1 file asumsi tunggal spt sebelumnya.
+  segments: (ScoredSegment & { sourceUrl: string })[];
   srtContent: string;
   // B-roll Pexels OPSIONAL - "pendamping" (lihat PRD diskusi), ditempel di AKHIR
   // urutan, bukan menggantikan footage asli Agus. Array (2026-08-05, permintaan Agus -
@@ -110,25 +114,42 @@ export async function renderFinalVideo(opts: {
 }): Promise<RenderResult> {
   configureCloudinary();
 
-  const rawPublicId = publicIdFor(opts.projectId, "raw");
+  if (opts.segments.length === 0) {
+    throw new Error("Tidak ada klip footage asli terpilih utk dirender");
+  }
+
   const srtPublicId = publicIdFor(opts.projectId, "subtitles.srt");
 
-  const uploaded = await cloudinary.uploader.upload(opts.rawFootageUrl, {
-    resource_type: "video",
-    public_id: rawPublicId,
-    overwrite: true,
-  });
+  // Upload tiap file sumber UNIK sekali saja (dicache per URL) - beberapa segmen bisa
+  // datang dari file yg SAMA (mis. 3 klip dari 1 video panjang), jangan upload berulang.
+  const uploadedBySource = new Map<string, { public_id: string; width: number; height: number }>();
+  let nextSrcIdx = 0;
+  async function ensureUploaded(url: string) {
+    const cached = uploadedBySource.get(url);
+    if (cached) return cached;
+    const uploaded = await cloudinary.uploader.upload(url, {
+      resource_type: "video",
+      public_id: publicIdFor(opts.projectId, `src_${nextSrcIdx++}`),
+      overwrite: true,
+    });
+    const info = { public_id: uploaded.public_id, width: uploaded.width, height: uploaded.height };
+    uploadedBySource.set(url, info);
+    return info;
+  }
 
   await cloudinary.uploader.upload(
     `data:text/plain;base64,${Buffer.from(opts.srtContent).toString("base64")}`,
     { resource_type: "raw", public_id: srtPublicId, overwrite: true }
   );
 
-  const spliceSegments: SpliceSegment[] = opts.segments.map((seg) => ({
-    sourcePublicId: uploaded.public_id,
-    start: seg.start,
-    end: seg.end,
-  }));
+  const spliceSegments: SpliceSegment[] = [];
+  for (const seg of opts.segments) {
+    const info = await ensureUploaded(seg.sourceUrl);
+    spliceSegments.push({ sourcePublicId: info.public_id, start: seg.start, end: seg.end });
+  }
+  // Dimensi BASE (utk resize klip lain saat splice, lihat buildSpliceTransformation)
+  // WAJIB dari source segmen PERTAMA - itu jg yg dipakai sbg base explicit() di bawah.
+  const baseInfo = uploadedBySource.get(opts.segments[0].sourceUrl)!;
 
   let brollDuration = 0;
   for (const [i, clip] of (opts.brollClips || []).entries()) {
@@ -144,8 +165,8 @@ export async function renderFinalVideo(opts: {
   const transformation = buildSpliceTransformation(
     spliceSegments,
     srtPublicId,
-    uploaded.width,
-    uploaded.height
+    baseInfo.width,
+    baseInfo.height
   );
 
   // AI Dubbing - ac_none MEMATIKAN SELURUH audio hasil splice (bukan cuma footage
@@ -165,7 +186,7 @@ export async function renderFinalVideo(opts: {
     transformation.push({ overlay: { resource_type: "video", public_id: audioPublicId }, flags: "layer_apply" });
   }
 
-  const rendered = await cloudinary.uploader.explicit(uploaded.public_id, {
+  const rendered = await cloudinary.uploader.explicit(baseInfo.public_id, {
     resource_type: "video",
     type: "upload",
     eager: [{ transformation, format: "mp4" }],

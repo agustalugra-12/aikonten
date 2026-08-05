@@ -41,7 +41,63 @@ export type GeneratedVideoContent = GeneratedContent & {
   // dipakai kalau brand ini punya akun YouTube tersambung (lihat process/route.ts),
   // tapi tetap di-generate di sini skalian biar hemat 1 panggilan GPT terpisah.
   thumbnailText: string | null;
+  // Nama template struktur narasi yg dipakai (lihat VIDEO_STRUCTURE_TEMPLATES) - murni
+  // informasional (biar Agus bisa lihat variasi apa yg kepakai tiap video), tidak
+  // dipakai logic lain.
+  structureTemplate: string;
 };
+
+// Struktur narasi video (2026-08-05, permintaan Agus - "aku mau ada hook, peak,
+// fasilitas, cta atau kamu berikan beberapa struktur vidio juga agar ada referensi
+// utk ai dan tidak monoton"). Caption YANG DIHASILKAN = naskah voiceover TTS (lihat
+// dubbing.ts, GANTI TOTAL audio asli) - jadi "struktur video" di sini diterapkan lewat
+// STRUKTUR NASKAHNYA, bukan cuma urutan klip visual (urutan klip visual: hook=klip skor
+// tertinggi taruh pertama, fasilitas=klip asli lain, peak=klip Pexels landmark, lihat
+// processProject.ts). Dipilih ACAK tiap generate (bukan selalu template pertama) supaya
+// video-video yg dibuat tidak terasa monoton/rumus yg sama persis berulang-ulang.
+export const VIDEO_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
+  {
+    name: "Hook-Peak-Fasilitas-CTA",
+    guide:
+      "1) HOOK: 1 kalimat pembuka yg menggugah rasa penasaran/relate ke audiens (JANGAN " +
+      "langsung sebut nama properti di kalimat pertama). 2) PEAK: momen/suasana paling " +
+      "aspirational dari topik (destinasi/pemandangan/pengalaman puncak). 3) FASILITAS: " +
+      "highlight 2-3 fasilitas/kenyamanan konkret dari properti. 4) CTA: ajakan spesifik " +
+      "menutup caption.",
+  },
+  {
+    name: "Problem-Solution-Fasilitas-CTA",
+    guide:
+      "1) PROBLEM: buka dgn masalah/keresahan yg relate (mis. capek kerja, butuh healing, " +
+      "susah cari penginapan yg pas). 2) SOLUTION: perkenalkan properti sbg jawabannya. " +
+      "3) FASILITAS: bukti konkret kenyamanan/fasilitas yg jadi solusi. 4) CTA.",
+  },
+  {
+    name: "POV-Fasilitas-Suasana-CTA",
+    guide:
+      "1) POV/DAY-IN-LIFE: bawa audiens ikut merasakan momen datang & menikmati tempatnya " +
+      "(gaya naratif orang pertama/mengajak). 2) FASILITAS: tunjukkan momen menikmati " +
+      "kamar/fasilitas. 3) SUASANA: tenang/asri/alam sekitar. 4) CTA.",
+  },
+  {
+    name: "Compare-Fasilitas-Promo-CTA",
+    guide:
+      "1) HOOK KONTRAS: buka dgn perbandingan/keluhan umum (mis. penginapan mahal tapi " +
+      "biasa saja). 2) FASILITAS: buktikan value/kelebihan nyata. 3) HARGA/PROMO: sebut " +
+      "kalau relevan dari skrip. 4) CTA.",
+  },
+  {
+    name: "Montase-Fasilitas-CTA",
+    guide:
+      "1) MONTASE HOOK: beberapa highlight singkat beruntun, nada energik/cepat. " +
+      "2) FASILITAS: highlight utama yg paling menjual. 3) CTA singkat & tegas, tanpa " +
+      "basa-basi panjang.",
+  },
+];
+
+function pickStructureTemplate(): { name: string; guide: string } {
+  return VIDEO_STRUCTURE_TEMPLATES[Math.floor(Math.random() * VIDEO_STRUCTURE_TEMPLATES.length)];
+}
 
 export async function generateCaptionAndHashtags(
   brandName: string,
@@ -49,12 +105,16 @@ export async function generateCaptionAndHashtags(
   selectedClipsText: string
 ): Promise<GeneratedVideoContent> {
   const client = getClient();
+  const structureTemplate = pickStructureTemplate();
   const system =
     "Kamu content strategist media sosial. Buat caption yang menarik & natural (bukan " +
     "generik/template) plus daftar hashtag relevan berdasarkan skrip & isi klip yang " +
-    "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip. Sertakan " +
-    "juga brollKeywords: 2-4 kata kunci Bahasa INGGRIS singkat utk cari video stok " +
-    "(B-roll) pendamping yg relevan dgn suasana/topik ini (mis. \"tropical homestay " +
+    "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip. Caption " +
+    "ini JUGA jadi naskah voiceover (dibacakan TTS, GANTI TOTAL audio asli video) - " +
+    `WAJIB ikuti struktur narasi berikut (jangan tulis label section-nya literal, cukup ` +
+    `alirkan sbg 1 caption utuh yg mengikuti urutan ide ini): ${structureTemplate.guide} ` +
+    "Sertakan juga brollKeywords: 2-4 kata kunci Bahasa INGGRIS singkat utk cari video " +
+    "stok (B-roll) pendamping yg relevan dgn suasana/topik ini (mis. \"tropical homestay " +
     "garden\"), atau null kalau topiknya tidak cocok disandingkan stok footage generik. " +
     "Sertakan juga thumbnailText: teks hook SANGAT singkat (2-5 kata, Bahasa Indonesia, " +
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
@@ -78,6 +138,7 @@ export async function generateCaptionAndHashtags(
     hashtags: stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : []),
     brollKeywords: parsed.brollKeywords || null,
     thumbnailText: parsed.thumbnailText || null,
+    structureTemplate: structureTemplate.name,
   };
 }
 

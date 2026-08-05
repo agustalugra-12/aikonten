@@ -21,6 +21,11 @@ import { toast } from "sonner";
 // "ready" (draft) - publish TIDAK lagi otomatis, Agus review dulu di DraftReview.tsx
 // (2026-08-04) sebelum klik publikasikan.
 const MAX_CAROUSEL_PHOTOS = 5;
+// Video BOLEH >1 klip sekaligus (2026-08-05, permintaan Agus - "video didominasi
+// footage Pelangi", rasio 7:3 - 1 klip sendirian sering terlalu pendek/panjang utk isi
+// 70% target 30-60 detik, lihat processProject.ts REAL_FOOTAGE_BUDGET_SECONDS & pooling
+// multi-source di renderFinalVideo). Dulu cuma 1 file video per project.
+const MAX_VIDEO_CLIPS = 5;
 
 export function NewProjectDialog({
   brandId,
@@ -37,11 +42,11 @@ export function NewProjectDialog({
   const [open, setOpen] = useState(!!initialScript);
   const [type, setType] = useState<"video" | "carousel">("video");
   const [script, setScript] = useState(initialScript || "");
-  const [file, setFile] = useState<File | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [stage, setStage] = useState<string | null>(null);
 
-  const hasFiles = type === "carousel" ? files.length > 0 : !!file;
+  const maxFiles = type === "carousel" ? MAX_CAROUSEL_PHOTOS : MAX_VIDEO_CLIPS;
+  const hasFiles = files.length > 0;
 
   async function uploadOneFile(projectId: string, f: File): Promise<string> {
     const presignRes = await fetch(`/api/projects/${projectId}/upload-url`, {
@@ -77,14 +82,9 @@ export function NewProjectDialog({
       if (!projRes.ok) throw new Error((await projRes.json()).error || "Gagal membuat project");
       const project = await projRes.json();
 
-      if (type === "carousel") {
-        for (let i = 0; i < files.length; i++) {
-          setStage(`Mengunggah foto ${i + 1}/${files.length}...`);
-          await uploadOneFile(project.id, files[i]);
-        }
-      } else {
-        setStage("Mengunggah footage...");
-        await uploadOneFile(project.id, file!);
+      for (let i = 0; i < files.length; i++) {
+        setStage(`Mengunggah ${type === "carousel" ? "foto" : "footage"} ${i + 1}/${files.length}...`);
+        await uploadOneFile(project.id, files[i]);
       }
 
       setStage("Memproses dengan AI (transkripsi, pilih klip, caption)...");
@@ -96,7 +96,6 @@ export function NewProjectDialog({
 
       toast.success("Project selesai diproses, siap dipublikasikan");
       setScript("");
-      setFile(null);
       setFiles([]);
       setOpen(false);
       onCreated();
@@ -117,7 +116,13 @@ export function NewProjectDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>Tipe konten</Label>
-            <Select value={type} onValueChange={(v) => setType(v as "video" | "carousel")}>
+            <Select
+              value={type}
+              onValueChange={(v) => {
+                setType(v as "video" | "carousel");
+                setFiles([]);
+              }}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -138,25 +143,20 @@ export function NewProjectDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="footage">{type === "carousel" ? `Foto (maks ${MAX_CAROUSEL_PHOTOS})` : "Footage mentah"}</Label>
-            {type === "carousel" ? (
-              <Input
-                id="footage"
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, MAX_CAROUSEL_PHOTOS))}
-              />
-            ) : (
-              <Input
-                id="footage"
-                type="file"
-                accept="video/*"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-              />
-            )}
-            {type === "carousel" && files.length > 0 && (
-              <p className="text-xs text-muted-foreground">{files.length} foto dipilih</p>
+            <Label htmlFor="footage">
+              {type === "carousel" ? `Foto (maks ${maxFiles})` : `Footage mentah (boleh >1 klip, maks ${maxFiles})`}
+            </Label>
+            <Input
+              id="footage"
+              type="file"
+              accept={type === "carousel" ? "image/*" : "video/*"}
+              multiple
+              onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, maxFiles))}
+            />
+            {files.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {files.length} {type === "carousel" ? "foto" : "klip"} dipilih
+              </p>
             )}
           </div>
         </div>

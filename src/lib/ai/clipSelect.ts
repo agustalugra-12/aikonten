@@ -1,11 +1,22 @@
 import type { TranscriptSegment } from "./transcribe";
 
-export type ScoredSegment = TranscriptSegment & {
+export type ScoredFields = {
   keywordScore: number;
   clarityScore: number;
   durationScore: number;
   combinedScore: number;
 };
+
+export type ScoredSegment = TranscriptSegment & ScoredFields;
+
+// Target durasi & rasio footage asli:Pexels (2026-08-05, permintaan Agus - "vidio
+// minimal 30-60 detik", "perbandingan footage 7:3 utk footage pelangi dan pexels").
+// Dipakai bareng oleh processProject.ts (budget klip asli) & destinationBroll.ts
+// (budget klip Pexels) supaya SATU angka target, bukan dihitung terpisah di 2 tempat.
+export const VIDEO_DURATION_TARGET = 45; // detik - titik tengah rentang 30-60
+export const REAL_FOOTAGE_RATIO = 0.7;
+export const REAL_FOOTAGE_BUDGET_SECONDS = VIDEO_DURATION_TARGET * REAL_FOOTAGE_RATIO; // 31.5s
+export const STOCK_FOOTAGE_BUDGET_SECONDS = VIDEO_DURATION_TARGET * (1 - REAL_FOOTAGE_RATIO); // 13.5s
 
 const STOPWORDS = new Set([
   "yang", "dan", "di", "ke", "dari", "ini", "itu", "untuk", "dengan", "pada", "adalah",
@@ -36,7 +47,7 @@ const WEIGHTS = { keyword: 0.5, clarity: 0.2, duration: 0.3 };
 // scoring - biar TIDAK bergantung skor lain (mis. keyword match tinggi) meloloskan klip
 // lama.
 const IDEAL_DURATION_RANGE: [number, number] = [3, 5]; // detik per klip
-const MAX_CLIP_DURATION = 5;
+export const MAX_CLIP_DURATION = 5;
 
 function scoreDuration(durationSeconds: number): number {
   const [min, max] = IDEAL_DURATION_RANGE;
@@ -51,7 +62,14 @@ function scoreClarity(avgLogprob: number): number {
   return clamped + 1;
 }
 
-export function scoreSegments(segments: TranscriptSegment[], script: string): ScoredSegment[] {
+// Generic <T> (2026-08-05, permintaan Agus - "dominasi footage Pelangi" perlu >1 file
+// footage asli digabung dlm 1 video, bukan cuma 1 spt sebelumnya) - segmen dari BANYAK
+// file transkrip berbeda perlu ditandai file asalnya (sourceUrl) supaya renderFinalVideo
+// tahu tiap klip harus diambil dari file MANA saat splice. scoreSegments/selectClips
+// TIDAK PERLU tahu soal sourceUrl secara eksplisit - generic <T extends TranscriptSegment>
+// otomatis MEMPERTAHANKAN field tambahan apa pun yg sudah ditempel pemanggil sebelum
+// dipanggil (spread ...seg), termasuk sourceUrl kalau ada.
+export function scoreSegments<T extends TranscriptSegment>(segments: T[], script: string): (T & ScoredFields)[] {
   const scriptWords = significantWords(script);
 
   return segments.map((seg) => {
@@ -81,16 +99,18 @@ const MIN_SCORE_THRESHOLD = 0.35;
 
 // Pilih klip terbaik secara greedy sampai target durasi tercapai ATAU kehabisan segmen
 // yang skornya di atas ambang minimum, lalu urutkan ULANG kronologis (bukan urutan skor)
-// supaya alur video tetap natural, bukan loncat-loncat acak sesuai skor.
-export function selectClips(
-  segments: TranscriptSegment[],
+// supaya alur video tetap natural, bukan loncat-loncat acak sesuai skor. `segments` boleh
+// gabungan dari BANYAK file footage asli sekaligus (lihat catatan generic <T> di atas) -
+// fungsi ini sendiri tidak peduli itu 1 atau banyak file, cuma proses skor+pilih.
+export function selectClips<T extends TranscriptSegment>(
+  segments: T[],
   script: string,
-  targetDurationSeconds = 45
-): ScoredSegment[] {
+  targetDurationSeconds: number = REAL_FOOTAGE_BUDGET_SECONDS
+): (T & ScoredFields)[] {
   const scored = scoreSegments(segments, script);
   const byScoreDesc = [...scored].sort((a, b) => b.combinedScore - a.combinedScore);
 
-  const selected: ScoredSegment[] = [];
+  const selected: (T & ScoredFields)[] = [];
   let totalDuration = 0;
   for (const seg of byScoreDesc) {
     if (totalDuration >= targetDurationSeconds) break;
@@ -100,7 +120,7 @@ export function selectClips(
     // bukan ditampilkan literal per-klip lagi (subtitle final sekarang dari caption,
     // lihat buildCaptionSrt).
     const cappedEnd = Math.min(seg.end, seg.start + MAX_CLIP_DURATION);
-    const capped: ScoredSegment = { ...seg, end: cappedEnd };
+    const capped = { ...seg, end: cappedEnd };
     selected.push(capped);
     totalDuration += cappedEnd - seg.start;
   }

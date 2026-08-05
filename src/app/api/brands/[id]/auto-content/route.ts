@@ -52,15 +52,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let brollAssetDurationSeconds: number | null = null;
 
     if (matchedUrls.length > 0) {
-      // Tentukan tipe project dari jenis footage yg cocok pertama - video pakai 1 klip
-      // (sama spt jalur upload manual, lihat processProject.ts), foto bisa lebih dari 1
-      // (carousel, sudah didukung). matchFootageForScript cuma balikin fileUrl, jadi
-      // query bank lagi utk tau mediaType tiap item yg cocok.
+      // Tentukan tipe project dari jenis footage yg cocok pertama - foto bisa lebih dari
+      // 1 (carousel, sudah didukung). Video JUGA bisa lebih dari 1 klip sekaligus
+      // (2026-08-05, permintaan Agus - "video didominasi footage Pelangi", rasio 7:3 -
+      // 1 klip sendirian sering terlalu pendek/panjang, lihat processProject.ts pooling
+      // multi-source & REAL_FOOTAGE_BUDGET_SECONDS) - pakai SEMUA klip video yg cocok
+      // (matchFootageForScript sendiri sudah membatasi maks 1-3 kandidat paling relevan,
+      // tidak perlu dibatasi lagi di sini). matchFootageForScript cuma balikin fileUrl,
+      // jadi query bank lagi utk tau mediaType tiap item yg cocok.
       const matchedRows = await db.select().from(footageBank).where(eq(footageBank.brandId, brandId));
       const matchedItems = matchedRows.filter((r) => matchedUrls.includes(r.fileUrl));
       const isVideo = matchedItems[0]?.mediaType === "video";
       type = isVideo ? "video" : "carousel";
-      urlsToUse = isVideo ? [matchedUrls[0]] : matchedUrls;
+      urlsToUse = isVideo
+        ? matchedItems.filter((r) => r.mediaType === "video").map((r) => r.fileUrl)
+        : matchedUrls;
     } else {
       // Fallback (2026-08-04, permintaan Agus - "kalau footage tidak ada, tetap harus
       // bisa digenerate") - dua jalur TERPISAH, TIDAK BOLEH tertukar:

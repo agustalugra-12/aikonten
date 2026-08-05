@@ -1,13 +1,14 @@
 import { searchBrollVideo } from "@/lib/assets/broll";
+import { STOCK_FOOTAGE_BUDGET_SECONDS } from "./clipSelect";
 
 // Kombinasi footage asli + Pexels utk video (2026-08-05, permintaan Agus - "jika ada
 // pembahasan wisata seperti danau beratan kebun raya bedugul dan lainnya gunakan
-// pexels, jika menyangkut pelangi gunakan footage asli pelangi"). BEDA dari
+// pexels, jika menyangkut pelangi gunakan footage asli pelangi", rasio 7:3). BEDA dari
 // deriveBrollKeywords.ts (itu 1 keyword umum utk suasana keseluruhan video, dipakai
 // SEBELUM ada footage sama sekali) - modul ini SPESIFIK per landmark wisata yg
 // disebut namanya di skrip, tiap landmark dapat klip Pexels-nya sendiri, ditempel
 // mendampingi footage ASLI Pelangi (bukan menggantikan - footage asli tetap jadi
-// dasar/klip pertama, lihat processProject.ts & renderFinalVideo).
+// dasar/mayoritas, lihat processProject.ts & renderFinalVideo).
 //
 // Daftar landmark + query Inggris HARDCODE (bukan diminta GPT nebak tiap kali) - sama
 // pola dgn CLUSTER_PEXELS_QUERY di web-pelangi/backend/scripts/seo_agent.py, supaya
@@ -29,7 +30,6 @@ const DESTINATION_QUERIES: Record<string, string> = {
   "kebun strawberry": "strawberry farm highland",
 };
 
-const MAX_DESTINATION_CLIPS = 2;
 const CLIP_DURATION_CAP = 5; // detik - sama dgn MAX_CLIP_DURATION klip asli (clipSelect.ts), jaga pacing konsisten
 
 // Cari landmark yg NAMANYA disebut literal di skrip (bukan klasifikasi umum/spesifik
@@ -50,18 +50,29 @@ function detectDestinationMentions(script: string): string[] {
 
 export type DestinationBrollClip = { videoUrl: string; durationSeconds: number };
 
-// Ambil klip Pexels utk tiap landmark wisata yg disebut di skrip (maks
-// MAX_DESTINATION_CLIPS, biar video tetap ritme pendek/reels). Kalau skrip TIDAK
-// menyebut landmark manapun, balas array kosong - pemanggil (processProject.ts) yg
-// putuskan fallback (mis. tetap pakai brollKeywords umum spt sebelumnya).
-export async function fetchDestinationBrollClips(script: string): Promise<DestinationBrollClip[]> {
-  const queries = detectDestinationMentions(script).slice(0, MAX_DESTINATION_CLIPS);
+// Ambil klip Pexels utk landmark wisata yg disebut skrip, SAMPAI budget durasi terisi
+// (default STOCK_FOOTAGE_BUDGET_SECONDS = porsi 30% dari target 45 detik, lihat
+// clipSelect.ts) ATAU landmark habis - bukan lagi jumlah klip tetap. Kalau landmark yg
+// disebut cuma 1 tapi budget masih sisa, TIDAK diulang jadi >1 klip landmark yg sama
+// (lebih baik video sedikit lebih pendek drpd 1 landmark diulang-ulang terasa
+// repetitif). Skrip TANPA landmark spesifik -> array kosong, pemanggil
+// (processProject.ts) yg putuskan fallback (brollKeywords umum spt sebelumnya).
+export async function fetchDestinationBrollClips(
+  script: string,
+  budgetSeconds: number = STOCK_FOOTAGE_BUDGET_SECONDS
+): Promise<DestinationBrollClip[]> {
+  const queries = detectDestinationMentions(script);
   const clips: DestinationBrollClip[] = [];
+  let usedSeconds = 0;
+
   for (const query of queries) {
+    if (usedSeconds >= budgetSeconds) break;
     try {
       const broll = await searchBrollVideo(query);
       if (broll) {
-        clips.push({ videoUrl: broll.videoUrl, durationSeconds: Math.min(broll.durationSeconds, CLIP_DURATION_CAP) });
+        const durationSeconds = Math.min(broll.durationSeconds, CLIP_DURATION_CAP);
+        clips.push({ videoUrl: broll.videoUrl, durationSeconds });
+        usedSeconds += durationSeconds;
       }
     } catch (err) {
       console.error(`[destinationBroll] gagal cari klip utk "${query}":`, err);

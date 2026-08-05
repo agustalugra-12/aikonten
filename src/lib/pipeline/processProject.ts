@@ -2,7 +2,13 @@ import { db } from "@/db";
 import { projects, mediaAssets, brands, socialAccounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { transcribeFootage } from "@/lib/ai/transcribe";
-import { selectClips } from "@/lib/ai/clipSelect";
+import {
+  selectClips,
+  scoreSegments,
+  REAL_FOOTAGE_BUDGET_SECONDS,
+  STOCK_FOOTAGE_BUDGET_SECONDS,
+  MAX_CLIP_DURATION,
+} from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt } from "@/lib/ai/generateContent";
 import { renderFinalVideo } from "@/lib/render/cloudinary";
 import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
@@ -19,6 +25,7 @@ export type ProcessResult = {
   promoText?: string | null;
   photoCount?: number;
   clipCount?: number;
+  structureTemplate?: string;
 };
 
 // Deteksi footage stok Pexels/Pixabay via domain URL, BUKAN kolom DB baru (2026-08-04,
@@ -62,7 +69,11 @@ export async function processProject(id: string): Promise<ProcessResult> {
       .from(mediaAssets)
       .where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.type, "raw_footage")));
     if (rawFootageAssets.length === 0) throw new Error("Belum ada footage mentah utk project ini");
-    const [rawFootage] = rawFootageAssets; // jalur video selalu 1 file - carousel di bawah utk banyak foto
+    // jalur video BISA >1 file sekaligus (2026-08-05, permintaan Agus - "dominasi footage
+    // Pelangi" perlu digabung dari beberapa klip, 1 file asli sering terlalu pendek
+    // sendirian) - lihat pooling multi-source di bawah. rawFootage (tunggal) tetap dipakai
+    // sbg representatif utk thumbnail & cek stok-atau-tidak.
+    const [rawFootage] = rawFootageAssets;
 
     const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
 
@@ -127,10 +138,11 @@ export async function processProject(id: string): Promise<ProcessResult> {
       return { caption, hashtags, promoText, photoCount: finalImageUrls.length };
     }
 
-    const isStockFootage = isStockFootageUrl(rawFootage.fileUrl);
+    const isStockFootage = rawFootageAssets.every((a) => isStockFootageUrl(a.fileUrl));
 
+    type SourcedSegment = Awaited<ReturnType<typeof selectClips>>[number] & { sourceUrl: string };
     let segments: Awaited<ReturnType<typeof transcribeFootage>>;
-    let selected: ReturnType<typeof selectClips>;
+    let selected: SourcedSegment[];
     let selectedText: string;
 
     if (isStockFootage) {
@@ -146,17 +158,60 @@ export async function processProject(id: string): Promise<ProcessResult> {
           clarityScore: 0,
           durationScore: 0,
           combinedScore: 0,
+          sourceUrl: rawFootage.fileUrl,
         },
       ];
       // Tidak ada transkrip asli - caption/hashtag digenerate dari SKRIP/IDE saja (masih
       // cukup, krn ini jalur ide UMUM yg tidak butuh detail spesifik properti).
       selectedText = "";
     } else {
-      segments = await transcribeFootage(rawFootage.fileUrl);
-      selected = selectClips(segments, project.script);
+      // Kumpulkan footage dari SEMUA file asli sekaligus (2026-08-05, permintaan Agus -
+      // "1 video didominasi footage Pelangi", rasio 7:3 - 1 file asli sendirian sering
+      // terlalu pendek [ada yg cuma ~4 detik] utk isi 70% dari target 30-60 detik).
+      // Transkrip tiap file terpisah, tandai asal file-nya (sourceUrl) supaya
+      // renderFinalVideo tahu tiap klip terpilih harus dipotong dari file MANA.
+      const pooled: (Awaited<ReturnType<typeof transcribeFootage>>[number] & { sourceUrl: string })[] = [];
+      segments = [];
+      for (const asset of rawFootageAssets) {
+        const t = await transcribeFootage(asset.fileUrl);
+        segments = segments.concat(t);
+        pooled.push(...t.map((s) => ({ ...s, sourceUrl: asset.fileUrl })));
+      }
+      const budgeted = selectClips(pooled, project.script, REAL_FOOTAGE_BUDGET_SECONDS);
+      // Pastikan SEMUA file yg Agus sediakan ikut terwakili (2026-08-05, bug nyata
+      // ditemukan lewat tes live - selectClips cuma fallback ke 1 klip TERBAIK dari
+      // SELURUH pool kalau tidak ada yg lolos ambang skor, bukan per-file - 4 klip asli
+      // disediakan tapi cuma 1 yg kepakai krn footage lain tanpa narasi jelas semuanya
+      // kalah skor dari yg 1 itu). Video yg "didominasi footage Pelangi" (permintaan
+      // Agus) HARUS menyertakan tiap file yg disediakan, bukan cuma yg skornya
+      // kebetulan tertinggi - top-up klip terbaik PER FILE yg belum terwakili di hasil
+      // selectClips.
+      const representedSources = new Set(budgeted.map((s) => s.sourceUrl));
+      const missingSources = rawFootageAssets.filter((a) => !representedSources.has(a.fileUrl));
+      const topUps = missingSources
+        .map((asset) => {
+          const ownSegments = pooled.filter((s) => s.sourceUrl === asset.fileUrl);
+          if (ownSegments.length === 0) return null;
+          const best = scoreSegments(ownSegments, project.script!).sort(
+            (a, b) => b.combinedScore - a.combinedScore
+          )[0];
+          return { ...best, end: Math.min(best.end, best.start + MAX_CLIP_DURATION) };
+        })
+        .filter((s): s is NonNullable<typeof s> => s !== null);
+      const withTopUps = [...budgeted, ...topUps];
+      // Struktur Hook -> Fasilitas (2026-08-05, permintaan Agus - "hook, peak, fasilitas,
+      // cta"): klip skor TERTINGGI ditaruh PALING DEPAN sbg hook (paling "menjual" di 2-5
+      // detik pertama, krusial utk retensi penonton short-form), sisanya diurutkan per
+      // sumber file (bukan skor) supaya alur tiap klip dari file yg sama tetap kronologis
+      // wajar, bukan loncat-loncat. Klip Pexels (destinationBroll, di bawah) jadi "peak" -
+      // ditempel SETELAH bagian fasilitas ini, lihat renderFinalVideo (brollClips selalu
+      // di akhir urutan).
+      const [hook, ...restByScore] = [...withTopUps].sort((a, b) => b.combinedScore - a.combinedScore);
+      const rest = restByScore.sort((a, b) => a.sourceUrl.localeCompare(b.sourceUrl) || a.start - b.start);
+      selected = hook ? [hook, ...rest] : rest;
       selectedText = selected.map((s) => s.text).join(" ");
     }
-    const { caption, hashtags, brollKeywords, thumbnailText } = await generateCaptionAndHashtags(
+    const { caption, hashtags, brollKeywords, thumbnailText, structureTemplate } = await generateCaptionAndHashtags(
       brand?.name || "Brand",
       project.script,
       selectedText
@@ -164,15 +219,15 @@ export async function processProject(id: string): Promise<ProcessResult> {
 
     // Kombinasi footage asli + Pexels (2026-08-05, permintaan Agus - "jika ada
     // pembahasan wisata seperti danau beratan kebun raya bedugul dan lainnya gunakan
-    // pexels, jika menyangkut pelangi gunakan footage asli pelangi"). Cuma relevan
-    // kalau dasarnya footage ASLI (bukan footage stok - video "ide umum" tanpa footage
-    // asli, lihat isStockFootage di atas, sudah 100% Pexels dari awal, tidak ada yg
-    // perlu dikombinasi). Tiap landmark yg disebut skrip dapat klip Pexels sendiri,
-    // ditempel MENDAMPINGI klip asli Pelangi (lihat renderFinalVideo - klip pertama
-    // selalu footage asli).
+    // pexels, jika menyangkut pelangi gunakan footage asli pelangi", rasio 7:3). Cuma
+    // relevan kalau dasarnya footage ASLI (bukan footage stok - video "ide umum" tanpa
+    // footage asli, lihat isStockFootage di atas, sudah 100% Pexels dari awal, tidak ada
+    // yg perlu dikombinasi). Tiap landmark yg disebut skrip dapat klip Pexels sendiri,
+    // ditempel sbg "peak"/highlight SETELAH bagian fasilitas footage asli (lihat
+    // renderFinalVideo - brollClips selalu di akhir urutan splice).
     let brollClips: Array<{ videoUrl: string; durationSeconds: number }> = [];
     if (!isStockFootage) {
-      brollClips = await fetchDestinationBrollClips(project.script);
+      brollClips = await fetchDestinationBrollClips(project.script, STOCK_FOOTAGE_BUDGET_SECONDS);
     }
     if (brollClips.length === 0 && brollKeywords) {
       // Fallback lama - skrip tidak menyebut landmark spesifik apa pun, tetap kasih 1
@@ -214,7 +269,6 @@ export async function processProject(id: string): Promise<ProcessResult> {
 
     const rendered = await renderFinalVideo({
       projectId: id,
-      rawFootageUrl: rawFootage.fileUrl,
       segments: selected,
       srtContent: srt,
       brollClips,
@@ -256,7 +310,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       }
     }
 
-    return { caption, hashtags, clipCount: selected.length };
+    return { caption, hashtags, clipCount: selected.length, structureTemplate };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await db
