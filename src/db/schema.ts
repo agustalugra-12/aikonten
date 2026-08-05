@@ -90,6 +90,15 @@ export const projects = sqliteTable("projects", {
   // suasana umum) boleh null, tidak dipaksa.
   targetKeyword: text("target_keyword"),
   keywordLevel: integer("keyword_level"), // 1, 2, atau 3 - null kalau targetKeyword null
+  // AI Learning Engine (2026-08-05, PRD modul 13, permintaan Agus - "AI membaca View/
+  // Like/Share/Comment/Watch Time/CTR, belajar konten mana yg paling disukai"). Diisi
+  // performanceLearning.ts, SUM lintas semua publish_logs project ini (bisa >1 platform)
+  // - fetch REAL dari Buffer GraphQL (Post.metrics, diverifikasi live via introspeksi
+  // SEBELUM dibangun - views/reach/reactions/shares/engagementRate BENAR ada per-post,
+  // bukan cuma agregat akun). Nullable - project blm published/blm disync tetap null.
+  performanceViews: integer("performance_views"),
+  performanceEngagementRate: integer("performance_engagement_rate"), // x100 (mis. 1.25% disimpan 125) - SQLite INTEGER, hindari float rounding
+  performanceSyncedAt: integer("performance_synced_at", { mode: "timestamp" }),
   errorMessage: text("error_message"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

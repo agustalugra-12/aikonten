@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { dailyIdeas, brands, projects } from "@/db/schema";
 import { and, eq, desc } from "drizzle-orm";
 import { suggestScoredContentIdeas, todayDateKeyWita } from "./researchTopics";
+import { syncBrandPerformance } from "./performanceLearning";
 import { newId } from "@/lib/ids";
 
 // AI Content Planner (2026-08-05, permintaan Agus, PRD "AI Content Brain" modul 10 -
@@ -41,12 +42,21 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
   const [brand] = await db.select().from(brands).where(eq(brands.id, brandId));
   if (!brand) throw new Error("Brand tidak ditemukan");
 
+  // AI Learning Engine (2026-08-05) - sync performa (views/engagement dari Buffer,
+  // lihat performanceLearning.ts) SEKALI per hari, bareng dgn generate ide harian -
+  // best-effort, JANGAN gagalkan seluruh alur ide kalau sync gagal (mis. Buffer API
+  // down sementara).
+  await syncBrandPerformance(brandId).catch((err) => {
+    console.error(`[dailyContentPlanner] gagal sync performa brand ${brandId}:`, err);
+  });
+
   // Histori lebih lebar drpd "Ide Konten" on-demand (15 -> 30 skrip terakhir) - batch
   // 10 ide sekaligus butuh lebih banyak konteks anti-pengulangan drpd cuma 3-5 ide.
   const recentProjects = await db
     .select({
       script: projects.script, pillar: projects.pillar, angle: projects.angle,
       targetKeyword: projects.targetKeyword, keywordLevel: projects.keywordLevel,
+      performanceViews: projects.performanceViews,
     })
     .from(projects)
     .where(eq(projects.brandId, brandId))
@@ -60,9 +70,12 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
   const recentClassifications = recentProjects.map((p) => ({
     pillar: p.pillar, angle: p.angle, targetKeyword: p.targetKeyword, keywordLevel: p.keywordLevel,
   }));
+  const performanceClassifications = recentProjects.map((p) => ({
+    pillar: p.pillar, angle: p.angle, performanceViews: p.performanceViews,
+  }));
 
   const scoredIdeas = await suggestScoredContentIdeas(
-    brand.name, brand.description, recentScripts, DAILY_IDEA_COUNT, recentClassifications
+    brand.name, brand.description, recentScripts, DAILY_IDEA_COUNT, recentClassifications, performanceClassifications
   );
 
   const now = new Date();

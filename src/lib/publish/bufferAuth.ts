@@ -47,6 +47,22 @@ export async function listBufferChannels(): Promise<BufferChannel[]> {
 
 export type BufferMetric = { name: string; value: number; unit: string; type: string };
 
+// AI Learning Engine (2026-08-05, PRD modul 13, permintaan Agus - "AI membaca View/
+// Like/Share/Comment... belajar konten mana yg paling disukai") - metrik PER-POST
+// (beda dari getAggregatedMetrics di bawah yg per-CHANNEL). Diverifikasi live ke API
+// asli SEBELUM dibangun (introspeksi `Post.metrics` field + tes nyata ke 3 post yg
+// SUDAH published brand ini - hasil views 266/220/163, BUKAN nol, jadi data ASLI
+// tersedia, bukan cuma skema kosong). Return null kalau post belum ada
+// metrics/metricsUpdatedAt sama sekali (terlalu baru, Buffer belum sempat sync).
+export async function getPostMetrics(postId: string): Promise<BufferMetric[] | null> {
+  const data = await bufferGraphQL<{ post: { metricsUpdatedAt: string | null; metrics: BufferMetric[] } }>(
+    "query($input: PostInput!) { post(input: $input) { metricsUpdatedAt metrics { name value unit type } } }",
+    { input: { id: postId } }
+  );
+  if (!data.post || !data.post.metricsUpdatedAt) return null;
+  return data.post.metrics;
+}
+
 // Dashboard analitik (permintaan Agus: "ambil dari Buffer saja" - bukan integrasi
 // terpisah ke Meta/YouTube Analytics API, cukup 1 sumber utk akun yg tersambung lewat
 // Buffer). Diverifikasi ke API asli - field & shape metrics (name/value/unit/type)

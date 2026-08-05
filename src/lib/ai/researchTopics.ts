@@ -3,6 +3,7 @@ import { fetchPelangiKnowledge } from "./pelangiKnowledge";
 import { CONTENT_PILLARS, CONTENT_ANGLES, type ContentPillar, type ContentAngle } from "./generateContent";
 import { buildSeasonalContext } from "./seasonalContext";
 import { buildKeywordPriorityBlock, type KeywordClassification } from "./keywordPriority";
+import { buildPerformanceInsightBlock, type PerformanceClassification } from "./performanceLearning";
 
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -228,10 +229,12 @@ export async function suggestScoredContentIdeas(
   brandDescription: string | null,
   recentScripts: string[],
   count: number,
-  recentClassifications: RecentClassification[] = []
+  recentClassifications: RecentClassification[] = [],
+  performanceClassifications: PerformanceClassification[] = []
 ): Promise<ScoredIdea[]> {
   const client = getClient();
   const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications);
+  const performanceBlock = buildPerformanceInsightBlock(performanceClassifications);
 
   const scoredSystem =
     system +
@@ -239,15 +242,17 @@ export async function suggestScoredContentIdeas(
     "(pertimbangkan SEMUA, bukan cuma 1): (1) RELEVANSI dgn Pelangi Homestay/Bedugul - " +
     "seberapa langsung ide ini berhubungan dgn properti/lokasinya. (2) POTENSI MENARIK " +
     "calon tamu - seberapa besar kemungkinan ide ini bikin orang berhenti scroll & " +
-    "tertarik. (3) VARIASI dari konten sebelumnya - lihat distribusi pilar/angle di atas, " +
-    "ide yg mengisi kekosongan dapat skor lebih tinggi drpd yg mengulang yg sudah banyak. " +
-    "(4) DUKUNGAN KEYWORD PRIORITAS - ide yg menargetkan keyword Level 1/2 yg masih " +
-    "under-served dapat skor lebih tinggi. Sertakan jg reasoning SINGKAT (1 kalimat, " +
-    "Bahasa Indonesia) kenapa skor itu diberikan - WAJIB jujur & spesifik (mis. \"skor " +
-    "tinggi krn isi kekosongan pilar Kuliner Sekitar & keyword Level 1 blm pernah " +
-    "dipakai\"), bukan pujian generik.";
+    "tertarik (kalau ada # PERFORMA KONTEN NYATA di bawah, PAKAI itu sbg sinyal nyata, " +
+    "bukan cuma tebakan). (3) VARIASI dari konten sebelumnya - lihat distribusi pilar/" +
+    "angle di atas, ide yg mengisi kekosongan dapat skor lebih tinggi drpd yg mengulang " +
+    "yg sudah banyak. (4) DUKUNGAN KEYWORD PRIORITAS - ide yg menargetkan keyword " +
+    "Level 1/2 yg masih under-served dapat skor lebih tinggi. Sertakan jg reasoning " +
+    "SINGKAT (1 kalimat, Bahasa Indonesia) kenapa skor itu diberikan - WAJIB jujur & " +
+    "spesifik (mis. \"skor tinggi krn isi kekosongan pilar Kuliner Sekitar & keyword " +
+    "Level 1 blm pernah dipakai\", atau \"pilar Wisata Sekitar terbukti performa tinggi " +
+    "dari data views nyata\"), bukan pujian generik.";
   const scoredUser =
-    `${user}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
+    `${user}${performanceBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
     `{"ideas": [{"idea": "...", "score": 0, "reasoning": "..."}, ...]}`;
 
   const completion = await client.chat.completions.create({
