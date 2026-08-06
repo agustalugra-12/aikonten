@@ -338,7 +338,20 @@ export async function suggestScoredContentIdeas(
 
   const filteredIdeaTexts = new Set(filterRestricted(scored.map((s) => s.idea)));
   const filtered = scored.filter((s) => filteredIdeaTexts.has(s.idea));
-  return enforceContentTypeSplit(filtered, videoCount, fotoCount, carouselCount).sort((a, b) => b.score - a.score);
+  // Bug nyata ditemukan 2026-08-06 (laporan Agus - "di setting ku hanya ada vidio dan
+  // single poto" tapi ide "carousel" tetap muncul walau dailyCarouselCount=0): model
+  // diminta PERSIS `total` ide (lihat prompt "TEPAT N harus carousel" dst), TAPI tidak
+  // selalu patuh - kadang balas LEBIH dari total (mis. 12 padahal diminta 10).
+  // enforceContentTypeSplit() SENGAJA bail-out kalau length tidak PAS `total` (supaya
+  // tidak salah re-assign kalau situasinya memang beda, mis. filterRestricted BENERAN
+  // mengurangi jumlah) - efek sampingnya, kelebihan ide dari model TIDAK PERNAH
+  // dipangkas dulu, jadi enforcement selalu di-skip persis pas paling dibutuhkan (model
+  // ngasih lebih byk = tanda dia jg kemungkinan besar salah re-partisi tipenya sendiri).
+  // Potong ke `total` (skor tertinggi) SEBELUM enforce - HANYA kalau kelebihan (length >
+  // total), bukan kalau KURANG (itu kasus filterRestricted asli, bail-out tetap benar).
+  const total = videoCount + fotoCount + carouselCount;
+  const trimmed = filtered.length > total ? [...filtered].sort((a, b) => b.score - a.score).slice(0, total) : filtered;
+  return enforceContentTypeSplit(trimmed, videoCount, fotoCount, carouselCount).sort((a, b) => b.score - a.score);
 }
 
 // Jaring pengaman KODE (2026-08-05) - GPT sering meleset hitung jumlah exact dari
