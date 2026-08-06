@@ -36,7 +36,12 @@ export class AutoContentError extends Error {
 
 export async function runAutoContent(
   brandId: string,
-  scriptOverride?: string
+  scriptOverride?: string,
+  // Tipe konten yg DIMINTA (2026-08-06, bug nyata - laporan Agus "konten vidionya
+  // tidak ada malah foto semua") - dari daily_ideas.contentType kalau dipanggil cron
+  // auto-generate, opsional (manual "⚡ Konten Otomatis" tanpa ide pre-klasifikasi tetap
+  // jalan spt sebelumnya, lihat pemakaiannya di bawah).
+  desiredType?: "video" | "foto" | "carousel"
 ): Promise<{ projectId: string; script: string; fromBroll: boolean } & ProcessResult> {
   let script = scriptOverride;
 
@@ -69,7 +74,25 @@ export async function runAutoContent(
   if (matchedUrls.length > 0) {
     const matchedRows = await db.select().from(footageBank).where(eq(footageBank.brandId, brandId));
     const matchedItems = matchedRows.filter((r) => matchedUrls.includes(r.fileUrl));
-    const isVideo = matchedItems[0]?.mediaType === "video";
+    // BUG NYATA ditemukan 2026-08-06 (laporan Agus - "konten vidionya tidak ada malah
+    // foto semua", setting brand 7 video/hari tapi batch hari itu 0 video benaran
+    // dihasilkan) - SEBELUM ini tipe akhir MURNI ditentukan dari mediaType item PERTAMA
+    // di hasil match (matchedItems[0]) - urutan itu datang dari relevansi tema GPT, sama
+    // sekali TIDAK terkait dgn tipe yg diminta idenya sendiri (video/foto/carousel dari
+    // daily_ideas.contentType). Efeknya acak: ide berlabel "video" bisa jadi foto kalau
+    // KEBETULAN item foto nangkring di urutan pertama hasil match, walau bank PUNYA
+    // video asli yg relevan di urutan bawah/di luar hasil match tema.
+    // Fix: kalau desiredType diketahui (dari cron, punya label ide asli), PAKSA sesuai
+    // itu - "video" dipaksa isVideo=true selama bank brand ini PUNYA video asli SAMA
+    // SEKALI (allBankVideos di bawah, bukan cuma yg lolos match tema - selectBalancedRealFootage
+    // sudah blend keduanya), "foto"/"carousel" dipaksa isVideo=false. Kalau desiredType
+    // tidak diberikan (mis. tombol manual "⚡ Konten Otomatis" tanpa ide pre-klasifikasi),
+    // fallback ke heuristik lama (mediaType item pertama) - perilaku existing dipertahankan.
+    const bankHasAnyVideo = matchedRows.some((r) => r.mediaType === "video");
+    const isVideo =
+      desiredType === "video" ? bankHasAnyVideo :
+      desiredType === "foto" || desiredType === "carousel" ? false :
+      matchedItems[0]?.mediaType === "video";
     type = isVideo ? "video" : "carousel";
     if (isVideo) {
       const recentlyUsed = await getRecentlyUsedFootageUrls(brandId);

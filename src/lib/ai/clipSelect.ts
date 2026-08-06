@@ -24,11 +24,16 @@ export const REAL_FOOTAGE_RATIO = 0.7;
 
 export type DurationConfig = {
   target: number;
-  // Aturan KERAS (2026-08-05, permintaan Agus - "aturan konten video tidak boleh kurang
-  // dari 40 detik") - BUKAN cuma target/estimasi, ini batas MINIMUM WAJIB. processProject.ts
-  // nge-top-up klip (asli dulu, baru B-roll) sampai tercapai, dan kalau footage yg tersedia
-  // SUNGGUH tidak cukup, generation GAGAL dgn pesan jelas drpd diam2 kirim video di bawah
-  // standar. Diskalakan proporsional dari formula asli (target 45 -> min 40, selisih 5s).
+  // Aturan MINIMUM WAJIB (2026-08-06, dilonggarkan - permintaan Agus "buat kelonggaran
+  // jika hasil generat vidio tidak sampe 60 detik tidak apa asalkan masih dalam 30-60
+  // rangenya masih bisa uploud") - SEBELUMNYA target-5 (target 60 -> min 55, terlalu
+  // ketat, sering gagal krn footage bank belum cukup besar - lihat kasus nyata "Foto
+  // parkir" gagal 45dtk/perlu 55dtk hari yg sama). Kembali ke rentang ASLI Agus dari
+  // awal fitur ini ("vidio minimal 30-60 detik", lihat DEFAULT_VIDEO_DURATION_TARGET) -
+  // separuh dari target, bukan target-5 - target 60 -> min 30 PERSIS spt diminta,
+  // diskalakan proporsional utk target lain (target 90 -> min 45, dst) drpd hardcode
+  // cuma utk 60. processProject.ts tetap nge-top-up klip (asli dulu, baru B-roll)
+  // sampai target semaksimal mungkin, cuma AMBANG GAGAL-nya yg lebih longgar sekarang.
   min: number;
   realBudgetSeconds: number;
   stockBudgetSeconds: number;
@@ -37,7 +42,7 @@ export type DurationConfig = {
 export function getDurationConfig(target: number = DEFAULT_VIDEO_DURATION_TARGET): DurationConfig {
   return {
     target,
-    min: Math.max(10, target - 5),
+    min: Math.max(10, Math.round(target * 0.5)),
     realBudgetSeconds: target * REAL_FOOTAGE_RATIO,
     stockBudgetSeconds: target * (1 - REAL_FOOTAGE_RATIO),
   };

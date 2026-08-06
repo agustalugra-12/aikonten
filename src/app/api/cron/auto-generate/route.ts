@@ -41,7 +41,9 @@ export async function POST(req: NextRequest) {
     let failed = 0;
     for (const idea of todaysIdeas) {
       try {
-        await runAutoContent(brand.id, idea.idea);
+        // Threading contentType asli ide (2026-08-06, fix bug "video tidak ada malah
+        // foto semua") - lihat catatan lengkap di autoContent.ts runAutoContent().
+        await runAutoContent(brand.id, idea.idea, idea.contentType ?? undefined);
         await markDailyIdeaUsed(idea.id);
         generated++;
       } catch (err) {
