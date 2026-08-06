@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -28,20 +30,31 @@ export function ConnectBufferDialog({ brandId, onConnected }: { brandId: string;
   const [loading, setLoading] = useState(false);
   const [channels, setChannels] = useState<BufferChannel[] | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
+  // Token Buffer per-brand (2026-08-06, permintaan Agus - brand yg akun Buffer-nya
+  // TERPISAH dari akun default/bersama, mis. "laundry in bali") - kosong = pakai akun
+  // Buffer default (BUFFER_ACCESS_TOKEN di .env, perilaku lama).
+  const [customToken, setCustomToken] = useState("");
+
+  async function handleLoadChannels() {
+    setLoading(true);
+    const url = customToken.trim()
+      ? `/api/auth/buffer/channels?token=${encodeURIComponent(customToken.trim())}`
+      : "/api/auth/buffer/channels";
+    const res = await fetch(url);
+    const data = await res.json();
+    setLoading(false);
+    if (!res.ok) {
+      toast.error(data.error || "Gagal ambil daftar channel Buffer");
+      setChannels([]);
+      return;
+    }
+    setChannels(data);
+  }
 
   async function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (next && channels === null) {
-      setLoading(true);
-      const res = await fetch("/api/auth/buffer/channels");
-      const data = await res.json();
-      setLoading(false);
-      if (!res.ok) {
-        toast.error(data.error || "Gagal ambil daftar channel Buffer");
-        setChannels([]);
-        return;
-      }
-      setChannels(data);
+    if (next && channels === null && !customToken) {
+      await handleLoadChannels();
     }
   }
 
@@ -50,7 +63,12 @@ export function ConnectBufferDialog({ brandId, onConnected }: { brandId: string;
     const res = await fetch(`/api/brands/${brandId}/social-accounts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bufferChannelId: channel.id, username: channel.name, platform: channel.service }),
+      body: JSON.stringify({
+        bufferChannelId: channel.id,
+        username: channel.name,
+        platform: channel.service,
+        bufferAccessToken: customToken.trim() || null,
+      }),
     });
     setAttaching(null);
     if (res.ok) {
@@ -73,6 +91,27 @@ export function ConnectBufferDialog({ brandId, onConnected }: { brandId: string;
           <DialogTitle>Pilih Channel Buffer</DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
+          <div className="space-y-1">
+            <Label htmlFor="bufferToken" className="text-xs">
+              Token Buffer (opsional - kosongkan utk pakai akun Buffer default)
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="bufferToken"
+                type="password"
+                placeholder="Isi kalau brand ini punya akun Buffer sendiri, beda dari default"
+                value={customToken}
+                onChange={(e) => {
+                  setCustomToken(e.target.value);
+                  setChannels(null);
+                }}
+                className="flex-1"
+              />
+              <Button size="sm" variant="outline" onClick={handleLoadChannels} disabled={loading}>
+                Muat Channel
+              </Button>
+            </div>
+          </div>
           {loading && <p className="text-sm text-muted-foreground">Memuat channel...</p>}
           {!loading && supportedChannels?.length === 0 && (
             <p className="text-sm text-muted-foreground">

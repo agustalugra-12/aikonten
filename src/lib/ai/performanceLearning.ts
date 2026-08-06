@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { projects, publishLogs } from "@/db/schema";
+import { projects, publishLogs, socialAccounts } from "@/db/schema";
 import { and, eq, isNull, or, lt, isNotNull } from "drizzle-orm";
 import { getPostMetrics } from "@/lib/publish/bufferAuth";
 
@@ -45,7 +45,7 @@ export async function syncBrandPerformance(brandId: string): Promise<void> {
 
 async function syncProjectPerformance(projectId: string): Promise<void> {
   const logs = await db
-    .select({ platformPostId: publishLogs.platformPostId })
+    .select({ platformPostId: publishLogs.platformPostId, socialAccountId: publishLogs.socialAccountId })
     .from(publishLogs)
     .where(and(eq(publishLogs.projectId, projectId), eq(publishLogs.status, "success"), isNotNull(publishLogs.platformPostId)));
 
@@ -56,7 +56,12 @@ async function syncProjectPerformance(projectId: string): Promise<void> {
 
   for (const log of logs) {
     if (!log.platformPostId) continue;
-    const metrics = await getPostMetrics(log.platformPostId);
+    // Token per-akun (2026-08-06, permintaan Agus - lihat catatan bufferAuth.ts) - akun
+    // Buffer brand ini bisa beda dari default, cari token tersimpannya dulu.
+    const [account] = log.socialAccountId
+      ? await db.select({ accessToken: socialAccounts.accessToken }).from(socialAccounts).where(eq(socialAccounts.id, log.socialAccountId))
+      : [];
+    const metrics = await getPostMetrics(log.platformPostId, account?.accessToken);
     if (!metrics) continue;
     anyMetricsFound = true;
     const views = metrics.find((m) => m.type === "views")?.value;

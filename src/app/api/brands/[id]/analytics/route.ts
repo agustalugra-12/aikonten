@@ -24,7 +24,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         const metrics = await getAggregatedMetrics(
           acc.bufferChannelId,
           sevenDaysAgo.toISOString(),
-          now.toISOString()
+          now.toISOString(),
+          acc.accessToken
         );
         return { ...base, available: true as const, metrics };
       } catch (err) {

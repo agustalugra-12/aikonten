@@ -30,7 +30,7 @@ const SUPPORTED_BUFFER_PLATFORMS = ["instagram", "facebook", "tiktok", "youtube"
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: brandId } = await params;
-  const { bufferChannelId, username, platform } = await req.json();
+  const { bufferChannelId, username, platform, bufferAccessToken } = await req.json();
 
   if (typeof bufferChannelId !== "string" || !bufferChannelId) {
     return NextResponse.json({ error: "bufferChannelId wajib diisi" }, { status: 400 });
@@ -41,6 +41,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       { status: 400 }
     );
   }
+  if (bufferAccessToken !== undefined && bufferAccessToken !== null && typeof bufferAccessToken !== "string") {
+    return NextResponse.json({ error: "bufferAccessToken harus string" }, { status: 400 });
+  }
+
+  // Token Buffer PER-AKUN (2026-08-06, permintaan Agus - "laundry in bali" pakai akun
+  // Buffer sendiri) - disimpan di accessToken (field yg SUDAH ADA, sebelumnya SELALU
+  // null utk akun Buffer - publishViaBuffer cuma pakai env var global). Null kalau tidak
+  // diisi (brand pakai akun Buffer default/bersama via env var, perilaku lama).
+  const accessToken = bufferAccessToken || null;
 
   const [existing] = await db
     .select()
@@ -54,7 +63,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     );
 
   if (existing) {
-    await db.update(socialAccounts).set({ username }).where(eq(socialAccounts.id, existing.id));
+    await db.update(socialAccounts).set({ username, accessToken }).where(eq(socialAccounts.id, existing.id));
     return NextResponse.json({ ok: true, id: existing.id });
   }
 
@@ -65,7 +74,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     publishVia: "buffer" as const,
     username,
     platformAccountId: null,
-    accessToken: null,
+    accessToken,
     refreshToken: null,
     tokenExpiresAt: null,
     bufferChannelId,

@@ -34,10 +34,15 @@ const CREATE_POST_MUTATION = `
 
 export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<PublishResult> => {
   const { videoUrl, imageUrls, caption, bufferChannelId, platform, brandName } = input;
-  const bufferToken = process.env.BUFFER_ACCESS_TOKEN;
+  // Token PER-AKUN (2026-08-06, permintaan Agus - brand "laundry in bali" punya akun
+  // Buffer sendiri, terpisah dari akun Buffer Pelangi) - accessToken di sini datang dari
+  // socialAccounts.accessToken (diisi saat channel disambungkan, lihat social-accounts/
+  // route.ts), fallback ke env var global kalau akun ini belum punya token sendiri
+  // (akun lama/Pelangi, tidak perlu migrasi data).
+  const bufferToken = input.accessToken || process.env.BUFFER_ACCESS_TOKEN;
 
   if (!bufferToken) {
-    return { success: false, error: "BUFFER_ACCESS_TOKEN belum diisi di .env" };
+    return { success: false, error: "Token Buffer belum diisi (baik per-akun maupun BUFFER_ACCESS_TOKEN di .env)" };
   }
   if (!bufferChannelId) {
     return { success: false, error: "Akun ini belum ada bufferChannelId" };
@@ -110,6 +115,7 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
       text: caption,
       brandName: brandName || "Brand",
       platformLabel: platform || "Buffer",
+      token: bufferToken,
     }).catch((err) => {
       console.error("[buffer] Gagal cek duplikat:", err);
     });

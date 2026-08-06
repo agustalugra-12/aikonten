@@ -1,16 +1,27 @@
 const BUFFER_API_URL = "https://api.buffer.com";
 
-function getBufferToken(): string {
-  const token = process.env.BUFFER_ACCESS_TOKEN;
-  if (!token) throw new Error("BUFFER_ACCESS_TOKEN belum diisi di .env");
-  return token;
+// Token PER-BRAND (2026-08-06, permintaan Agus - brand baru "laundry in bali" punya
+// akun/token Buffer SENDIRI, terpisah dari akun Buffer Pelangi Homestay yang selama ini
+// jadi SATU-SATUNYA token global via env var) - SEBELUM ini seluruh app cuma bisa
+// terhubung ke 1 organization Buffer sekaligus (BUFFER_ACCESS_TOKEN di .env, dipakai
+// tanpa pandang bulu semua brand) - persis kelas bug yang sama dgn knowledgeSite/
+// posterBrandProfile yang sudah diperbaiki hari ini (arsitektur "cuma 1 Pelangi" yang
+// diam-diam jadi salah begitu brand kedua/ketiga bukan Pelangi/Harmoni ditambahkan).
+// `token` param OPSIONAL di semua fungsi di bawah - kalau diisi (dari
+// socialAccounts.accessToken per akun, lihat social-accounts/route.ts), pakai itu;
+// kalau tidak (brand lama/akun lama blm py token sendiri), fallback ke env var global -
+// brand yang SUDAH terhubung (Pelangi) tetap jalan tanpa perlu migrasi data apa pun.
+function resolveBufferToken(token?: string | null): string {
+  const resolved = token || process.env.BUFFER_ACCESS_TOKEN;
+  if (!resolved) throw new Error("Token Buffer belum diisi (baik per-akun maupun BUFFER_ACCESS_TOKEN di .env)");
+  return resolved;
 }
 
-async function bufferGraphQL<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+async function bufferGraphQL<T>(query: string, variables?: Record<string, unknown>, token?: string | null): Promise<T> {
   const res = await fetch(BUFFER_API_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getBufferToken()}`,
+      Authorization: `Bearer ${resolveBufferToken(token)}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
@@ -24,9 +35,11 @@ async function bufferGraphQL<T>(query: string, variables?: Record<string, unknow
 
 export type BufferChannel = { id: string; name: string; service: string };
 
-async function getOrganizationId(): Promise<string> {
+async function getOrganizationId(token?: string | null): Promise<string> {
   const orgData = await bufferGraphQL<{ account: { organizations: { id: string }[] } }>(
-    "query { account { organizations { id } } }"
+    "query { account { organizations { id } } }",
+    undefined,
+    token
   );
   const orgId = orgData.account.organizations[0]?.id;
   if (!orgId) throw new Error("Tidak ada organization Buffer utk akun ini");
@@ -36,11 +49,12 @@ async function getOrganizationId(): Promise<string> {
 // Diverifikasi langsung ke API asli 2026-07-30 (Buffer REST API v1 sudah pensiun,
 // deprecated - lihat catatan di buffer.ts) - query & bentuk field ini dicek lewat
 // introspeksi GraphQL sungguhan, bukan cuma dokumentasi.
-export async function listBufferChannels(): Promise<BufferChannel[]> {
-  const orgId = await getOrganizationId();
+export async function listBufferChannels(token?: string | null): Promise<BufferChannel[]> {
+  const orgId = await getOrganizationId(token);
   const chData = await bufferGraphQL<{ channels: BufferChannel[] }>(
     "query($input: ChannelsInput!) { channels(input: $input) { id name service } }",
-    { input: { organizationId: orgId } }
+    { input: { organizationId: orgId } },
+    token
   );
   return chData.channels;
 }
@@ -54,10 +68,11 @@ export type BufferMetric = { name: string; value: number; unit: string; type: st
 // SUDAH published brand ini - hasil views 266/220/163, BUKAN nol, jadi data ASLI
 // tersedia, bukan cuma skema kosong). Return null kalau post belum ada
 // metrics/metricsUpdatedAt sama sekali (terlalu baru, Buffer belum sempat sync).
-export async function getPostMetrics(postId: string): Promise<BufferMetric[] | null> {
+export async function getPostMetrics(postId: string, token?: string | null): Promise<BufferMetric[] | null> {
   const data = await bufferGraphQL<{ post: { metricsUpdatedAt: string | null; metrics: BufferMetric[] } }>(
     "query($input: PostInput!) { post(input: $input) { metricsUpdatedAt metrics { name value unit type } } }",
-    { input: { id: postId } }
+    { input: { id: postId } },
+    token
   );
   if (!data.post || !data.post.metricsUpdatedAt) return null;
   return data.post.metrics;
@@ -70,31 +85,35 @@ export async function getPostMetrics(postId: string): Promise<BufferMetric[] | n
 export async function getAggregatedMetrics(
   channelId: string,
   startDateTime: string,
-  endDateTime: string
+  endDateTime: string,
+  token?: string | null
 ): Promise<BufferMetric[]> {
-  const orgId = await getOrganizationId();
+  const orgId = await getOrganizationId(token);
   const data = await bufferGraphQL<{ aggregatedPostMetrics: { metrics: BufferMetric[] } }>(
     "query($input: AggregatedPostMetricsInput!) { aggregatedPostMetrics(input: $input) { metrics { name value unit type } } }",
-    { input: { organizationId: orgId, channelIds: [channelId], startDateTime, endDateTime } }
+    { input: { organizationId: orgId, channelIds: [channelId], startDateTime, endDateTime } },
+    token
   );
   return data.aggregatedPostMetrics.metrics;
 }
 
 type BufferPostNode = { id: string; text: string; externalLink: string | null };
 
-async function findDuplicates(channelId: string, keepPostId: string, text: string): Promise<BufferPostNode[]> {
-  const orgId = await getOrganizationId();
+async function findDuplicates(channelId: string, keepPostId: string, text: string, token?: string | null): Promise<BufferPostNode[]> {
+  const orgId = await getOrganizationId(token);
   const data = await bufferGraphQL<{ posts: { edges: { node: BufferPostNode }[] } }>(
     "query($input: PostsInput!) { posts(input: $input, first: 10) { edges { node { id text externalLink } } } }",
-    { input: { organizationId: orgId, filter: { channelIds: [channelId] } } }
+    { input: { organizationId: orgId, filter: { channelIds: [channelId] } } },
+    token
   );
   return data.posts.edges.map((e) => e.node).filter((p) => p.id !== keepPostId && p.text === text);
 }
 
-async function tryDeletePost(id: string): Promise<boolean> {
+async function tryDeletePost(id: string, token?: string | null): Promise<boolean> {
   const result = await bufferGraphQL<{ deletePost: { __typename: string } }>(
     "mutation($input: DeletePostInput!) { deletePost(input: $input) { __typename } }",
-    { input: { id } }
+    { input: { id } },
+    token
   );
   return result.deletePost.__typename === "DeletePostSuccess";
 }
@@ -118,6 +137,7 @@ export async function checkAndHandleDuplicate(opts: {
   text: string;
   brandName: string;
   platformLabel: string;
+  token?: string | null;
 }): Promise<void> {
   const { sendTelegramNotification } = await import("./telegram");
   const pollDelaysMs = [15_000, 30_000, 45_000, 60_000, 60_000]; // total ~3.5 menit
@@ -125,13 +145,13 @@ export async function checkAndHandleDuplicate(opts: {
   for (const delay of pollDelaysMs) {
     await new Promise((resolve) => setTimeout(resolve, delay));
 
-    const duplicates = await findDuplicates(opts.channelId, opts.keepPostId, opts.text);
+    const duplicates = await findDuplicates(opts.channelId, opts.keepPostId, opts.text, opts.token);
     if (duplicates.length === 0) continue;
 
     for (const dup of duplicates) {
       let deleted = false;
       try {
-        deleted = await tryDeletePost(dup.id);
+        deleted = await tryDeletePost(dup.id, opts.token);
       } catch {
         deleted = false;
       }
