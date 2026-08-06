@@ -10,8 +10,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id: brandId } = await params;
   const body = await req.json().catch(() => ({}));
 
+  // `type` (2026-08-06, permintaan Agus - "buatkan 1 vidio", trigger manual TIDAK punya
+  // cara memaksa tipe sama sekali sebelumnya - beda dari jalur cron auto-generate yang
+  // sudah dapat desiredType dari daily_ideas.contentType, lihat catatan bug "konten
+  // vidionya tidak ada malah foto semua" di autoContent.ts). Tanpa ini, trigger manual
+  // SELALU jatuh ke heuristik lama (mediaType item pertama hasil match tema) - acak,
+  // sama kelas bug yang sudah diperbaiki utk jalur cron tapi belum utk jalur manual ini.
+  const desiredType = body.type === "video" || body.type === "foto" || body.type === "carousel" ? body.type : undefined;
+
   try {
-    const result = await runAutoContent(brandId, body.script);
+    const result = await runAutoContent(brandId, body.script, desiredType);
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     const status = err instanceof AutoContentError ? err.status : 500;
