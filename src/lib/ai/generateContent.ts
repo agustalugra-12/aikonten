@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { ScoredSegment } from "./clipSelect";
+import type { TranscriptSegment } from "./transcribe";
 import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
 import { KEYWORD_PRIORITY_LIST } from "./keywordPriority";
 
@@ -18,6 +19,16 @@ function getClient(): OpenAI {
 // "#", apa pun yang dibalas GPT.
 function stripHashPrefix(tags: string[]): string[] {
   return tags.map((t) => t.replace(/^#+/, ""));
+}
+
+// Batas KERAS 5 hashtag (2026-08-06, permintaan Agus - "perbaiki untuk hastag maksimal 5
+// saja") - instruksi prompt SUDAH minta maks 5 di kedua fungsi di bawah, TAPI model tidak
+// selalu patuh persis (pola sama yg berulang kali ditemukan sesi ini - prompt saja tidak
+// 100% reliable utk batas angka pasti) - dipotong di sini SEBAGAI jaring pengaman kode,
+// bukan cuma andalkan instruksi. Ambil 5 PERTAMA (model biasanya taruh yg paling relevan
+// duluan), bukan random slice.
+function capHashtags(tags: string[], max: number = 5): string[] {
+  return tags.slice(0, max);
 }
 
 // Content Pillar & Duplicate Checker (2026-08-05, PRD "AI Content Brain" modul 6 & 11,
@@ -233,7 +244,8 @@ export async function generateCaptionAndHashtags(
     : ` Caption/naskah voiceover sekitar ${targetWords} kata, singkat & padat (video pendek ${videoDurationTarget} detik).`;
   const system =
     "Kamu content strategist media sosial. Buat caption yang menarik & natural (bukan " +
-    "generik/template) plus daftar hashtag relevan berdasarkan skrip & isi klip yang " +
+    "generik/template) plus MAKSIMAL 5 hashtag PALING relevan (bukan lebih - pilih yg " +
+    "paling tepat sasaran, jangan asal banyak) berdasarkan skrip & isi klip yang " +
     "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip." +
     grounding.instruction +
     " Caption ini JUGA jadi naskah voiceover (dibacakan TTS, GANTI TOTAL audio asli video) - " +
@@ -268,7 +280,7 @@ export async function generateCaptionAndHashtags(
   const parsed = JSON.parse(cleaned);
   return {
     caption: parsed.caption || "",
-    hashtags: stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : []),
+    hashtags: capHashtags(stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : [])),
     brollKeywords: parsed.brollKeywords || null,
     thumbnailText: parsed.thumbnailText || null,
     structureTemplate: structureTemplate.name,
@@ -296,7 +308,8 @@ export async function generateCaptionForImages(
   const system =
     "Kamu content strategist media sosial. Lihat SEMUA foto yang diberikan (bisa lebih " +
     "dari satu, urutan sesuai carousel), lalu buat SATU caption yang merangkum & " +
-    "menarik & natural (bukan generik/template) plus daftar hashtag relevan berdasarkan " +
+    "menarik & natural (bukan generik/template) plus MAKSIMAL 5 hashtag PALING relevan " +
+    "(bukan lebih - pilih yg paling tepat sasaran, jangan asal banyak) berdasarkan " +
     "ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto." +
     grounding.instruction +
     " Kalau skrip menyebutkan harga/promo/diskon, tulis juga versi SINGKAT teks itu " +
@@ -326,7 +339,7 @@ export async function generateCaptionForImages(
   const parsed = JSON.parse(cleaned);
   return {
     caption: parsed.caption || "",
-    hashtags: stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : []),
+    hashtags: capHashtags(stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : [])),
     promoText: parsed.promoText || null,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
@@ -358,11 +371,40 @@ export function buildSrtSubtitles(selectedClips: ScoredSegment[]): string {
   return blocks.join("\n");
 }
 
-// PENTING: dipakai KHUSUS kalau AI Dubbing aktif (lihat memory proyek - dubbing GANTI
-// TOTAL audio asli dgn TTS membaca caption). Kalau subtitle tetap dari transkrip ASLI
-// (buildSrtSubtitles di atas), subtitle & audio baru akan BEDA teks - membingungkan.
-// Jadi subtitle-nya juga HARUS dari caption yg sama persis dgn naskah TTS, dipecah jadi
-// blok2 kecil (~8 kata) & disebar rata sepanjang durasi video final.
+// Subtitle PRESISI dari transkripsi ULANG audio TTS asli (2026-08-06, permintaan Agus -
+// "perbaiki subtitle agar presisi dengan dubing sehingga penonton tidak bingung") - lihat
+// transcribeAudioBuffer di transcribe.ts utk alasan lengkap. Segment Whisper SUDAH relatif
+// ke awal file audio (t=0 saat TTS mulai bicara), TIDAK perlu retiming/akumulasi cursor -
+// beda dari buildSrtSubtitles (klip footage ASLI, banyak sumber terpisah, perlu digeser
+// relatif ke timeline gabungan). Pecah tiap segment Whisper (bisa 1 kalimat penuh) jadi
+// blok lebih pendek (~8 kata) SUPAYA tetap nyaman dibaca di layar - interpolasi LINEAR
+// dalam durasi segment aslinya (bukan rata sepanjang TOTAL video spt fungsi lama), jadi
+// tetap presisi relatif thd pacing ucapan asli di segment itu, bukan tebakan global.
+export function buildSrtFromTranscriptSegments(segments: TranscriptSegment[]): string {
+  const wordsPerBlock = 8;
+  const blocks: { start: number; end: number; text: string }[] = [];
+  for (const seg of segments) {
+    const words = seg.text.split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+    const chunks: string[] = [];
+    for (let i = 0; i < words.length; i += wordsPerBlock) {
+      chunks.push(words.slice(i, i + wordsPerBlock).join(" "));
+    }
+    const segDuration = seg.end - seg.start;
+    const perChunk = segDuration / chunks.length;
+    chunks.forEach((text, i) => {
+      blocks.push({ start: seg.start + i * perChunk, end: seg.start + (i + 1) * perChunk, text });
+    });
+  }
+  return blocks
+    .map((b, i) => `${i + 1}\n${formatSrtTime(b.start)} --> ${formatSrtTime(b.end)}\n${b.text}\n`)
+    .join("\n");
+}
+
+// FALLBACK SAJA (2026-08-06, dipertahankan bukan dihapus) - dipakai HANYA kalau
+// transcribeAudioBuffer gagal (mis. Whisper API down sesaat) supaya video tetap bisa
+// jadi drpd gagal total tanpa subtitle sama sekali - lebih baik subtitle kurang presisi
+// drpd tidak ada. Jalur normal SEKARANG pakai buildSrtFromTranscriptSegments di atas.
 export function buildCaptionSrt(captionText: string, totalDurationSeconds: number): string {
   const words = captionText.split(/\s+/).filter(Boolean);
   const wordsPerBlock = 8;

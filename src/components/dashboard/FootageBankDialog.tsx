@@ -48,6 +48,17 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [uploadCategoryId, setUploadCategoryId] = useState<string>(UNCATEGORIZED);
+  // Fallback pemuatan gagal (2026-08-06, laporan Agus - "tidak terlihat ada gambar foto
+  // rusak di pojok kiri") - ikon "gambar rusak" bawaan browser SELALU muncul di pojok
+  // KIRI-ATAS elemen <img> kalau src gagal dimuat (perilaku browser standar, bukan
+  // sesuatu yg kita render sendiri) - baru KELIHATAN sekarang krn thumbnail asli baru
+  // ditambahkan hari ini (sebelumnya cuma teks, tidak ada <img> sama sekali). File
+  // aslinya sudah dicek server-side (fetch+decode penuh) - SEMUA 44 foto Pelangi valid,
+  // jadi kegagalan ini kemungkinan besar sesaat/jaringan browser, bukan file rusak
+  // sungguhan. Retry OTOMATIS 1x (cache-bust query param) sebelum nyerah ke fallback
+  // UI yg jelas (bukan ikon default browser yg terlihat spt "error aplikasi").
+  const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
+  const [retriedIds, setRetriedIds] = useState<Set<string>>(new Set());
 
   async function loadItems() {
     const [itemsRes, categoriesRes] = await Promise.all([
@@ -105,6 +116,17 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
         ? prev.map((it) => (it.id === itemId ? { ...it, categoryId: categoryId === UNCATEGORIZED ? null : categoryId } : it))
         : prev
     );
+  }
+
+  function handleImageError(itemId: string) {
+    setRetriedIds((prev) => {
+      if (prev.has(itemId)) {
+        // Sudah pernah di-retry sekali & tetap gagal - benar2 nyerah, tampilkan fallback.
+        setFailedIds((f) => new Set(f).add(itemId));
+        return prev;
+      }
+      return new Set(prev).add(itemId);
+    });
   }
 
   async function handleUpload(files: FileList | null) {
@@ -275,13 +297,27 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
                         controls
                         className="w-full h-full object-cover bg-black"
                       />
+                    ) : failedIds.has(item.id) ? (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-center px-2">
+                        <span className="text-xs text-muted-foreground">Gagal memuat gambar</span>
+                        <Button
+                          variant="ghost" size="sm" className="h-6 px-2 text-xs"
+                          onClick={() => {
+                            setFailedIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
+                            setRetriedIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
+                          }}
+                        >
+                          Coba lagi
+                        </Button>
+                      </div>
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={item.fileUrl}
+                        src={retriedIds.has(item.id) ? `${item.fileUrl}?retry=${Date.now()}` : item.fileUrl}
                         alt={item.description}
                         loading="lazy"
                         className="w-full h-full object-cover"
+                        onError={() => handleImageError(item.id)}
                       />
                     )}
                   </div>

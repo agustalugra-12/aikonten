@@ -52,3 +52,37 @@ export async function transcribeFootage(fileUrl: string): Promise<TranscriptSegm
     avgLogprob: s.avg_logprob,
   }));
 }
+
+// Transkripsi audio TTS dubbing (2026-08-06, permintaan Agus - "perbaiki subtitle agar
+// presisi dengan dubbing"). SEBELUM ini subtitle dibangun dari buildCaptionSrt() yg
+// BUKAN transkripsi sungguhan - cuma bagi caption jadi chunk 8 kata & sebar RATA
+// sepanjang totalDuration FOOTAGE (bukan durasi audio TTS asli, apalagi pacing
+// ucapan/jeda alami TTS-nya) - dijamin ngaco makin lama videonya (drift makin
+// menumpuk), persis laporan Agus "subtitle tidak presisi dgn dubbing, penonton
+// bingung". Fix: transkripsi ULANG audio TTS yg SUDAH digenerate (Whisper, sama
+// endpoint dgn transcribeFootage di atas) - dapat timestamp ASLI dari audio yg
+// BENERAN diputar, bukan estimasi. Terima Buffer langsung (bukan fileUrl) krn audio
+// TTS ini murni in-memory, belum (&tidak perlu) diupload ke storage publik dulu.
+export async function transcribeAudioBuffer(buffer: Buffer, mimeType: string = "audio/mpeg"): Promise<TranscriptSegment[]> {
+  const client = getClient();
+  const ext = mimeType.split("/")[1]?.split(";")[0] || "mp3";
+  const file = new File([new Uint8Array(buffer)], `voiceover.${ext}`, { type: mimeType });
+
+  const result = await client.audio.transcriptions.create({
+    file,
+    model: "whisper-1",
+    response_format: "verbose_json",
+    timestamp_granularities: ["segment"],
+  });
+
+  const raw = result as unknown as {
+    segments?: Array<{ start: number; end: number; text: string; avg_logprob: number }>;
+  };
+
+  return (raw.segments || []).map((s) => ({
+    start: s.start,
+    end: s.end,
+    text: s.text.trim(),
+    avgLogprob: s.avg_logprob,
+  }));
+}

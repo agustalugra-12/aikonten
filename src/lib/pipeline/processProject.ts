@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { projects, mediaAssets, brands, socialAccounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
-import { transcribeFootage } from "@/lib/ai/transcribe";
+import { transcribeFootage, transcribeAudioBuffer } from "@/lib/ai/transcribe";
 import {
   selectClips,
   scoreSegments,
@@ -9,7 +9,8 @@ import {
   computeFootageBudgets,
   getDurationConfig,
 } from "@/lib/ai/clipSelect";
-import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt } from "@/lib/ai/generateContent";
+import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt, buildSrtFromTranscriptSegments } from "@/lib/ai/generateContent";
+import { generateVoiceover } from "@/lib/ai/dubbing";
 // Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
@@ -393,11 +394,27 @@ export async function processProject(id: string): Promise<ProcessResult> {
       );
     }
 
-    // Subtitle dibuat dari CAPTION (bukan transkrip asli lagi) - krn AI Dubbing (di
-    // bawah) MENGGANTI TOTAL audio dgn TTS membaca caption, subtitle jg HARUS teks yg
-    // sama, bukan transkrip asli yg sudah tidak match dgn audio barunya.
+    // Subtitle PRESISI (2026-08-06, permintaan Agus - "perbaiki subtitle agar presisi
+    // dengan dubing sehingga penonton tidak bingung") - SEBELUM ini SRT dibangun dari
+    // buildCaptionSrt() (bagi caption 8 kata/blok, sebar RATA sepanjang durasi FOOTAGE)
+    // SEBELUM audio TTS-nya bahkan digenerate - dijamin drift krn durasi bicara TTS
+    // asli (pacing alami, jeda kalimat) HAMPIR PASTI beda dari estimasi rata itu, makin
+    // parah utk caption panjang (video 3-8 menit). Sekarang: generate TTS DULU di sini
+    // (bukan di dalam renderFinalVideo lagi), transkripsi ULANG audio itu (Whisper,
+    // sama endpoint dgn transcribeFootage) utk dapat timestamp ASLI dari audio yg
+    // BENERAN diputar, baru bangun SRT dari situ - presisi krn sumbernya audio asli,
+    // bukan estimasi. Fallback ke cara lama HANYA kalau Whisper gagal (mis. API down
+    // sesaat) - subtitle kurang presisi tetap lebih baik drpd video gagal total.
     const totalDuration = currentTotalDuration();
-    const srt = buildCaptionSrt(caption, totalDuration);
+    const voiceoverBuffer = await generateVoiceover(caption);
+    let srt: string;
+    try {
+      const voiceoverSegments = await transcribeAudioBuffer(voiceoverBuffer);
+      srt = buildSrtFromTranscriptSegments(voiceoverSegments);
+    } catch (err) {
+      console.error("[processProject] gagal transkripsi ulang audio TTS utk subtitle presisi, fallback ke estimasi rata:", err);
+      srt = buildCaptionSrt(caption, totalDuration);
+    }
 
     await db
       .update(projects)
@@ -431,9 +448,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
       srtContent: srt,
       brollClips,
       // AI Dubbing - GANTI TOTAL suara asli (lihat memory proyek, keputusan eksplisit
-      // Agus), reuse caption yg sudah di-generate sbg naskah narasi - tidak perlu
-      // panggilan GPT terpisah.
-      voiceoverText: caption,
+      // Agus). Audio-nya SUDAH digenerate di atas (perlu ada LEBIH DULU drpd subtitle
+      // presisi dibangun) - di sini tinggal diteruskan, bukan generate baru lagi.
+      voiceoverAudioBuffer: voiceoverBuffer,
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
       // cabang carousel di atas, sama alasannya.
       logoUrl: brand?.logoUrl,

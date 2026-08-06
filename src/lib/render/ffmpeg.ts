@@ -4,7 +4,6 @@ import { writeFile, mkdtemp, rm, readFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import type { ScoredSegment } from "@/lib/ai/clipSelect";
-import { generateVoiceover } from "@/lib/ai/dubbing";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/ai/logoOverlay";
 
@@ -128,7 +127,13 @@ export async function renderFinalVideo(opts: {
   segments: (ScoredSegment & { sourceUrl: string })[];
   srtContent: string;
   brollClips?: Array<{ videoUrl: string; durationSeconds: number }>;
-  voiceoverText?: string;
+  // Audio TTS SUDAH DIGENERATE sebelumnya (2026-08-06, permintaan Agus - "subtitle
+  // presisi dgn dubbing") - caller (processProject.ts) generate TTS DULU, transkripsi
+  // ulang (Whisper) utk subtitle presisi, BARU render di sini - jadi fungsi ini terima
+  // Buffer audio yg SUDAH JADI, BUKAN teks mentah lagi (dulu generateVoiceover dipanggil
+  // DI SINI, artinya subtitle di srtContent dibangun SEBELUM audio ini ada sama sekali -
+  // akar masalah subtitle tidak presisi. Lihat processProject.ts utk alur baru lengkap.
+  voiceoverAudioBuffer?: Buffer;
   // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - ditempel lingkaran, ukuran
   // proporsional (lihat logoOverlay.ts), pojok kanan-atas, JANGAN dianggap wajib -
   // brand tanpa logoUrl dilewati begitu saja.
@@ -197,13 +202,12 @@ export async function renderFinalVideo(opts: {
     }
 
     // 5) AI Dubbing - GANTI TOTAL audio asli dgn TTS baca caption (lihat memory
-    // proyek, keputusan eksplisit Agus) - reuse generateVoiceover yg sudah ada
-    // (dubbing.ts, model tts-1 murah).
+    // proyek, keputusan eksplisit Agus). Audio-nya SUDAH DIGENERATE oleh caller
+    // (lihat catatan voiceoverAudioBuffer di atas) - di sini cuma tulis ke file lokal.
     let audioPath: string | null = null;
-    if (opts.voiceoverText) {
-      const voiceoverBuffer = await generateVoiceover(opts.voiceoverText);
+    if (opts.voiceoverAudioBuffer) {
       audioPath = path.join(workDir, "voiceover.mp3");
-      await writeFile(audioPath, voiceoverBuffer);
+      await writeFile(audioPath, opts.voiceoverAudioBuffer);
     }
 
     // 6) Bakar subtitle + overlay logo + mux audio TTS. PENTING (bug nyata ditemukan
