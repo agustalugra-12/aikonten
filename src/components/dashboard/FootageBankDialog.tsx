@@ -158,7 +158,7 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger render={<Button variant="outline">📦 Bank Footage</Button>} />
-      <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Bank Footage</DialogTitle>
         </DialogHeader>
@@ -259,44 +259,62 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
                 : "Belum ada footage di bank. Upload video/foto yang bisa dipakai ulang utk banyak konten (kamar, pemandangan, fasilitas, dst)."}
             </p>
           ) : (
-            <ul className="space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {visibleItems.map((item) => (
-                <li key={item.id} className="rounded-md border p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">{item.mediaType === "video" ? "Video" : "Foto"}</Badge>
-                    {item.categoryId && (
-                      <Badge variant="secondary" className="text-xs">
-                        {categoryNameById.get(item.categoryId) || "?"}
-                      </Badge>
+                <div key={item.id} className="rounded-md border overflow-hidden space-y-2 pb-2">
+                  {/* Thumbnail asli (2026-08-06, permintaan Agus - "tampilkan fotonya agar
+                      bisa dikategorikan") - sebelumnya cuma deskripsi teks AI, susah
+                      dikategorikan tanpa lihat isi foto/video aslinya. Video pakai <video>
+                      (preload="metadata" - browser otomatis tampilkan frame pertama sbg
+                      thumbnail tanpa perlu generate poster terpisah di server). */}
+                  <div className="aspect-square bg-muted">
+                    {item.mediaType === "video" ? (
+                      <video
+                        src={item.fileUrl}
+                        preload="metadata"
+                        controls
+                        className="w-full h-full object-cover bg-black"
+                      />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.fileUrl}
+                        alt={item.description}
+                        loading="lazy"
+                        className="w-full h-full object-cover"
+                      />
                     )}
                   </div>
-                  <p className="text-sm">{item.description}</p>
-                  <div className="flex flex-wrap gap-1">
-                    {item.tags.map((tag) => (
-                      <Badge key={tag} variant="secondary" className="text-xs">
-                        {tag}
-                      </Badge>
-                    ))}
+                  <div className="px-3 space-y-2">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <Badge variant="outline" className="text-xs">{item.mediaType === "video" ? "Video" : "Foto"}</Badge>
+                      {item.categoryId && (
+                        <Badge variant="secondary" className="text-xs">
+                          {categoryNameById.get(item.categoryId) || "?"}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground line-clamp-2">{item.description}</p>
+                    <Select
+                      value={item.categoryId || UNCATEGORIZED}
+                      onValueChange={(v) => handleAssignCategory(item.id, v || UNCATEGORIZED)}
+                    >
+                      <SelectTrigger className="w-full h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={UNCATEGORIZED}>Tanpa kategori</SelectItem>
+                        {categories.map((cat) => (
+                          <SelectItem key={cat.id} value={cat.id}>
+                            {cat.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <Select
-                    value={item.categoryId || UNCATEGORIZED}
-                    onValueChange={(v) => handleAssignCategory(item.id, v || UNCATEGORIZED)}
-                  >
-                    <SelectTrigger className="w-full h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={UNCATEGORIZED}>Tanpa kategori</SelectItem>
-                      {categories.map((cat) => (
-                        <SelectItem key={cat.id} value={cat.id}>
-                          {cat.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </li>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
         </div>
       </DialogContent>
