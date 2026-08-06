@@ -125,7 +125,16 @@ export async function runAutoContent(
       // gagal dgn .mp4 tercampur di raw_footage carousel). Filter ke mediaType="image"
       // DULU sebelum slice, bukan asal ambil N pertama.
       const imageOnlyUrls = matchedItems.filter((r) => r.mediaType === "image").map((r) => r.fileUrl);
-      urlsToUse = imageOnlyUrls.slice(0, brand.carouselPhotosPerPost || DEFAULT_CAROUSEL_PHOTOS_AUTO);
+      // Bug NYATA ditemukan 2026-08-06 (laporan Agus - "aku mau yang single foto poster
+      // bukan carousel") - SEBELUM ini "foto" (single photo, py kuota harian SENDIRI
+      // beda dari "carousel" - lihat brand.dailySinglePhotoCount vs dailyCarouselCount di
+      // BrandSettingsSidebar) diam-diam DISAMAKAN dgn "carousel" di sini, SELALU pakai
+      // brand.carouselPhotosPerPost (default 5) - hasil "foto" tidak pernah benar2 1 foto
+      // kecuali kebetulan carouselPhotosPerPost=1. desiredType="foto" sekarang eksplisit
+      // ambil TEPAT 1 foto, tidak peduli carouselPhotosPerPost - itu setting KHUSUS jalur
+      // carousel (desiredType="carousel" atau heuristik lama tanpa desiredType).
+      const targetPhotoCount = desiredType === "foto" ? 1 : (brand.carouselPhotosPerPost || DEFAULT_CAROUSEL_PHOTOS_AUTO);
+      urlsToUse = imageOnlyUrls.slice(0, targetPhotoCount);
       // Kalau kandidat tema TERNYATA semua video (mediaType item pertama "video" tapi ada
       // foto lain di urutan bawah SUDAH kekurangan) atau malah 0 foto sama sekali di hasil
       // tema - fallback ke foto asli APA SAJA (pickAnyRealPhoto, sama pola dgn cabang
