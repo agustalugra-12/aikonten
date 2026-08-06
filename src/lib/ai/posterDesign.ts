@@ -9,64 +9,64 @@ function ensureFalConfigured(): void {
   fal.config({ credentials: apiKey });
 }
 
-// "Pelangi Homestay Poster Design System v1" (2026-08-05, master prompt LENGKAP dari
-// Agus, dipakai APA ADANYA - ini brief art-direction penuh, bukan sesuatu yg boleh
-// disederhanakan sepihak) - CUMA berlaku jalur foto TUNGGAL (lihat processProject.ts),
-// beda dari applyPromoOverlay (badge kecil 1 pojok, dipakai carousel multi-foto).
-// Disinkronkan ulang (2026-08-05, sesi sama) ke versi prompt Agus yang lebih lengkap -
-// dicek Agus sendiri vs kode, 90% sudah identik (konfirmasi arsitektur "DNA desain
-// statis + konten per-poster dinamis" sudah persis sesuai maksud beliau), 4 bagian
-// ditambah biar sinkron penuh: GALLERY (gaya multi-foto), TARGET AUDIENS, rasio OUTPUT
-// jadi "4:5 atau 1:1" (sebelumnya cuma 1:1), 3 nama gaya layout tambahan. Guard anti-
-// karang harga (BADGE HARGA, "kalau tidak ada harga JANGAN mengarang angka") SENGAJA
-// dipertahankan walau tidak ada di teks asli Agus - itu jaring pengaman tambahan yg
-// sudah terbukti berguna di seluruh sesi ini, bukan sesuatu yg diminta dihapus.
-const MASTER_STYLE_PROMPT = `
-Kamu adalah seorang Senior Graphic Designer spesialis hospitality, hotel, dan travel advertisement.
-Seluruh desain HARUS mengikuti identitas visual Pelangi Homestay. Yang berubah cuma: judul, promo, CTA, foto, harga, isi tulisan - gaya desain HARUS tetap konsisten.
+// Brand Design System (2026-08-06, permintaan Agus - "jangan hanya membuat prompt 'buat
+// poster'... buatlah Brand Design System Prompt sehingga semua poster memiliki identitas
+// yang konsisten, tetapi layout tetap dinamis... Brand Profile -> Master Design Prompt ->
+// Foto Asli -> AI Image Editor -> Poster Profesional"). SEBELUM ini SATU prompt hardcode
+// (hijau emerald, ikon "wifi/parking/breakfast") dipakai utk SEMUA brand tanpa pandang
+// bulu - brand baru non-hospitality (laundry, barbershop, dst) dapat poster bergaya
+// resort tropis yg sama sekali tidak relevan, PERSIS kelas bug yg sudah ditemukan &
+// diperbaiki hari ini di knowledgeSite (pelangiKnowledge.ts) & isIdeSpesifikProperti
+// (classifyIdea.ts) - "brand baru diam-diam warisan default Pelangi".
+//
+// Dipecah 2 lapis persis skema Agus:
+// 1. MASTER_DESIGN_SYSTEM_PROMPT (di bawah) - bagian STRUKTURAL/KUALITAS/KEAMANAN yg
+//    SAMA utk SEMUA brand (peran desainer, aturan foto asli wajib, hierarki visual,
+//    larangan mengarang harga/kontak/logo, dst) - TIDAK diduplikasi per brand.
+// 2. `brandProfile` (param fungsi ini, dari brands.posterBrandProfile - lihat schema.ts)
+//    - bagian yg BOLEH beda per brand (warna, font, ikon relevan, tone, target audiens,
+//    aturan foto spesifik niche) - staf isi via Brand Settings, BUKAN hardcode di kode.
+const MASTER_DESIGN_SYSTEM_PROMPT = `
+Kamu adalah seorang Senior Graphic Designer berpengalaman 15+ tahun, spesialis poster promosi komersial premium utk bisnis lokal (hospitality, laundry, resto, travel, jasa, dst). Ikuti PROFIL BRAND yang diberikan terpisah di bawah utk warna/font/ikon/tone - bagian ini berlaku SAMA utk semua brand.
 
-STYLE: Modern Tropical Resort, Clean Minimalist, luxury namun tetap ramah, Instagram Advertisement Quality, Travel Campaign Style, Soft Commercial Poster, High Conversion Marketing Poster. Jangan membuat poster seperti brosur jadul.
+STYLE: Modern Minimalist, Premium Commercial Advertising, Clean Layout, High Trust, Eye-catching, High Conversion. Harus terlihat seperti buatan desainer profesional, BUKAN buatan AI. Jangan membuat poster seperti brosur jadul.
 
-WARNA - Primary: Deep Emerald Green, Teal Green, Dark Green, Turquoise. Secondary: Orange, Warm Yellow, Soft Gold, White. Background: White, Cream, Light Beige, Soft Shadow Grey. Warna utama pasti: Emerald Green (#0F6A63), Teal, Putih, Orange Accent. Hindari warna merah mencolok, ungu, dan biru terang.
+KOMPOSISI: layout rapi, banyak ruang kosong (white space), visual utama (foto) mendominasi 60-70%, elemen teks 30-40%. Posisi headline/CTA/badge harga/benefit/icon boleh fleksibel tiap poster (kiri-kanan, hero image full, split layout, diagonal, magazine, floating card, editorial) selama tetap terlihat premium & seimbang - JANGAN selalu taruh semua di tengah.
 
-KOMPOSISI: layout rapi, banyak ruang kosong (white space), visual utama (foto) mendominasi 60-70%, elemen teks 30-40%. Posisi headline/CTA/badge harga/benefit/gallery/icon boleh fleksibel tiap poster selama tetap terlihat premium & seimbang.
+FOTO (SANGAT PENTING): WAJIB pakai FOTO ASLI yang diberikan sbg visual utama - objek utamanya (kamar/pakaian/produk/apa pun sesuai niche brand, lihat PROFIL BRAND) HARUS tetap identik, JANGAN membuat objek baru, JANGAN mengganti objek dgn yang lain, JANGAN membuat foto AI atau memakai gambar stok. AI HANYA boleh: perspective correction, lighting enhancement, HDR enhancement, contrast improvement, color grading, highlight/shadow recovery, sharpness enhancement, background enhancement, reflection & depth. TIDAK BOLEH mengubah bentuk/identitas objek utama, menambah elemen yang tidak ada di foto asli.
 
-FOTO: WAJIB pakai FOTO ASLI yang diberikan sbg visual utama, seluruh foto HARUS berasal dari foto ini - JANGAN menghasilkan hotel baru, JANGAN mengganti taman/interior/bangunan/kamar/pintu/view, JANGAN membuat foto AI atau memakai gambar stok. AI HANYA boleh melakukan: perspective correction, lighting enhancement, HDR enhancement, contrast improvement, color grading, highlight recovery, shadow recovery, sharpness enhancement, premium hotel look. TIDAK BOLEH: mengubah bentuk kamar, mengubah taman, menambah furniture, mengubah arsitektur, menambah kolam, menambah gunung, mengubah view. Foto harus tetap identik dengan footage asli (subjek/komposisinya), cuma kualitas visualnya yang di-enhance.
+TYPOGRAPHY: kombinasi maksimal 2 font. Headline: Bold/Extra Bold Sans Serif Modern (kecuali PROFIL BRAND minta lain). Body: Clean Sans Serif, mudah dibaca. Hierarki font harus sangat jelas.
 
-COLOR GRADING FOTO: Luxury Resort, Morning Natural Light, Soft Warm White, Rich Green, Natural Skin Tone, Bright but Soft, Premium Airbnb Style. Sedikit HDR. Highlight tetap natural. Shadow lembut. Tidak over saturated.
+HIERARKI visual (urutan kepentingan): 1) Headline, 2) Foto utama, 3) Promo/Badge, 4) Benefit/Fasilitas, 5) Harga, 6) CTA, 7) Kontak.
 
-TYPOGRAPHY: kombinasi maksimal 2 font. Headline: Bold/Extra Bold Sans Serif Modern (karakter spt Montserrat, Poppins, League Spartan, Satoshi, General Sans). Subheadline (kalau ada): Elegant Script/Handwritten Luxury Brush (karakter spt Allura, Brittany, Great Vibes) atau script modern elegan. Body: Clean Sans Serif, mudah dibaca.
+ICON: outline modern, minimalis, stroke seragam, warna sesuai warna utama PROFIL BRAND (bukan warna acak). Jangan pakai icon kartun.
 
-HIERARKI visual (urutan kepentingan): 1) Headline, 2) Foto utama, 3) Harga, 4) CTA, 5) Benefit, 6) Informasi tambahan.
+CARD: card putih/gradient, rounded corner, soft shadow, floating card. Glass effect tipis boleh dipakai.
 
-ICON: outline modern, minimalis, tipis, seragam (contoh: wifi, parking, hot water, garden, coffee, breakfast, family, location, jam operasional). Jangan pakai icon kartun.
+BADGE HARGA/PROMO: kalau ada harga/promo, bentuknya lingkaran/rounded badge/pill/ribbon, jadi salah satu fokus utama poster. Kalau TIDAK ada harga yg disebutkan di KONTEN POSTER di bawah, JANGAN menampilkan badge harga sama sekali - jangan mengarang angka.
 
-CARD: card putih, rounded corner, soft shadow, floating card. Glass effect tipis boleh dipakai.
+EFEK: soft shadow natural (bukan hard shadow), soft glow, gradient overlay, light blur, depth, floating element, glassmorphism ringan. Jangan berlebihan/norak/sesak.
 
-BADGE HARGA: kalau ada harga/promo, bentuknya lingkaran/rounded badge/price tag/sticker, warna orange atau kuning, jadi salah satu fokus utama poster. Kalau TIDAK ada harga yg disebutkan di bawah, JANGAN menampilkan badge harga sama sekali - jangan mengarang angka.
+OUTPUT: resolusi tinggi, social media ready (4:5 atau 1:1), margin rapi, semua tulisan mudah dibaca, tidak ada elemen yang saling bertabrakan/tumpang tindih.
 
-EFEK: soft shadow, soft glow, gradient overlay, light blur, depth, floating element, glassmorphism ringan. Jangan berlebihan/norak.
+BATASAN KERAS - JANGAN PERNAH: mengubah logo/identitas visual brand, bikin layout terlalu penuh/sesak, menambahkan elemen yang tidak ada di foto asli, menghasilkan foto AI atau gambar stok, mengubah identitas objek utama di foto asli.
 
-GALLERY: kalau ada lebih dari 1 foto, gunakan gaya polaroid modern, atau floating photo, atau overlapping card, dengan shadow lembut - konsisten dgn gaya card/shadow di atas.
+KONTAK: JANGAN PERNAH menambahkan nomor telepon/WhatsApp, alamat website/domain, atau handle media sosial di poster kecuali disebutkan eksplisit di KONTEN POSTER INI di bawah - lebih baik tidak ada info kontak sama sekali daripada info yang salah/mengarang.
 
-CTA: harus sangat mencolok, warna orange.
-
-TARGET AUDIENS: wisatawan umum, pasangan, keluarga, pekerja remote (long stay), dan tamu day use - poster boleh condong ke salah satu tergantung konten (mis. promo keluarga vs promo romantis) selama gaya visual brand tetap konsisten.
-
-SUASANA yang harus terasa: nyaman, tenang, asri, bersih, premium, homey, natural, refreshing, family friendly.
-
-OUTPUT: resolusi tinggi, social media ready (4:5 atau 1:1), margin rapi, semua tulisan harus mudah dibaca dgn jelas, tidak ada elemen yang saling bertabrakan/tumpang tindih secara berantakan.
-
-VARIASI LAYOUT: boleh beda-beda tiap poster (kiri-kanan, hero image full, split layout, diagonal, magazine, luxury resort poster, minimal travel ads, floating card, modern property ads, editorial hospitality) selama warna/font/ikon/bayangan/nuansa visual tetap konsisten sbg satu brand yg sama.
-
-BATASAN KERAS - JANGAN PERNAH: mengubah logo/identitas visual, pakai warna acak di luar palet di atas, bikin layout terlalu penuh/sesak, menambahkan elemen hotel yang tidak ada di foto asli, menghasilkan foto AI atau gambar stok, mengubah properti/bangunan/taman/kamar/pintu/view asli.
-
-KONTAK: JANGAN PERNAH menambahkan nomor telepon/WhatsApp, alamat website/domain, atau handle media sosial di poster kecuali disebutkan eksplisit di KONTEN POSTER INI di bawah - kalau tidak disebutkan, JANGAN tampilkan footer kontak/website/social handle apa pun, jangan mengarang nomor atau username. Sama seperti aturan harga: lebih baik tidak ada info kontak sama sekali daripada info yang salah/mengarang.
-
-LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified"/"certified", watermark, atau simbol apa pun yang menyerupai identitas brand - JANGAN sekalipun sekadar elemen dekoratif. Logo ASLI Pelangi Homestay/Harmoni Hills (kalau brand ini punya) ditempel TERPISAH sesudah gambar ini jadi, lewat proses lain di luar kendalimu - tugasmu HANYA desain poster tanpa logo apa pun, jangan mengisi "kekosongan" itu dengan logo karangan.
+LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified"/"certified", watermark, atau simbol apa pun yang menyerupai identitas brand - JANGAN sekalipun sekadar elemen dekoratif. Logo ASLI brand (kalau ada) ditempel TERPISAH sesudah gambar ini jadi, lewat proses lain di luar kendalimu - tugasmu HANYA desain poster tanpa logo apa pun, jangan mengisi "kekosongan" itu dengan logo karangan.
 `.trim();
 
-function buildPosterPrompt(copy: PosterCopy): string {
+// Fallback (2026-08-06) - brand yg BELUM isi posterBrandProfile (mis. brand baru yg
+// belum sempat diisi stafnya) pakai profil netral ini, BUKAN diam-diam warisan gaya
+// Pelangi (itu justru bug yg sedang diperbaiki di sini). Sengaja generik/aman, bukan
+// niche apa pun spesifik - mendorong staf mengisi profil asli lewat Brand Settings.
+const FALLBACK_BRAND_PROFILE = `
+PROFIL BRAND: belum diisi staf - pakai gaya netral & aman.
+WARNA: Biru tua (#1E3A5F) & Putih sbg warna utama, abu-abu terang sbg background, satu warna aksen hangat (oranye/kuning) HANYA utk badge harga/CTA.
+TONE: profesional, terpercaya, bersih, modern - netral, tidak condong ke niche tertentu.
+`.trim();
+
+function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undefined): string {
   const baris = [
     `Headline: "${copy.headline}"`,
     copy.subheadline ? `Subheadline: "${copy.subheadline}"` : null,
@@ -76,11 +76,14 @@ function buildPosterPrompt(copy: PosterCopy): string {
     copy.isiTulisan ? `Isi tulisan tambahan: "${copy.isiTulisan}"` : null,
   ].filter((line): line is string => !!line);
 
+  const profile = (brandProfile || "").trim() || FALLBACK_BRAND_PROFILE;
+
   return (
-    `${MASTER_STYLE_PROMPT}\n\n---\n\nKONTEN POSTER INI (isi teks yang harus muncul, TERJEMAHKAN ` +
-    `ke elemen visual sesuai seluruh aturan gaya di atas - jangan tampilkan teks lain di luar ini):\n` +
-    `${baris.join("\n")}\n\nBuat SATU poster promosi Pelangi Homestay memakai foto yang diberikan ` +
-    `sebagai visual utama.`
+    `${MASTER_DESIGN_SYSTEM_PROMPT}\n\n---\n\nPROFIL BRAND (warna/font/ikon/tone brand ini - ` +
+    `WAJIB diikuti, ini yang membedakan brand ini dari brand lain):\n${profile}\n\n---\n\n` +
+    `KONTEN POSTER INI (isi teks yang harus muncul, TERJEMAHKAN ke elemen visual sesuai ` +
+    `seluruh aturan gaya di atas - jangan tampilkan teks lain di luar ini):\n` +
+    `${baris.join("\n")}\n\nBuat SATU poster promosi memakai foto yang diberikan sebagai visual utama.`
   );
 }
 
@@ -97,11 +100,12 @@ export async function applyPosterDesign(opts: {
   projectId: string;
   imageUrl: string;
   copy: PosterCopy;
+  brandProfile?: string | null;
 }): Promise<string> {
   ensureFalConfigured();
 
   const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
-    prompt: buildPosterPrompt(opts.copy),
+    prompt: buildPosterPrompt(opts.copy, opts.brandProfile),
     image_urls: [opts.imageUrl],
     resolution: "1K",
   });

@@ -82,6 +82,19 @@ export const brands = sqliteTable("brands", {
   // sepanjang hari sesuai berapa banyak slot yg di-set, bukan numpuk di 1 jam. Validasi
   // format di route.ts PATCH.
   autoPublishTimes: text("auto_publish_times"),
+  // Brand Design Profile (2026-08-06, permintaan Agus - "Brand Design System Prompt...
+  // Master Prompt + Brand Profile terpisah per brand") - SEBELUM ini palet warna/font/
+  // ikon/tone poster HARDCODE 1 gaya (hijau emerald, ikon hospitality "wifi/parking/
+  // breakfast") di posterDesign.ts, dipakai SAMA utk SEMUA brand tanpa pandang bulu -
+  // brand baru non-hospitality (mis. "laundry in bali") dapat poster bergaya resort
+  // hijau yg sama sekali tidak relevan. Sekarang bagian yg BOLEH beda per brand (warna,
+  // font, ikon relevan, tone, target audiens, aturan foto) dipisah ke sini - bagian
+  // struktural/kualitas/keamanan (anti-mengarang harga/kontak/logo, aturan foto asli,
+  // hierarki visual) TETAP di 1 MASTER_DESIGN_SYSTEM_PROMPT bersama (posterDesign.ts),
+  // tidak diduplikasi per brand. Nullable - brand tanpa profil pakai fallback generik
+  // (bukan warisan gaya Pelangi diam-diam, beda dari bug knowledgeSite yg baru
+  // diperbaiki - pelajaran yg SAMA diterapkan di sini dari awal).
+  posterBrandProfile: text("poster_brand_profile"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

@@ -59,6 +59,7 @@ export function BrandSettingsSidebar({
 
   const [knowledgeSite, setKnowledgeSite] = useState(brand?.knowledgeSite ?? "none");
   const [manualKnowledge, setManualKnowledge] = useState(brand?.manualKnowledge ?? "");
+  const [posterBrandProfile, setPosterBrandProfile] = useState(brand?.posterBrandProfile ?? "");
   const [savingKnowledge, setSavingKnowledge] = useState(false);
 
   const [videoCount, setVideoCount] = useState(brand?.dailyVideoCount ?? 7);
@@ -82,6 +83,7 @@ export function BrandSettingsSidebar({
     if (!open) return;
     setKnowledgeSite(brand?.knowledgeSite ?? "none");
     setManualKnowledge(brand?.manualKnowledge ?? "");
+    setPosterBrandProfile(brand?.posterBrandProfile ?? "");
     setVideoCount(brand?.dailyVideoCount ?? 7);
     setFotoCount(brand?.dailySinglePhotoCount ?? 3);
     setCarouselCount(brand?.dailyCarouselCount ?? 0);
@@ -151,6 +153,7 @@ export function BrandSettingsSidebar({
     const ok = await patchBrand({
       knowledgeSite: knowledgeSite === "none" ? null : knowledgeSite,
       manualKnowledge: manualKnowledge.trim() || null,
+      posterBrandProfile: posterBrandProfile.trim() || null,
     });
     setSavingKnowledge(false);
     if (ok) {
@@ -315,6 +318,24 @@ export function BrandSettingsSidebar({
                 value={manualKnowledge}
                 onChange={(e) => setManualKnowledge(e.target.value)}
                 placeholder="Contoh: Bulan Agustus ada promo long stay 7 malam diskon 15%. Fokuskan konten ke suasana kerja remote yang tenang."
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="posterBrandProfile" className="text-xs">
+                🎨 Profil Desain Poster (Brand Profile)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Warna, font, gaya ikon, tone, dan target audiens brand ini - dipakai bareng aturan desain umum
+                (foto asli wajib, larangan mengarang harga/kontak/logo) supaya SEMUA poster brand ini punya identitas
+                visual konsisten, walau layout/posisi teks tetap bisa beda-beda tiap poster. Kosongkan = pakai gaya
+                netral (biru-putih polos), BUKAN warisan gaya brand lain.
+              </p>
+              <textarea
+                id="posterBrandProfile"
+                className="flex min-h-40 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs font-mono"
+                value={posterBrandProfile}
+                onChange={(e) => setPosterBrandProfile(e.target.value)}
+                placeholder={"Contoh:\nWARNA: Biru tua #005D9E, putih, aksen oranye khusus promo.\nSTYLE: Modern minimalis, premium, terpercaya.\nICON: mesin cuci, setrika, water splash.\nTARGET AUDIENS: mahasiswa & karyawan sibuk."}
               />
             </div>
             <Button size="sm" onClick={handleSaveKnowledge} disabled={savingKnowledge}>

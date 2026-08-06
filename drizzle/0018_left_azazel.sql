@@ -1,0 +1,1 @@
+ALTER TABLE `brands` ADD `poster_brand_profile` text;

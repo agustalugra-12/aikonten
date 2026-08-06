@@ -117,6 +117,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
         projectId: id,
         imageUrl: photoUrls[0],
         copy: posterCopy,
+        brandProfile: brand?.posterBrandProfile,
       });
       const finalImageUrls = photoUrls.length === 1 ? [coverUrl] : [coverUrl, ...photoUrls.slice(1)];
 

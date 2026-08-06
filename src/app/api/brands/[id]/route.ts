@@ -95,6 +95,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     update.knowledgeSite = body.knowledgeSite;
   }
 
+  // Brand Design Profile (2026-08-06, permintaan Agus - "Brand Design System Prompt...
+  // Brand Profile terpisah per brand") - warna/font/ikon/tone poster brand ini, lihat
+  // posterDesign.ts buildPosterPrompt().
+  if ("posterBrandProfile" in body) {
+    if (body.posterBrandProfile !== null && typeof body.posterBrandProfile !== "string") {
+      return NextResponse.json({ error: "posterBrandProfile harus string atau null" }, { status: 400 });
+    }
+    update.posterBrandProfile = body.posterBrandProfile;
+  }
+
   // Draft vs Auto-Publish (2026-08-06, permintaan Agus - "pilihan draft atau langsung
   // publis"; direvisi hari yg sama - "auto publis mau di publis jam brapa aja
   // menyesuaikan dengan jumlah konten yang ada", autoPublishTime tunggal -> array

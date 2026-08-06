@@ -14,6 +14,7 @@ export type Brand = {
   knowledgeSite: string | null;
   publishMode: "draft" | "auto";
   autoPublishTimes: string | null; // JSON string[] "HH:MM" mentah dari DB, lihat schema.ts - parse dulu sebelum dipakai
+  posterBrandProfile: string | null;
   createdAt: string;
 };
 
