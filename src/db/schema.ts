@@ -218,6 +218,22 @@ export const storyboards = sqliteTable("storyboards", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+// Kategori Footage Bank (2026-08-06, permintaan Agus - "aku mau ada folder katagori
+// didalamnya sehingga ada pengelompokan yang jelas seperti taman halaman, kamar, dapur,
+// dan lainnya") - manual, per BRAND (bukan global, krn tipe kamar Pelangi vs Harmoni
+// beda). SEBAB langsung permintaan ini: matchFootageForScript (lihat matchFootageBank.ts)
+// SELAMA INI murni cocokkan teks deskripsi/tag AI vs skrip - deskripsi "kamar tidur,
+// sprei putih" utk Room Standard & Cottage bisa terlihat MIRIP di teks meski beda kamar
+// fisik, jadi skrip "Day Use Room Standard" bisa kepilih foto Cottage tanpa sinyal
+// struktural apa pun yg membedakan - kategori manual ini jadi sinyal ground-truth yg
+// tidak bisa disalahartikan AI.
+export const footageCategories = sqliteTable("footage_categories", {
+  id: text("id").primaryKey(),
+  brandId: text("brand_id").notNull().references(() => brands.id),
+  name: text("name").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 // "Footage Bank" - beda dari media_assets (yg terikat ke SATU project) - ini milik
 // BRAND, dipakai ULANG lintas banyak konten (lihat memory proyek: Agus syuting sekali
 // - kamar, pemandangan, dll - lalu AI pilih sendiri yg cocok per skrip baru, bukan
@@ -231,6 +247,11 @@ export const footageBank = sqliteTable("footage_bank", {
   description: text("description").notNull(),
   tags: text("tags").notNull(), // JSON string[]
   durationSeconds: integer("duration_seconds"),
+  // Kategori manual owner (2026-08-06) - NULLABLE sengaja (44 footage lama Pelangi belum
+  // dikategorikan, tidak boleh dipaksa migrasi/nebak otomatis - Agus assign manual lewat
+  // UI Bank Footage, lihat FootageBankDialog.tsx). null = "belum dikategorikan", tetap
+  // ikut proses matching biasa (fallback penuh ke deskripsi/tag spt sebelumnya).
+  categoryId: text("category_id").references(() => footageCategories.id),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

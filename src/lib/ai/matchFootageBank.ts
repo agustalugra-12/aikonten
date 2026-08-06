@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { db } from "@/db";
-import { footageBank } from "@/db/schema";
+import { footageBank, footageCategories } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 
 function getClient(): OpenAI {
@@ -12,13 +12,29 @@ function getClient(): OpenAI {
 // Cocokkan skrip/ide baru ke footage yg SUDAH ada di bank (lihat memory proyek) - text-
 // only (bukan vision) krn deskripsi+tag sudah di-generate SEKALI pas upload
 // (describeFootage.ts), jadi di sini cuma perlu bandingkan teks vs teks - hemat.
+//
+// Kategori manual (2026-08-06, permintaan Agus - "day use room standart maka foto yang
+// di pilih memang dari vidio dan foto dsana bukan room cotage") - SEBELUM ini matching
+// murni deskripsi/tag AI yg bisa terlihat MIRIP antar tipe kamar berbeda (kamar tidur,
+// sprei putih, dst - ciri fisik generik yg tidak membedakan Room Standard vs Cottage).
+// Kategori (lihat schema.ts footageCategories) dilampirkan ke tiap baris katalog SEBAGAI
+// LABEL EKSPLISIT & instruksi eksplisit melarang campur kategori kamar - AI tetap yg
+// putuskan relevansi (bukan filter keyword hardcode di kode, krn nama kategori/tipe
+// kamar beda2 per brand), tapi sekarang py sinyal struktural yg tidak ambigu.
 export async function matchFootageForScript(brandId: string, script: string): Promise<string[]> {
   const items = await db.select().from(footageBank).where(eq(footageBank.brandId, brandId));
   if (items.length === 0) return [];
 
+  const categories = await db.select().from(footageCategories).where(eq(footageCategories.brandId, brandId));
+  const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+
   const client = getClient();
   const catalog = items
-    .map((it, i) => `${i}. [${it.mediaType}] ${it.description} (tag: ${JSON.parse(it.tags).join(", ")})`)
+    .map((it, i) => {
+      const categoryLabel = it.categoryId ? categoryNameById.get(it.categoryId) || null : null;
+      const categoryTag = categoryLabel ? `[kategori: ${categoryLabel}] ` : "";
+      return `${i}. [${it.mediaType}] ${categoryTag}${it.description} (tag: ${JSON.parse(it.tags).join(", ")})`;
+    })
     .join("\n");
 
   const system =
@@ -26,7 +42,14 @@ export async function matchFootageForScript(brandId: string, script: string): Pr
     "(bernomor), pilih SEMUA nomor footage yg RELEVAN dgn skrip ini (boleh 1 sampai " +
     "15 - lebih banyak footage video asli yg relevan LEBIH BAIK drpd dikit, video final " +
     "akan digabung dari beberapa klip sekaligus). Kalau tidak ada yg relevan sama " +
-    "sekali, balas array kosong - JANGAN paksa pilih yg tidak cocok.";
+    "sekali, balas array kosong - JANGAN paksa pilih yg tidak cocok. " +
+    "PENTING soal [kategori: ...]: kalau skrip menyebut tipe kamar/area SPESIFIK (mis. " +
+    "\"Room Standard\", \"Cottage\", \"Day Use Room Standard\", \"dapur\", \"taman\"), " +
+    "WAJIB pilih HANYA footage yg kategorinya cocok dgn tipe/area itu (atau tidak " +
+    "berkategori TAPI deskripsinya benar2 cocok) - JANGAN PERNAH campur footage dari " +
+    "kategori kamar/area LAIN yg berbeda, walau deskripsi teksnya terlihat mirip (mis. " +
+    "skrip ttg \"Room Standard\" TIDAK BOLEH pakai footage berkategori \"Cottage\"). " +
+    "Kalau skrip TIDAK menyebut tipe/area spesifik, kategori boleh diabaikan.";
   const user =
     `Skrip/ide:\n${script}\n\nFootage tersedia:\n${catalog}\n\n` +
     `Balas HARUS JSON valid (tanpa markdown code fence): {"indices": [0, 2]}`;

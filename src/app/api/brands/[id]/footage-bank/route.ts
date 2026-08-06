@@ -21,13 +21,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // Agus TIDAK perlu ketik deskripsi manual.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: brandId } = await params;
-  const { fileUrl, mediaType, durationSeconds } = await req.json();
+  const { fileUrl, mediaType, durationSeconds, categoryId } = await req.json();
 
   if (typeof fileUrl !== "string" || !fileUrl) {
     return NextResponse.json({ error: "fileUrl wajib diisi" }, { status: 400 });
   }
   if (mediaType !== "video" && mediaType !== "image") {
     return NextResponse.json({ error: "mediaType harus 'video' atau 'image'" }, { status: 400 });
+  }
+  if (categoryId !== undefined && categoryId !== null && typeof categoryId !== "string") {
+    return NextResponse.json({ error: "categoryId harus string atau null" }, { status: 400 });
   }
 
   try {
@@ -44,6 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       description,
       tags: JSON.stringify(tags),
       durationSeconds: durationSeconds ?? null,
+      categoryId: categoryId ?? null,
       createdAt: new Date(),
     };
     await db.insert(footageBank).values(row);
