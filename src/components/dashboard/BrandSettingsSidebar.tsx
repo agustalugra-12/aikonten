@@ -49,7 +49,7 @@ export function BrandSettingsSidebar({
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  const [knowledgeSite, setKnowledgeSite] = useState(brand?.knowledgeSite ?? "pelangi");
+  const [knowledgeSite, setKnowledgeSite] = useState(brand?.knowledgeSite ?? "none");
   const [manualKnowledge, setManualKnowledge] = useState(brand?.manualKnowledge ?? "");
   const [savingKnowledge, setSavingKnowledge] = useState(false);
 
@@ -72,7 +72,7 @@ export function BrandSettingsSidebar({
   // data terbaru masuk sejak terakhir dibuka.
   useEffect(() => {
     if (!open) return;
-    setKnowledgeSite(brand?.knowledgeSite ?? "pelangi");
+    setKnowledgeSite(brand?.knowledgeSite ?? "none");
     setManualKnowledge(brand?.manualKnowledge ?? "");
     setVideoCount(brand?.dailyVideoCount ?? 7);
     setFotoCount(brand?.dailySinglePhotoCount ?? 3);
@@ -140,7 +140,10 @@ export function BrandSettingsSidebar({
 
   async function handleSaveKnowledge() {
     setSavingKnowledge(true);
-    const ok = await patchBrand({ knowledgeSite, manualKnowledge: manualKnowledge.trim() || null });
+    const ok = await patchBrand({
+      knowledgeSite: knowledgeSite === "none" ? null : knowledgeSite,
+      manualKnowledge: manualKnowledge.trim() || null,
+    });
     setSavingKnowledge(false);
     if (ok) {
       toast.success("Knowledge Base disimpan");
@@ -275,11 +278,16 @@ export function BrandSettingsSidebar({
                 AI ambil fakta kamar/harga/fasilitas LIVE dari PMS &amp; website properti ini, supaya ide &amp; caption
                 tidak keluar jalur.
               </p>
-              <Select value={knowledgeSite} onValueChange={(v) => setKnowledgeSite(v || "pelangi")}>
+              <Select value={knowledgeSite} onValueChange={(v) => setKnowledgeSite(v || "none")}>
                 <SelectTrigger id="knowledgeSite" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  {/* "none" (2026-08-06, bug nyata - brand "laundry in bali" diam-diam
+                      dapat fakta Pelangi Homestay krn dropdown ini SEBELUMNYA tidak py
+                      opsi "tidak ada" sama sekali, jadi selalu default ke Pelangi) - WAJIB
+                      dipilih eksplisit utk brand yg tidak terkait properti manapun. */}
+                  <SelectItem value="none">Tidak ada (brand tidak terkait Pelangi/Harmoni)</SelectItem>
                   <SelectItem value="pelangi">Pelangi Homestay</SelectItem>
                   <SelectItem value="harmoni">Harmoni Hills</SelectItem>
                 </SelectContent>

@@ -153,11 +153,19 @@ export const VIDEO_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
 // yg sudah ada di system prompt SEBELUMNYA tidak py data ASLI apa pun utk dicocokkan -
 // cuma janji tanpa pegangan. Return string kosong kalau knowledge base belum
 // terkonfigurasi (fetchPelangiKnowledge sendiri sudah aman gagal-diam, lihat sana).
+//
+// `knowledgeSite || "pelangi"` DIHAPUS (2026-08-06, bug nyata ditemukan langsung dari
+// laporan Agus - brand baru "laundry in bali", TIDAK ADA hubungannya dgn Pelangi/Harmoni,
+// tetap dapat fakta kamar/harga Pelangi Homestay krn field ini default diam-diam ke
+// "pelangi" kalau brand belum eksplisit pilih). Brand TANPA knowledgeSite (null/kosong -
+// bukan cuma brand baru, tapi juga brand yg sengaja tidak terkait properti manapun) SEKARANG
+// dilewati sama sekali (no auto-grounding), BUKAN diam-diam ambil fakta Pelangi.
 async function buildKnowledgeGroundingBlock(
   knowledgeSite?: string | null,
   manualKnowledge?: string | null
 ): Promise<{ instruction: string; contextBlock: string }> {
-  const knowledge = mergeManualKnowledge(await fetchPelangiKnowledge(knowledgeSite || "pelangi"), manualKnowledge);
+  const autoKnowledge = knowledgeSite ? await fetchPelangiKnowledge(knowledgeSite) : "";
+  const knowledge = mergeManualKnowledge(autoKnowledge, manualKnowledge);
   if (!knowledge) return { instruction: "", contextBlock: "" };
   return {
     instruction:

@@ -128,7 +128,12 @@ async function buildIdeaPromptBase(
   manualKnowledge?: string | null
 ): Promise<{ system: string; user: string }> {
   const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
-  const knowledge = mergeManualKnowledge(await fetchPelangiKnowledge(knowledgeSite || "pelangi"), manualKnowledge);
+  // `knowledgeSite || "pelangi"` DIHAPUS (2026-08-06, bug nyata - lihat catatan sama di
+  // generateContent.ts buildKnowledgeGroundingBlock) - brand tanpa knowledgeSite eksplisit
+  // (mis. brand baru yg tidak terkait Pelangi/Harmoni sama sekali) TIDAK BOLEH diam-diam
+  // dapat fakta kamar/harga Pelangi Homestay.
+  const autoKnowledge = knowledgeSite ? await fetchPelangiKnowledge(knowledgeSite) : "";
+  const knowledge = mergeManualKnowledge(autoKnowledge, manualKnowledge);
   const distributionBlock = buildDistributionBlock(recentClassifications);
   const seasonalBlock = buildSeasonalContext();
   const keywordBlock = buildKeywordPriorityBlock(recentClassifications);
