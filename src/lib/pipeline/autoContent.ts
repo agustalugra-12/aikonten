@@ -17,7 +17,13 @@ import { eq, desc } from "drizzle-orm";
 // "draft atau langsung publis... hasil generate akan diam di draft sampai jam yang
 // ditentukan") - SATU logika yg sama persis, bukan duplikasi 2 tempat yg bisa
 // menyimpang. route.ts sekarang cuma wrapper HTTP tipis di atas fungsi ini.
-const MAX_VIDEO_CLIPS_AUTO = 20;
+// 20 tetap cukup utk video pendek lama (30-90dtk, butuh ~6-17 klip @3,7dtk/klip rata2) -
+// tapi target long-form baru (180-480dtk, 2026-08-06) bisa butuh puluhan klip real kalau
+// footage bank brand-nya suatu saat cukup besar. selectBalancedRealFootage() sendiri
+// SUDAH aman dibatasi jumlah kandidat yg BENERAN ada (.slice), jadi menaikkan batas ini
+// tidak beresiko "maksa" ambil lebih dari yg tersedia - cuma menghapus plafon buatan yg
+// SEBELUM ini lebih rendah dari kebutuhan real video 8 menit.
+const MAX_VIDEO_CLIPS_AUTO = 60;
 const DEFAULT_CAROUSEL_PHOTOS_AUTO = 5;
 
 export class AutoContentError extends Error {

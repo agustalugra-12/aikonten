@@ -48,11 +48,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   // Durasi target video (2026-08-05, permintaan Agus - "video 30 detik 60 detik dan
-  // 1.30") - cuma 3 preset ini yg didukung processProject.ts.
+  // 1.30"; 2026-08-06 ditambah 180/300/480 = 3/5/8 menit "vidio panjang untuk yt") -
+  // cuma preset ini yg didukung processProject.ts/getDurationConfig.
   if ("videoDurationTarget" in body) {
     const v = Number(body.videoDurationTarget);
-    if (![30, 60, 90].includes(v)) {
-      return NextResponse.json({ error: "videoDurationTarget harus 30, 60, atau 90" }, { status: 400 });
+    if (![30, 60, 90, 180, 300, 480].includes(v)) {
+      return NextResponse.json({ error: "videoDurationTarget harus 30, 60, 90, 180, 300, atau 480" }, { status: 400 });
     }
     update.videoDurationTarget = v;
   }

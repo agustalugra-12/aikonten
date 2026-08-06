@@ -162,20 +162,73 @@ async function buildKnowledgeGroundingBlock(
   };
 }
 
-function pickStructureTemplate(): { name: string; guide: string } {
-  return VIDEO_STRUCTURE_TEMPLATES[Math.floor(Math.random() * VIDEO_STRUCTURE_TEMPLATES.length)];
+// Struktur narasi LONG-FORM (2026-08-06, permintaan Agus - "vidio panjang untuk yt ada
+// durasi 3 mnit 5 mnit dan 8 manit") - template pendek di atas ("montase highlight
+// singkat beruntun") secara struktural TIDAK bisa direnggangkan jadi naskah 8 menit
+// tanpa jadi bertele-tele/pengulangan - butuh LEBIH BANYAK section berisi supaya
+// elaborasinya organik (tiap section py sesuatu KONKRET utk dibahas, bukan cuma
+// kalimat sama diulang-ulang), bukan cuma "tulis section yg sama tapi lebih panjang".
+const LONG_FORM_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
+  {
+    name: "LongForm-Hook-Perkenalan-Fasilitas-Kamar-Sekitar-Testimoni-FAQ-CTA",
+    guide:
+      "1) HOOK: buka dgn pertanyaan/keresahan yg relate audiens ttg cari penginapan yg " +
+      "pas (JANGAN langsung sebut nama properti di kalimat pertama). 2) PERKENALAN: " +
+      "kenalkan properti & lokasinya scr umum. 3) FASILITAS: bahas fasilitas utama SATU " +
+      "PER SATU scr detail & konkret (bukan cuma daftar kata). 4) TIPE KAMAR: bahas " +
+      "pilihan tipe kamar yg tersedia & bedanya. 5) SEKITAR: apa yg menarik di sekitar " +
+      "properti (wisata/kuliner terdekat kalau relevan dari skrip). 6) KENAPA PILIH " +
+      "PROPERTI INI: rangkum value/kelebihan dibanding penginapan lain scr umum. 7) CTA " +
+      "penutup yg jelas.",
+  },
+  {
+    name: "LongForm-POV-Kedatangan-Kamar-Fasilitas-Aktivitas-Malam-CTA",
+    guide:
+      "1) POV/DAY-IN-LIFE: bawa audiens ikut merasakan momen datang scr naratif orang " +
+      "pertama/mengajak. 2) KEDATANGAN: suasana check-in & first impression. 3) KAMAR: " +
+      "eksplorasi detail kamar & kenyamanannya. 4) FASILITAS: eksplorasi fasilitas lain " +
+      "satu per satu. 5) AKTIVITAS: apa yg bisa dilakukan tamu selama menginap. 6) " +
+      "SUASANA MALAM/SANTAI: momen relaks di properti. 7) CTA penutup.",
+  },
+];
+
+function pickStructureTemplate(target: number): { name: string; guide: string } {
+  // >=180dtk (3 menit) dianggap long-form - lihat catatan LONG_FORM_STRUCTURE_TEMPLATES.
+  const pool = target >= 180 ? LONG_FORM_STRUCTURE_TEMPLATES : VIDEO_STRUCTURE_TEMPLATES;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
+
+// Kecepatan bicara TTS acuan ~150 kata/menit (2,5 kata/detik) - dipakai kasih target
+// jumlah kata eksplisit ke GPT supaya naskah voiceover BENERAN sepanjang durasi video
+// (2026-08-06). SEBELUMNYA prompt cuma bilang "caption ini jadi naskah TTS" tanpa target
+// panjang APA PUN - utk video pendek (30-90dtk) caption "natural" GPT kebetulan sering
+// cukup, tapi target 480dtk (8 menit) butuh ~1200 kata & GPT TIDAK akan otomatis
+// menulis sepanjang itu tanpa diminta eksplisit - hasilnya voiceover berhenti jauh
+// sebelum video selesai (audio TTS habis, sisa durasi video jadi bisu).
+const WORDS_PER_SECOND = 2.5;
 
 export async function generateCaptionAndHashtags(
   brandName: string,
   script: string,
   selectedClipsText: string,
   knowledgeSite?: string | null,
-  manualKnowledge?: string | null
+  manualKnowledge?: string | null,
+  videoDurationTarget: number = 60
 ): Promise<GeneratedVideoContent> {
   const client = getClient();
-  const structureTemplate = pickStructureTemplate();
+  const structureTemplate = pickStructureTemplate(videoDurationTarget);
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
+  const targetWords = Math.round(videoDurationTarget * WORDS_PER_SECOND);
+  const isLongForm = videoDurationTarget >= 180;
+  const lengthInstruction = isLongForm
+    ? ` Video ini TARGET DURASI ${videoDurationTarget} detik (${Math.round(videoDurationTarget / 60)} menit) - ` +
+      `caption/naskah voiceover WAJIB SEKITAR ${targetWords} KATA (boleh meleset sedikit, tapi JANGAN jauh ` +
+      "lebih pendek) supaya voiceover TTS mengisi penuh durasi video, TIDAK berhenti di tengah lalu sisa " +
+      "video jadi bisu. Elaborasi tiap bagian struktur dgn detail KONKRET dari Knowledge Base/skrip/klip " +
+      "(bukan basa-basi/pengulangan kalimat yg sama dgn kata beda) - kalau suatu bagian tidak ada bahan " +
+      "konkretnya di Knowledge Base/skrip, persingkat bagian itu drpd mengarang, tapi kompensasi dgn " +
+      "elaborasi lebih dalam di bagian LAIN yg memang ada bahannya, supaya total tetap dekati target kata."
+    : ` Caption/naskah voiceover sekitar ${targetWords} kata, singkat & padat (video pendek ${videoDurationTarget} detik).`;
   const system =
     "Kamu content strategist media sosial. Buat caption yang menarik & natural (bukan " +
     "generik/template) plus daftar hashtag relevan berdasarkan skrip & isi klip yang " +
@@ -183,8 +236,9 @@ export async function generateCaptionAndHashtags(
     grounding.instruction +
     " Caption ini JUGA jadi naskah voiceover (dibacakan TTS, GANTI TOTAL audio asli video) - " +
     `WAJIB ikuti struktur narasi berikut (jangan tulis label section-nya literal, cukup ` +
-    `alirkan sbg 1 caption utuh yg mengikuti urutan ide ini): ${structureTemplate.guide} ` +
-    "Bagian CTA di akhir WAJIB mengarahkan audiens menghubungi admin (mis. \"chat admin " +
+    `alirkan sbg 1 caption utuh yg mengikuti urutan ide ini): ${structureTemplate.guide}` +
+    lengthInstruction +
+    " Bagian CTA di akhir WAJIB mengarahkan audiens menghubungi admin (mis. \"chat admin " +
     "kami\" atau \"hubungi WA admin kami\", boleh divariasikan kalimatnya tapi maksudnya " +
     "harus itu) - JANGAN pakai CTA generik lain (mis. \"pesan sekarang\", \"booking " +
     "sekarang\") tanpa menyebut kontak admin. " +
@@ -204,6 +258,7 @@ export async function generateCaptionAndHashtags(
       { role: "user", content: user },
     ],
     temperature: 0.7,
+    max_tokens: isLongForm ? 4000 : undefined,
   });
 
   const raw = completion.choices[0]?.message?.content?.trim() || "{}";

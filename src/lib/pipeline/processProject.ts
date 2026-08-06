@@ -291,7 +291,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
       project.script,
       selectedText,
       brand?.knowledgeSite,
-      brand?.manualKnowledge
+      brand?.manualKnowledge,
+      durationConfig.target
     );
 
     // Kombinasi footage asli + Pexels (2026-08-05, permintaan Agus - "jika ada
@@ -364,9 +365,20 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // GENERIK tambahan (bukan destinasi spesifik - itu sengaja dibatasi 1 klip per
       // landmark, lihat destinationBroll.ts). Exclude set terus bertambah tiap iterasi
       // supaya klip TIDAK berulang dlm video yg sama (anti-monoton berlaku jg di sini).
+      //
+      // Batas percobaan DISKALAKAN ke besar gap yg perlu diisi (2026-08-06, permintaan
+      // Agus - opsi durasi 3/5/8 menit utk YT) - SEBELUM ini angka tetap 8 (cukup utk
+      // target lama 30-90dtk, gap biasanya kecil), TIDAK CUKUP kalau real footage Pelangi
+      // (cuma ~3,5 menit total di seluruh bank saat ini) jauh di bawah target long-form -
+      // gap bisa berapa menit, butuh puluhan klip B-roll utk diisi. +10 margin (klip
+      // stok sering < MAX_CLIP_DURATION nominal, lihat catatan durasi NOMINAL vs FILE
+      // sungguhan di atas) - tetap berhenti wajar kalau searchBrollVideo kehabisan hasil
+      // baru (return null, `if (!broll) break`), bukan infinite loop.
       const usedBrollUrls = new Set([...recentlyUsedUrls, ...brollClips.map((c) => c.videoUrl)]);
+      const gapSeconds = Math.max(0, PRE_RENDER_TARGET_SECONDS - currentTotalDuration());
+      const maxAttempts = Math.ceil(gapSeconds / MAX_CLIP_DURATION) + 10;
       let attempts = 0;
-      while (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && attempts < 8) {
+      while (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && attempts < maxAttempts) {
         attempts += 1;
         const broll = await searchBrollVideo(brollKeywords, usedBrollUrls);
         if (!broll) break;

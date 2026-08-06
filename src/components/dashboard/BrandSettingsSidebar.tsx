@@ -341,8 +341,16 @@ export function BrandSettingsSidebar({
                   <SelectItem value="30">30 detik</SelectItem>
                   <SelectItem value="60">60 detik</SelectItem>
                   <SelectItem value="90">1 menit 30 detik</SelectItem>
+                  <SelectItem value="180">3 menit (YT panjang)</SelectItem>
+                  <SelectItem value="300">5 menit (YT panjang)</SelectItem>
+                  <SelectItem value="480">8 menit (YT panjang)</SelectItem>
                 </SelectContent>
               </Select>
+              {Number(videoDuration) >= 180 && (
+                <p className="text-xs text-amber-600">
+                  Durasi panjang butuh banyak footage asli/B-roll. Kalau footage bank brand ini masih sedikit, video bisa banyak diisi B-roll stok.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1">
