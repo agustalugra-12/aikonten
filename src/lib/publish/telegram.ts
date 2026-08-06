@@ -45,3 +45,28 @@ export function formatPublishNotification(params: {
     `Error: ${error || "tidak diketahui"}`
   );
 }
+
+// Ringkasan 1 notifikasi utk SEMUA platform (2026-08-06, permintaan Agus - "report ai
+// marketing cukup sekali saja jangan ketiganya" - SEBELUM ini publishProject kirim 1
+// notif Telegram TERPISAH per akun sosmed di dalam loop, jadi publish ke 3 platform
+// sekaligus (mis. TikTok+Instagram+Facebook) = 3 notif beruntun. Sekarang hasil semua
+// akun dikumpulkan dulu, dikirim SEBAGAI 1 pesan ringkasan setelah loop selesai.
+export function formatPublishSummaryNotification(params: {
+  brandName: string;
+  projectId: string;
+  results: Array<{ platform: string; success: boolean; postUrl?: string; error?: string }>;
+}): string {
+  const { brandName, projectId, results } = params;
+  const allSuccess = results.every((r) => r.success);
+  const anySuccess = results.some((r) => r.success);
+  const headerIcon = allSuccess ? "✅" : anySuccess ? "⚠️" : "❌";
+  const lines = results.map((r) => {
+    if (r.success) return `✅ ${r.platform}${r.postUrl ? ` - ${r.postUrl}` : ""}`;
+    return `❌ ${r.platform} - ${r.error || "tidak diketahui"}`;
+  });
+  return (
+    `${headerIcon} <b>${brandName}</b> - hasil publikasi (${results.filter((r) => r.success).length}/${results.length} berhasil)\n` +
+    `Project: ${projectId}\n\n` +
+    lines.join("\n")
+  );
+}

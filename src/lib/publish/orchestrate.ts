@@ -3,7 +3,7 @@ import { projects, brands, socialAccounts, mediaAssets, publishLogs } from "@/db
 import { eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { getPublisher } from "./index";
-import { sendTelegramNotification, formatPublishNotification } from "./telegram";
+import { sendTelegramNotification, formatPublishSummaryNotification } from "./telegram";
 import { ensureFreshYoutubeAccessToken } from "./youtubeAuth";
 
 // Publish - dulu dipanggil OTOMATIS begitu artefak AI selesai (full-auto, tanpa jeda
@@ -58,6 +58,11 @@ export async function publishProject(projectId: string): Promise<void> {
 
   await db.update(projects).set({ status: "publishing", updatedAt: new Date() }).where(eq(projects.id, projectId));
 
+  // Kumpulkan hasil SEMUA akun dulu (2026-08-06, permintaan Agus - "report ai marketing
+  // cukup sekali saja jangan ketiganya") - kirim SATU notifikasi ringkasan di akhir,
+  // bukan 1 notifikasi terpisah per akun/platform di dalam loop (lihat formatPublish
+  // SummaryNotification di telegram.ts).
+  const notifyResults: Array<{ platform: string; success: boolean; postUrl?: string; error?: string }> = [];
   let anySuccess = false;
   for (const account of accounts) {
     const publisher = getPublisher(account.platform, account.publishVia);
@@ -70,6 +75,11 @@ export async function publishProject(projectId: string): Promise<void> {
         status: "failed",
         errorMessage: `Tidak ada publisher utk ${account.platform}/${account.publishVia}`,
         createdAt: new Date(),
+      });
+      notifyResults.push({
+        platform: `${account.platform} (@${account.username})`,
+        success: false,
+        error: `Tidak ada publisher utk ${account.platform}/${account.publishVia}`,
       });
       continue;
     }
@@ -92,15 +102,7 @@ export async function publishProject(projectId: string): Promise<void> {
           telegramNotifiedAt: new Date(),
           createdAt: new Date(),
         });
-        await sendTelegramNotification(
-          formatPublishNotification({
-            brandName,
-            projectId,
-            platform: `${account.platform} (@${account.username})`,
-            success: false,
-            error: message,
-          })
-        );
+        notifyResults.push({ platform: `${account.platform} (@${account.username})`, success: false, error: message });
         continue;
       }
     }
@@ -132,16 +134,16 @@ export async function publishProject(projectId: string): Promise<void> {
       createdAt: new Date(),
     });
 
-    await sendTelegramNotification(
-      formatPublishNotification({
-        brandName,
-        projectId,
-        platform: `${account.platform} (@${account.username})`,
-        success: result.success,
-        postUrl: result.postUrl,
-        error: result.error,
-      })
-    );
+    notifyResults.push({
+      platform: `${account.platform} (@${account.username})`,
+      success: result.success,
+      postUrl: result.postUrl,
+      error: result.error,
+    });
+  }
+
+  if (notifyResults.length > 0) {
+    await sendTelegramNotification(formatPublishSummaryNotification({ brandName, projectId, results: notifyResults }));
   }
 
   await db
