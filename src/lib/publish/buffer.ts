@@ -69,10 +69,18 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
     // Instagram WAJIB field metadata.instagram.type (post/reel/story) - ditemukan lewat
     // error nyata "Instagram posts require a type", bukan dugaan dari dokumentasi.
     // Foto -> "post" (feed biasa), video -> "reel".
+    //
+    // Facebook JUGA wajib metadata.facebook.type (2026-08-06, laporan Agus - "ada
+    // masalah upload di facebook") - error asli sama polanya: "Facebook posts require
+    // a type (post, story, or reel)". Sebelumnya cuma Instagram yang ditangani,
+    // Facebook tidak pernah kirim metadata.type sama sekali -> selalu ditolak Buffer.
+    // Pola sama: foto -> "post", video -> "reel".
     const metadata =
       platform === "instagram"
         ? { instagram: { type: videoUrl ? "reel" : "post", shouldShareToFeed: true } }
-        : undefined;
+        : platform === "facebook"
+          ? { facebook: { type: videoUrl ? "reel" : "post" } }
+          : undefined;
 
     const res = await fetch(BUFFER_API_URL, {
       method: "POST",
