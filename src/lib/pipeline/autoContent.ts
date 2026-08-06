@@ -137,7 +137,7 @@ export async function runAutoContent(
       }
     }
   } else {
-    const spesifik = isIdeSpesifikProperti(script);
+    const spesifik = isIdeSpesifikProperti(script, brand.knowledgeSite);
 
     if (!spesifik) {
       try {

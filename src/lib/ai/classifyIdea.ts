@@ -19,7 +19,17 @@ const KEYWORD_SPESIFIK_PROPERTI = [
   "ac ", "kamar mandi", "extra bed",
 ];
 
-export function isIdeSpesifikProperti(script: string): boolean {
+// `knowledgeSite` (2026-08-06, bug nyata - laporan Agus soal fallback Pexels utk brand
+// baru "laundry in bali", bisnis laundry TIDAK terkait Pelangi/Harmoni sama sekali).
+// Proteksi ini SENGAJA dibuat khusus utk brand properti (harga kamar/fasilitas Pelangi/
+// Harmoni WAJIB footage asli, tidak boleh stok generik) - kalau brand-nya BUKAN properti
+// sama sekali (knowledgeSite null, lihat pelangiKnowledge.ts), tidak ada risiko klaim
+// harga/fasilitas PROPERTI ketempel footage generik - proteksi ini jadi tidak relevan &
+// JUSTRU jadi bug: skrip laundry yg sah-sah saja sebut "harga cuci sepatu" salah kena
+// blokir Pexels krn kata "harga"/"rp" ada di daftar, padahal tidak ada properti yg
+// dipertaruhkan sama sekali.
+export function isIdeSpesifikProperti(script: string, knowledgeSite?: string | null): boolean {
+  if (!knowledgeSite) return false;
   const lower = script.toLowerCase();
   return KEYWORD_SPESIFIK_PROPERTI.some((kw) => lower.includes(kw));
 }

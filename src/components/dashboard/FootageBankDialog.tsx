@@ -32,6 +32,18 @@ type Category = {
 
 const UNCATEGORIZED = "__uncategorized__";
 
+// Lewatkan pratinjau lewat domain aplikasi sendiri, bukan hotlink langsung ke r2.dev
+// (2026-08-06, laporan Agus - "bank footage tidak bisa memutar vidio, dan foto tidak
+// terlihat selalu gagal reload" - root cause SAMA yg sudah pernah ditemukan & diperbaiki
+// utk pratinjau draft di DraftReview.tsx 2026-08-05, lihat catatan lengkap di
+// api/media-proxy/route.ts: domain pub-*.r2.dev kemungkinan besar kena blokir jaringan di
+// sisi Agus - file-nya sendiri terbukti sehat (dicek server-side & dari jaringan lain di
+// luar Indonesia). Komponen ini LUPA dipasangi proxy yg sama waktu itu - cuma DraftReview
+// yg diperbaiki, Bank Footage (ditambahkan hari yg sama) ketinggalan.
+function previewUrl(fileUrl: string): string {
+  return `/api/media-proxy?url=${encodeURIComponent(fileUrl)}`;
+}
+
 // "Footage Bank" (lihat memory proyek) - Agus upload footage SEKALI di sini (bukan per
 // project), AI otomatis kasih deskripsi+tag (tidak perlu ketik apa2), lalu footage ini
 // bisa dipakai berkali-kali oleh "⚡ Konten Otomatis" (lihat AutoContentButton.tsx)
@@ -60,6 +72,7 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
   // UI yg jelas (bukan ikon default browser yg terlihat spt "error aplikasi").
   const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
   const [retriedIds, setRetriedIds] = useState<Set<string>>(new Set());
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function loadItems() {
     const [itemsRes, categoriesRes] = await Promise.all([
@@ -117,6 +130,21 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
         ? prev.map((it) => (it.id === itemId ? { ...it, categoryId: categoryId === UNCATEGORIZED ? null : categoryId } : it))
         : prev
     );
+  }
+
+  async function handleDeleteItem(itemId: string) {
+    if (!confirm("Hapus footage ini dari bank? Tindakan ini tidak bisa dibatalkan.")) return;
+    setDeletingId(itemId);
+    try {
+      const res = await fetch(`/api/brands/${brandId}/footage-bank/${itemId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error || "Gagal menghapus footage");
+      setItems((prev) => (prev ? prev.filter((it) => it.id !== itemId) : prev));
+      toast.success("Footage dihapus");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal menghapus footage");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   function handleImageError(itemId: string) {
@@ -296,11 +324,11 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
                       extractVideoFrame - reuse, bukan generate baru) - tampil instan, file
                       video ASLI baru di-load browser kalau user benar2 klik play
                       (preload="none"). */}
-                  <div className="aspect-square bg-muted">
+                  <div className="aspect-square bg-muted relative group">
                     {item.mediaType === "video" ? (
                       <video
-                        src={item.fileUrl}
-                        poster={item.posterUrl || undefined}
+                        src={previewUrl(item.fileUrl)}
+                        poster={item.posterUrl ? previewUrl(item.posterUrl) : undefined}
                         preload="none"
                         controls
                         className="w-full h-full object-cover bg-black"
@@ -321,13 +349,22 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={retriedIds.has(item.id) ? `${item.fileUrl}?retry=${Date.now()}` : item.fileUrl}
+                        src={retriedIds.has(item.id) ? `${previewUrl(item.fileUrl)}&retry=${Date.now()}` : previewUrl(item.fileUrl)}
                         alt={item.description}
                         loading="lazy"
                         className="w-full h-full object-cover"
                         onError={() => handleImageError(item.id)}
                       />
                     )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteItem(item.id)}
+                      disabled={deletingId === item.id}
+                      aria-label="Hapus footage ini"
+                      className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center hover:bg-destructive transition-colors"
+                    >
+                      {deletingId === item.id ? "…" : "×"}
+                    </button>
                   </div>
                   <div className="px-3 space-y-2">
                     <div className="flex items-center gap-1 flex-wrap">

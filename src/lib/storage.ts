@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // S3-compatible storage (rekomendasi Cloudflare R2, lihat PRD diskusi) - client upload
@@ -51,6 +51,23 @@ export async function uploadBuffer(key: string, body: Buffer, contentType: strin
 
   const base = process.env.STORAGE_PUBLIC_BASE_URL?.replace(/\/$/, "") || "";
   return `${base}/${key}`;
+}
+
+// Hapus fitur Bank Footage (2026-08-06, permintaan Agus - "berikan fitur hapus footage
+// juga") - `key` diekstrak dari publicUrl (potong base URL-nya), bukan disimpan terpisah
+// di DB - satu sumber kebenaran sama seperti publicUrl yg sudah ada.
+export async function deleteObject(key: string): Promise<void> {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket) throw new Error("STORAGE_BUCKET belum diisi di .env");
+
+  const client = getClient();
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+}
+
+export function keyFromPublicUrl(publicUrl: string): string | null {
+  const base = process.env.STORAGE_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  if (!base || !publicUrl.startsWith(`${base}/`)) return null;
+  return publicUrl.slice(base.length + 1);
 }
 
 export function buildAssetKey(brandId: string, projectId: string, filename: string): string {

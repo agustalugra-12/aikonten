@@ -27,6 +27,14 @@ import type { Brand } from "@/types";
 // durasi video, foto/carousel, orientasi). Semua field OPSIONAL saat PATCH - kirim yg
 // berubah saja per tab save button, bukan 1 form raksasa sekali submit (lebih jelas
 // mana yg baru tersimpan, error 1 tab tidak menggagalkan tab lain).
+// Lewatkan pratinjau logo lewat domain aplikasi sendiri, bukan hotlink langsung ke r2.dev
+// (2026-08-06, laporan Agus - "logo yang di uploud tidak terlihat" - root cause SAMA dgn
+// Bank Footage & DraftReview: domain pub-*.r2.dev kemungkinan besar kena blokir jaringan
+// di sisi Agus, lihat catatan lengkap di api/media-proxy/route.ts).
+function previewUrl(fileUrl: string): string {
+  return `/api/media-proxy?url=${encodeURIComponent(fileUrl)}`;
+}
+
 function parseAutoPublishTimes(raw: string | null | undefined): string[] {
   if (!raw) return ["08:00"];
   try {
@@ -259,7 +267,7 @@ export function BrandSettingsSidebar({
             </p>
             {brand?.logoUrl && (
               <div className="flex items-center gap-3">
-                <img src={brand.logoUrl} alt="Logo saat ini" className="w-16 h-16 rounded-full object-cover border" />
+                <img src={previewUrl(brand.logoUrl)} alt="Logo saat ini" className="w-16 h-16 rounded-full object-cover border" />
                 <Button variant="ghost" size="sm" onClick={handleRemoveLogo}>
                   Hapus logo
                 </Button>
