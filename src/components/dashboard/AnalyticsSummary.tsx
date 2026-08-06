@@ -50,7 +50,7 @@ export function AnalyticsSummary({ brandId }: { brandId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Analitik (7 hari terakhir)</CardTitle>
+        <CardTitle>Analitik (30 hari terakhir)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
