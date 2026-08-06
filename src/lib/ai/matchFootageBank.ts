@@ -77,8 +77,8 @@ export async function matchFootageForScript(brandId: string, script: string): Pr
 // ketemu foto yg cocok TEMA persis, tapi bank sebenarnya PUNYA foto asli properti (apa
 // saja), tetap pakai itu drpd gagal total - keputusan eksplisit Agus: foto WAJIB selalu
 // asli Pelangi/Harmoni (TIDAK BOLEH Pexels sama sekali, beda dari video yg boleh fallback
-// Pexels utk ide umum), tapi foto tidak perlu cocok tema persis krn overlay teks promo
-// (lihat promoOverlay.ts) yg menyampaikan pesan spesifiknya, bukan foto itu sendiri.
+// Pexels utk ide umum), tapi foto tidak perlu cocok tema persis krn teks poster/caption
+// (lihat posterDesign.ts) yg menyampaikan pesan spesifiknya, bukan foto itu sendiri.
 // Ambil foto TERBARU (bukan acak) - lebih mungkin representatif/kualitas konsisten drpd
 // upload lama yg mungkin sudah basi (kamar direnovasi, dst).
 export async function pickAnyRealPhoto(brandId: string): Promise<string | null> {

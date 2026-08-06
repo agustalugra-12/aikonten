@@ -14,7 +14,6 @@ import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt }
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
-import { applyPromoOverlay } from "@/lib/ai/promoOverlay";
 import { generatePosterCopy } from "@/lib/ai/posterCopy";
 import { applyPosterDesign } from "@/lib/ai/posterDesign";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
@@ -97,28 +96,28 @@ export async function processProject(id: string): Promise<ProcessResult> {
         brand?.manualKnowledge
       );
 
-      // Foto TUNGGAL pakai "Pelangi Homestay Poster Design System v1" (2026-08-05, master
-      // prompt lengkap dari Agus) - poster penuh (headline/CTA/badge/benefit dgn gaya
-      // brand konsisten), BUKAN cuma badge kecil 1 pojok - lihat posterDesign.ts. Carousel
-      // multi-foto TETAP pakai applyPromoOverlay lama (badge kecil di foto pertama SAJA
-      // kalau ada promo) - master prompt ini eksplisit "hanya untuk single foto".
-      const finalImageUrls =
-        photoUrls.length === 1
-          ? [
-              await applyPosterDesign({
-                brandId: project.brandId,
-                projectId: id,
-                imageUrl: photoUrls[0],
-                copy: await generatePosterCopy(brand?.name || "Brand", project.script),
-              }),
-            ]
-          : await Promise.all(
-              photoUrls.map((url, i) =>
-                promoText && i === 0
-                  ? applyPromoOverlay({ brandId: project.brandId, projectId: id, imageUrl: url, promoText })
-                  : Promise.resolve(url)
-              )
-            );
+      // Foto TUNGGAL & COVER carousel SAMA-SAMA pakai "Pelangi Homestay Poster Design
+      // System v1" (2026-08-05, master prompt lengkap dari Agus; 2026-08-06 disatukan ke
+      // carousel jg atas permintaan Agus - "aku mau prom untuk pister foto di terapkan
+      // juga di curasel sehingga selaras") - poster penuh (headline/CTA/badge/benefit dgn
+      // gaya brand konsisten), BUKAN cuma badge kecil 1 pojok. Cakupan SENGAJA dibatasi ke
+      // foto PERTAMA saja (bukan semua foto carousel) - dikonfirmasi eksplisit ke Agus:
+      // tiap foto yg didesain = 1 panggilan fal.ai baru, mendesain SEMUA foto carousel
+      // akan mengalikan biaya per-carousel sejumlah foto-nya (mis. 5x) DAN berisiko
+      // headline/CTA yg sama berulang tiap slide terlihat spam - Agus pilih "cover saja"
+      // (biaya ~sama spt applyPromoOverlay lama yg cuma sentuh foto pertama). Foto ke-2
+      // dst TETAP foto asli apa adanya (fal.ai TIDAK disentuh sama sekali, nol biaya
+      // tambahan) - promoOverlay.ts (badge kecil) sudah TIDAK dipakai lagi di jalur ini,
+      // digantikan penuh oleh poster (yg juga bisa tampilkan harga lewat field `harga`
+      // di PosterCopy kalau skrip menyebutnya).
+      const posterCopy = await generatePosterCopy(brand?.name || "Brand", project.script);
+      const coverUrl = await applyPosterDesign({
+        brandId: project.brandId,
+        projectId: id,
+        imageUrl: photoUrls[0],
+        copy: posterCopy,
+      });
+      const finalImageUrls = photoUrls.length === 1 ? [coverUrl] : [coverUrl, ...photoUrls.slice(1)];
 
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lingkaran, proporsional,
       // ditempel di SETIAP foto final (poster tunggal MAUPUN carousel) - dilewati

@@ -70,9 +70,11 @@ export type GeneratedContent = {
 
 export type GeneratedImageContent = GeneratedContent & {
   // Teks harga/promo singkat kalau skrip menyebutkannya (mis. "Rp175.000", "Promo 20%"),
-  // null kalau tidak ada - dipakai utk overlay GPT Image (lihat promoOverlay.ts). Deteksi
-  // ini SENGAJA jadi bagian sama panggilan GPT ini (bukan panggilan terpisah) biar
-  // hemat & konsisten dgn konteks yg sama persis dgn caption.
+  // null kalau tidak ada - informasional (dulu dipakai badge overlay terpisah, sekarang
+  // harga sudah masuk desain poster penuh lewat PosterCopy.harga, lihat processProject.ts
+  // & posterDesign.ts). Deteksi ini SENGAJA tetap jadi bagian sama panggilan GPT ini
+  // (bukan panggilan terpisah) biar hemat & konsisten dgn konteks yg sama persis dgn
+  // caption - dipertahankan di response API utk visibilitas, bukan dipakai render lagi.
   promoText: string | null;
 };
 
