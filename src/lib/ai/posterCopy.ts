@@ -1,10 +1,4 @@
-import OpenAI from "openai";
-
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
-}
+import { getOpenAIClient } from "./openaiClient";
 
 export type PosterCopy = {
   headline: string;
@@ -20,7 +14,7 @@ export type PosterCopy = {
 // jalur poster foto tunggal (2026-08-05, master prompt "Pelangi Homestay Poster Design
 // System v1" dari Agus) - lihat posterDesign.ts utk cara teks ini ditempel ke gambar.
 export async function generatePosterCopy(brandName: string, script: string): Promise<PosterCopy> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const system =
     "Kamu copywriter marketing hospitality. Dari skrip/ide konten, buat teks-teks singkat utk " +
     "ditempel di POSTER PROMOSI (bukan caption sosmed, ini teks YANG MUNCUL DI DALAM gambar): " +

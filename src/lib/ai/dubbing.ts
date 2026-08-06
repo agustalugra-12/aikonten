@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { getOpenAIClient, logNonTokenUsage } from "./openaiClient";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFile, unlink } from "fs/promises";
@@ -7,11 +7,11 @@ import path from "path";
 
 const execFileAsync = promisify(execFile);
 
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
-}
+// TTS-1 (2026-08-06, permintaan Agus - "cek ai konten juga agar transparan") - beda dari
+// chat.completions, audio.speech TIDAK balikin JSON/usage sama sekali (respons langsung
+// audio binary) - harganya per KARAKTER teks input ($15/1M karakter utk tts-1), dihitung
+// dari panjang teks SEBELUM dikirim, bukan dari respons.
+const TTS_PRICE_PER_1M_CHARS = 15.0;
 
 // AI Dubbing (lihat memory proyek - Agus konfirmasi: GANTI TOTAL suara asli syuting,
 // bukan tambahan/mixing). Pakai "tts-1" (BUKAN "tts-1-hd") - jauh lebih murah per
@@ -19,12 +19,13 @@ function getClient(): OpenAI {
 // Teks narasinya REUSE caption yg SUDAH di-generate (bukan panggilan GPT baru) - caption
 // sudah ditulis sbg prosa natural jadi cocok dibacakan apa adanya, hemat 1 panggilan AI.
 export async function generateVoiceover(text: string): Promise<Buffer> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const response = await client.audio.speech.create({
     model: "tts-1",
     voice: "alloy",
     input: text,
   });
+  await logNonTokenUsage("tts-1", (text.length / 1_000_000) * TTS_PRICE_PER_1M_CHARS);
   return Buffer.from(await response.arrayBuffer());
 }
 

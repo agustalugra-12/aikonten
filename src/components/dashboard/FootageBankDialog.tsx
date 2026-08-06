@@ -22,6 +22,7 @@ type BankItem = {
   description: string;
   tags: string[];
   categoryId: string | null;
+  posterUrl: string | null;
 };
 
 type Category = {
@@ -286,14 +287,21 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
                 <div key={item.id} className="rounded-md border overflow-hidden space-y-2 pb-2">
                   {/* Thumbnail asli (2026-08-06, permintaan Agus - "tampilkan fotonya agar
                       bisa dikategorikan") - sebelumnya cuma deskripsi teks AI, susah
-                      dikategorikan tanpa lihat isi foto/video aslinya. Video pakai <video>
-                      (preload="metadata" - browser otomatis tampilkan frame pertama sbg
-                      thumbnail tanpa perlu generate poster terpisah di server). */}
+                      dikategorikan tanpa lihat isi foto/video aslinya.
+                      Video FIX (2026-08-06, laporan Agus - "vidio berputar terus") - dulu
+                      preload="metadata" TANPA poster & footage asli sering 40-90MB, render
+                      SEMUA video sekaligus bikin browser antre fetch banyak file besar
+                      bersamaan (terlihat spinner tanpa henti). Sekarang pakai poster JPG
+                      statis (posterUrl, sudah dihitung sekali saat upload via
+                      extractVideoFrame - reuse, bukan generate baru) - tampil instan, file
+                      video ASLI baru di-load browser kalau user benar2 klik play
+                      (preload="none"). */}
                   <div className="aspect-square bg-muted">
                     {item.mediaType === "video" ? (
                       <video
                         src={item.fileUrl}
-                        preload="metadata"
+                        poster={item.posterUrl || undefined}
+                        preload="none"
                         controls
                         className="w-full h-full object-cover bg-black"
                       />

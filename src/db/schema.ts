@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
 // Single-admin auth (Agus only, no multi-provider/OAuth login) - see PRD discussion:
 // this is a personal multi-brand tool, not a public multi-tenant SaaS. NOTE: actual
@@ -257,6 +257,16 @@ export const footageBank = sqliteTable("footage_bank", {
   // UI Bank Footage, lihat FootageBankDialog.tsx). null = "belum dikategorikan", tetap
   // ikut proses matching biasa (fallback penuh ke deskripsi/tag spt sebelumnya).
   categoryId: text("category_id").references(() => footageCategories.id),
+  // Thumbnail statis utk video (2026-08-06, laporan Agus - "vidio berputar terus" di
+  // Bank Footage) - akar masalah: dialog render SEMUA <video> sekaligus dgn
+  // preload="metadata" TANPA poster, file footage asli sering 40-90MB - browser coba
+  // fetch metadata BANYAK video besar bersamaan, terlihat spinner tanpa henti (bukan
+  // hang beneran, cuma antrian bandwidth). Fix: frame JPG statis (extractVideoFrame,
+  // SUDAH dihitung skalian saat upload utk analisis AI vision - dulu dibuang stlh
+  // dipakai sekali, sekarang disimpan biar dipakai ulang sbg <video poster>) + dialog
+  // ganti preload="none" (video BENERAN cuma di-load kalau user klik play). NULL utk
+  // foto (tidak relevan) & video lama sblm fix ini (backfill terpisah).
+  posterUrl: text("poster_url"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -305,4 +315,22 @@ export const manualIdeas = sqliteTable("manual_ideas", {
   source: text("source").notNull(), // nama file asal (mis. "ide-agustus.xlsx") - jejak audit, bukan dipakai logika
   used: integer("used", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+// Pencatatan token/biaya AI (2026-08-06, permintaan Agus - "cek ai blok dan ai konten
+// juga agar transparan") - sama semangat dgn ai-chat-bot/db.llm_usage_log & web-pelangi
+// (Mongo, sistem lain) - versi SQLite krn KontenPilot pakai drizzle/SQLite. Diisi dari
+// openaiClient.ts (chat/vision, via fetch wrapper) + langsung di transcribe.ts (Whisper,
+// harga per-menit bukan token) & dubbing.ts (TTS, harga per-karakter bukan token) -
+// provider beda2 caranya, kolom di sini disatukan (tokens null kalau bukan model
+// token-based, costUsd tetap SELALU terisi apa pun jenis pricing-nya).
+export const llmUsageLog = sqliteTable("llm_usage_log", {
+  id: text("id").primaryKey(),
+  ts: integer("ts", { mode: "timestamp" }).notNull(),
+  provider: text("provider").notNull(), // "openai" | "fal"
+  model: text("model").notNull(),
+  promptTokens: integer("prompt_tokens"),
+  completionTokens: integer("completion_tokens"),
+  totalTokens: integer("total_tokens"),
+  costUsd: real("cost_usd"),
 });

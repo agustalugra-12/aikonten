@@ -1,10 +1,4 @@
-import OpenAI from "openai";
-
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
-}
+import { getOpenAIClient } from "./openaiClient";
 
 // Terjemahkan ide/skrip Bahasa Indonesia jadi kata kunci Bahasa Inggris utk cari video
 // stok Pexels/Pixabay (2026-08-04, permintaan Agus - fallback "tidak ada footage asli utk
@@ -12,7 +6,7 @@ function getClient(): OpenAI {
 // jalan SETELAH ada transkrip footage asli, sbg B-roll PENDAMPING) - fungsi ini dipanggil
 // SEBELUM ada footage apa pun sama sekali, keyword digali langsung dari ide/skrip mentah.
 export async function deriveBrollKeywordsFromScript(script: string): Promise<string> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
     messages: [

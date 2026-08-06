@@ -1,13 +1,7 @@
-import OpenAI from "openai";
+import { getOpenAIClient } from "./openaiClient";
 import { db } from "@/db";
 import { footageBank, footageCategories } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
-
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
-}
 
 // Cocokkan skrip/ide baru ke footage yg SUDAH ada di bank (lihat memory proyek) - text-
 // only (bukan vision) krn deskripsi+tag sudah di-generate SEKALI pas upload
@@ -28,7 +22,7 @@ export async function matchFootageForScript(brandId: string, script: string): Pr
   const categories = await db.select().from(footageCategories).where(eq(footageCategories.brandId, brandId));
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
 
-  const client = getClient();
+  const client = getOpenAIClient();
   const catalog = items
     .map((it, i) => {
       const categoryLabel = it.categoryId ? categoryNameById.get(it.categoryId) || null : null;

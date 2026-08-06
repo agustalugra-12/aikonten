@@ -1,16 +1,10 @@
-import OpenAI from "openai";
-
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
-}
+import { getOpenAIClient } from "./openaiClient";
 
 // "Footage Bank" auto-tagging (lihat memory proyek) - AI lihat foto/frame footage &
 // bikin deskripsi+tag SENDIRI, Agus TIDAK perlu ketik apa pun pas upload ke bank.
 // Dipakai lagi nanti oleh matchFootageBank.ts utk cocokkan bank ke skrip baru.
 export async function describeFootage(imageUrl: string): Promise<{ description: string; tags: string[] }> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const system =
     "Kamu asisten katalogisasi footage utk bisnis homestay/hospitality. Lihat foto/" +
     "frame yang diberikan, buat deskripsi singkat (1 kalimat, Bahasa Indonesia) & 3-6 " +

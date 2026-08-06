@@ -1,10 +1,4 @@
-import OpenAI from "openai";
-
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
-}
+import { getOpenAIClient } from "./openaiClient";
 
 export type StoryboardScene = {
   sceneNumber: number;
@@ -19,7 +13,7 @@ export type StoryboardScene = {
 // skrip jadi 3-6 adegan konkret (hook->isi->CTA) yg BENAR-BENAR bisa difilmkan di
 // lokasi asli - SENGAJA diminta jangan mengarang lokasi/properti yg belum tentu ada.
 export async function generateStoryboard(script: string, brandName: string): Promise<StoryboardScene[]> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const system =
     "Kamu sutradara konten video pendek utk bisnis lokal Indonesia. Pecah skrip/brief " +
     "jadi 3-6 adegan (scene) konkret yg mengikuti struktur hook->isi->CTA. Tiap adegan " +

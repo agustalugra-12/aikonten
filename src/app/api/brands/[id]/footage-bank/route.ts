@@ -35,7 +35,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   try {
     // Video butuh 1 frame dulu (AI tidak bisa "lihat" video langsung) - foto langsung
-    // dianalisis apa adanya.
+    // dianalisis apa adanya. Frame ini SEKARANG disimpan sbg posterUrl (2026-08-06,
+    // laporan Agus "vidio berputar terus" di Bank Footage) - dulu cuma dipakai sekali
+    // utk analisis AI vision lalu dibuang, sekarang di-reuse sbg <video poster> di UI
+    // supaya thumbnail tampil instan tanpa perlu browser fetch file video asli (bisa
+    // 40-90MB) - lihat FootageBankDialog.tsx.
     const imageForAnalysis = mediaType === "video" ? await extractVideoFrame(fileUrl, 1) : fileUrl;
     const { description, tags } = await describeFootage(imageForAnalysis);
 
@@ -48,6 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       tags: JSON.stringify(tags),
       durationSeconds: durationSeconds ?? null,
       categoryId: categoryId ?? null,
+      posterUrl: mediaType === "video" ? imageForAnalysis : null,
       createdAt: new Date(),
     };
     await db.insert(footageBank).values(row);

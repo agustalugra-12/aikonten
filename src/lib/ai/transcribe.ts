@@ -1,4 +1,10 @@
-import OpenAI from "openai";
+import { getOpenAIClient, logNonTokenUsage } from "./openaiClient";
+
+// Whisper (2026-08-06, permintaan Agus - "cek ai konten juga agar transparan") - beda
+// dari chat.completions, Whisper TIDAK py field `usage.prompt_tokens` - harganya per
+// MENIT audio ($0,006/menit, "duration" ada di respons verbose_json). Dicatat sbg
+// promptTokens/completionTokens null (bukan token-based) tapi costUsd tetap terisi.
+const WHISPER_PRICE_PER_MINUTE = 0.006;
 
 export type TranscriptSegment = {
   start: number; // detik
@@ -7,17 +13,11 @@ export type TranscriptSegment = {
   avgLogprob: number; // proxy kejelasan audio - makin dekat 0 makin jelas
 };
 
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
-}
-
 // Transkripsi footage mentah lewat Whisper - hasilnya dipakai DUA kali: (1) jadi dasar
 // pemilihan klip otomatis (clipSelect.ts), (2) jadi dasar subtitle final. fileUrl harus
 // URL publik (dari storage.ts) krn OpenAI ambil file itu sendiri lewat network.
 export async function transcribeFootage(fileUrl: string): Promise<TranscriptSegment[]> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const fileRes = await fetch(fileUrl);
   if (!fileRes.ok) {
     throw new Error(`Gagal ambil file utk transkripsi: ${fileRes.status} ${fileRes.statusText}`);
@@ -42,8 +42,12 @@ export async function transcribeFootage(fileUrl: string): Promise<TranscriptSegm
   // response_format verbose_json - SDK type resminya cuma expose `text`, segments ada
   // di response mentah (field tambahan API yg belum sepenuhnya di-type SDK-nya).
   const raw = result as unknown as {
+    duration?: number;
     segments?: Array<{ start: number; end: number; text: string; avg_logprob: number }>;
   };
+  if (typeof raw.duration === "number") {
+    await logNonTokenUsage("whisper-1", (raw.duration / 60) * WHISPER_PRICE_PER_MINUTE);
+  }
 
   return (raw.segments || []).map((s) => ({
     start: s.start,
@@ -64,7 +68,7 @@ export async function transcribeFootage(fileUrl: string): Promise<TranscriptSegm
 // BENERAN diputar, bukan estimasi. Terima Buffer langsung (bukan fileUrl) krn audio
 // TTS ini murni in-memory, belum (&tidak perlu) diupload ke storage publik dulu.
 export async function transcribeAudioBuffer(buffer: Buffer, mimeType: string = "audio/mpeg"): Promise<TranscriptSegment[]> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const ext = mimeType.split("/")[1]?.split(";")[0] || "mp3";
   const file = new File([new Uint8Array(buffer)], `voiceover.${ext}`, { type: mimeType });
 
@@ -76,8 +80,12 @@ export async function transcribeAudioBuffer(buffer: Buffer, mimeType: string = "
   });
 
   const raw = result as unknown as {
+    duration?: number;
     segments?: Array<{ start: number; end: number; text: string; avg_logprob: number }>;
   };
+  if (typeof raw.duration === "number") {
+    await logNonTokenUsage("whisper-1", (raw.duration / 60) * WHISPER_PRICE_PER_MINUTE);
+  }
 
   return (raw.segments || []).map((s) => ({
     start: s.start,

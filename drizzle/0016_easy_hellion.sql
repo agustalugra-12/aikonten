@@ -1,0 +1,1 @@
+ALTER TABLE `footage_bank` ADD `poster_url` text;

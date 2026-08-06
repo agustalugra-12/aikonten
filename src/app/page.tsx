@@ -11,6 +11,7 @@ import { ProjectList } from "@/components/dashboard/ProjectList";
 import { DraftReview } from "@/components/dashboard/DraftReview";
 import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
+import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { DailyContentPlanner } from "@/components/dashboard/DailyContentPlanner";
 import { StoryboardDialog } from "@/components/dashboard/StoryboardDialog";
@@ -160,6 +161,8 @@ function DashboardContent() {
                 />
               )}
             </div>
+
+            <UsageSummary />
 
             {selectedBrandId && <AnalyticsSummary brandId={selectedBrandId} />}
 

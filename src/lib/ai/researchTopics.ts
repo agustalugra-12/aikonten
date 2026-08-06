@@ -1,15 +1,9 @@
-import OpenAI from "openai";
+import { getOpenAIClient } from "./openaiClient";
 import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
 import { CONTENT_PILLARS, CONTENT_ANGLES, type ContentPillar, type ContentAngle } from "./generateContent";
 import { buildSeasonalContext } from "./seasonalContext";
 import { buildKeywordPriorityBlock, type KeywordClassification } from "./keywordPriority";
 import { buildPerformanceInsightBlock, type PerformanceClassification } from "./performanceLearning";
-
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
-}
 
 // "Research Engine" versi ringan (keputusan Agus: pakai pengetahuan GPT saja, BUKAN
 // integrasi API tren berbayar - lihat memory proyek) - AI usul ide konten berdasarkan
@@ -201,7 +195,7 @@ export async function suggestContentIdeas(
   knowledgeSite?: string | null,
   manualKnowledge?: string | null
 ): Promise<string[]> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge);
 
   const completion = await client.chat.completions.create({
@@ -264,7 +258,7 @@ export async function suggestScoredContentIdeas(
   // terpisah.
   mustIncludeIdeas: string[] = []
 ): Promise<ScoredIdea[]> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const count = videoCount + fotoCount + carouselCount;
   const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge);
   const performanceBlock = buildPerformanceInsightBlock(performanceClassifications);

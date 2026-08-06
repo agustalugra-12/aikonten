@@ -1,14 +1,8 @@
-import OpenAI from "openai";
+import { getOpenAIClient } from "./openaiClient";
 import type { ScoredSegment } from "./clipSelect";
 import type { TranscriptSegment } from "./transcribe";
 import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
 import { KEYWORD_PRIORITY_LIST } from "./keywordPriority";
-
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diisi di .env");
-  return new OpenAI({ apiKey });
-}
 
 // Normalisasi hashtag (2026-08-05, bug nyata dilaporkan Agus - hashtag tampil "##").
 // Prompt di bawah tidak menegaskan ADA/TIDAKnya "#" di tiap item array, jadi GPT kadang
@@ -228,7 +222,7 @@ export async function generateCaptionAndHashtags(
   manualKnowledge?: string | null,
   videoDurationTarget: number = 60
 ): Promise<GeneratedVideoContent> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const structureTemplate = pickStructureTemplate(videoDurationTarget);
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   const targetWords = Math.round(videoDurationTarget * WORDS_PER_SECOND);
@@ -303,7 +297,7 @@ export async function generateCaptionForImages(
   knowledgeSite?: string | null,
   manualKnowledge?: string | null
 ): Promise<GeneratedImageContent> {
-  const client = getClient();
+  const client = getOpenAIClient();
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   const system =
     "Kamu content strategist media sosial. Lihat SEMUA foto yang diberikan (bisa lebih " +

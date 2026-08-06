@@ -113,6 +113,20 @@
       "when": 1785992024591,
       "tag": "0015_smooth_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1785997764931,
+      "tag": "0016_easy_hellion",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1785998919270,
+      "tag": "0017_ordinary_stick",
+      "breakpoints": true
     }
   ]
 }
