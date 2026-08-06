@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { projects, mediaAssets, brands, socialAccounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
-import { transcribeFootage, transcribeAudioBuffer } from "@/lib/ai/transcribe";
+import { transcribeFootage, transcribeAudioBuffer, type TranscriptSegment } from "@/lib/ai/transcribe";
 import {
   selectClips,
   scoreSegments,
@@ -243,7 +243,20 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // renderFinalVideo tahu tiap klip terpilih harus dipotong dari file MANA.
       segments = [];
       for (const asset of usableAssets) {
-        const t = await transcribeFootage(asset.fileUrl);
+        // try/catch per-file (2026-08-06, bug nyata ditemukan lewat tes live brand baru
+        // "laundry in bali" - footage-nya video WhatsApp asli/casual, beda dari footage
+        // Pelangi yg lebih terkontrol) - SEBELUM ini 1 file dgn audio yg gagal didekode
+        // Whisper (video bisu/audio korup, umum di video WhatsApp yg diteruskan berkali-
+        // kali) GAGALKAN SELURUH project, walau file LAIN di batch yg sama baik-baik saja.
+        // Fallback ke segments kosong utk file ini SAJA - `topUps` (di bawah) & selectClips
+        // SUDAH menangani sourceUrl dgn 0 segment dgn aman (skip top-up utk file itu,
+        // bukan crash) - sama filosofi gagal-lunak dgn skip file oversized di atas.
+        let t: TranscriptSegment[] = [];
+        try {
+          t = await transcribeFootage(asset.fileUrl);
+        } catch (err) {
+          console.warn(`[processProject] gagal transkrip ${asset.fileUrl} (audio tidak terbaca/tidak ada) - dilewati, file lain tetap lanjut:`, err);
+        }
         segments = segments.concat(t);
         pooled.push(...t.map((s) => ({ ...s, sourceUrl: asset.fileUrl })));
       }
