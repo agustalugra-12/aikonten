@@ -54,6 +54,8 @@ BATASAN KERAS - JANGAN PERNAH: mengubah logo/identitas visual brand, bikin layou
 KONTAK: JANGAN PERNAH menambahkan nomor telepon/WhatsApp, alamat website/domain, atau handle media sosial di poster kecuali disebutkan eksplisit di KONTEN POSTER INI di bawah - lebih baik tidak ada info kontak sama sekali daripada info yang salah/mengarang.
 
 LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified"/"certified", watermark, atau simbol apa pun yang menyerupai identitas brand - JANGAN sekalipun sekadar elemen dekoratif. Logo ASLI brand (kalau ada) ditempel TERPISAH sesudah gambar ini jadi, lewat proses lain di luar kendalimu - tugasmu HANYA desain poster tanpa logo apa pun, jangan mengisi "kekosongan" itu dengan logo karangan.
+
+ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira 16% dari sisi PENDEK gambar dan margin sekitar 4% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira 20% lebar x 20% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, atau elemen penting apa pun - boleh diisi background/langit/warna polos/blur di area itu, TAPI JANGAN taruh huruf/kata di sana sama sekali, walau cuma sebagian huruf. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo.
 `.trim();
 
 // Fallback (2026-08-06) - brand yg BELUM isi posterBrandProfile (mis. brand baru yg
