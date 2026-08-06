@@ -27,6 +27,16 @@ import type { Brand } from "@/types";
 // durasi video, foto/carousel, orientasi). Semua field OPSIONAL saat PATCH - kirim yg
 // berubah saja per tab save button, bukan 1 form raksasa sekali submit (lebih jelas
 // mana yg baru tersimpan, error 1 tab tidak menggagalkan tab lain).
+function parseAutoPublishTimes(raw: string | null | undefined): string[] {
+  if (!raw) return ["08:00"];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : ["08:00"];
+  } catch {
+    return ["08:00"];
+  }
+}
+
 export function BrandSettingsSidebar({
   brandId,
   brand,
@@ -50,7 +60,7 @@ export function BrandSettingsSidebar({
   const [carouselPhotos, setCarouselPhotos] = useState(String(brand?.carouselPhotosPerPost ?? 5));
   const [orientation, setOrientation] = useState(brand?.videoOrientation ?? "portrait");
   const [publishMode, setPublishMode] = useState(brand?.publishMode ?? "draft");
-  const [autoPublishTime, setAutoPublishTime] = useState(brand?.autoPublishTime ?? "08:00");
+  const [autoPublishTimes, setAutoPublishTimes] = useState<string[]>(parseAutoPublishTimes(brand?.autoPublishTimes));
   const [savingAutomation, setSavingAutomation] = useState(false);
 
   const [manualIdeaList, setManualIdeaList] = useState<
@@ -71,7 +81,7 @@ export function BrandSettingsSidebar({
     setCarouselPhotos(String(brand?.carouselPhotosPerPost ?? 5));
     setOrientation(brand?.videoOrientation ?? "portrait");
     setPublishMode(brand?.publishMode ?? "draft");
-    setAutoPublishTime(brand?.autoPublishTime ?? "08:00");
+    setAutoPublishTimes(parseAutoPublishTimes(brand?.autoPublishTimes));
     fetch(`/api/brands/${brandId}/manual-ideas`)
       .then((r) => r.json())
       .then((d) => setManualIdeaList(d.ideas || []))
@@ -140,7 +150,33 @@ export function BrandSettingsSidebar({
 
   const automationTotal = videoCount + fotoCount + carouselCount;
   const automationInvalid = automationTotal < 1;
-  const autoPublishInvalid = publishMode === "auto" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(autoPublishTime);
+  const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const autoPublishInvalid = publishMode === "auto" && (autoPublishTimes.length === 0 || !autoPublishTimes.every((t) => timeRe.test(t)));
+
+  function handleAddPublishTime() {
+    setAutoPublishTimes((prev) => [...prev, "12:00"]);
+  }
+  function handleRemovePublishTime(index: number) {
+    setAutoPublishTimes((prev) => prev.filter((_, i) => i !== index));
+  }
+  function handleChangePublishTime(index: number, value: string) {
+    setAutoPublishTimes((prev) => prev.map((t, i) => (i === index ? value : t)));
+  }
+  // Bantu Agus samakan jumlah slot jam dgn volume konten harian (2026-08-06, permintaan
+  // Agus - "auto publis mau di publis jam brapa aja menyesuaikan dengan jumlah konten
+  // yang ada") - sebar EVEN dari jam 08:00 s.d. 21:00 sejumlah automationTotal slot,
+  // Agus tetap bisa edit manual tiap jamnya sesudahnya, ini cuma titik awal yg masuk akal.
+  function handleSpreadPublishTimes() {
+    const n = Math.max(1, automationTotal);
+    const startMin = 8 * 60, endMin = 21 * 60;
+    const step = n > 1 ? (endMin - startMin) / (n - 1) : 0;
+    const times = Array.from({ length: n }, (_, i) => {
+      const totalMin = Math.round(startMin + step * i);
+      const h = Math.floor(totalMin / 60), m = totalMin % 60;
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    });
+    setAutoPublishTimes(times);
+  }
 
   async function handleSaveAutomation() {
     if (automationInvalid) {
@@ -148,7 +184,7 @@ export function BrandSettingsSidebar({
       return;
     }
     if (autoPublishInvalid) {
-      toast.error("Jam auto-publish wajib diisi (format HH:MM) kalau mode Auto-Publish dipilih");
+      toast.error("Jam auto-publish wajib diisi minimal 1 (format HH:MM) kalau mode Auto-Publish dipilih");
       return;
     }
     setSavingAutomation(true);
@@ -160,7 +196,7 @@ export function BrandSettingsSidebar({
       carouselPhotosPerPost: Number(carouselPhotos),
       videoOrientation: orientation,
       publishMode,
-      autoPublishTime: publishMode === "auto" ? autoPublishTime : null,
+      autoPublishTimes: publishMode === "auto" ? autoPublishTimes : null,
     });
     setSavingAutomation(false);
     if (ok) {
@@ -304,6 +340,13 @@ export function BrandSettingsSidebar({
           </TabsContent>
 
           <TabsContent value="automation" className="space-y-4 pt-3">
+            <p className="text-xs rounded-md border bg-muted/50 p-2.5">
+              🤖 <strong>Semuanya berjalan otomatis setiap hari</strong> - Ide dibuatkan jam 03:00 WITA, lalu KONTENNYA
+              (video/foto/carousel) langsung digenerate otomatis jam 03:15 WITA mengikuti volume di bawah, TIDAK perlu
+              klik apa pun. Mode publikasi di bawah cuma menentukan langkah TERAKHIR: <strong>Draft</strong> = hasilnya
+              nunggu Bapak klik publish manual, <strong>Auto-Publish</strong> = hasilnya diterbitkan sendiri sesuai jam
+              yang diatur.
+            </p>
             <div className="space-y-2">
               <Label className="text-xs">📦 Volume konten harian per tipe</Label>
               <p className="text-xs text-muted-foreground">
@@ -403,16 +446,39 @@ export function BrandSettingsSidebar({
             </div>
 
             {publishMode === "auto" && (
-              <div className="space-y-1">
-                <Label htmlFor="autoPublishTime" className="text-xs">⏰ Jam auto-publish (WITA)</Label>
-                <Input
-                  id="autoPublishTime"
-                  type="time"
-                  value={autoPublishTime}
-                  onChange={(e) => setAutoPublishTime(e.target.value)}
-                  className="w-32"
-                />
-                {autoPublishInvalid && <p className="text-xs text-destructive">Jam wajib diisi</p>}
+              <div className="space-y-2">
+                <Label className="text-xs">⏰ Jam auto-publish (WITA)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Tiap jam di sini menerbitkan TEPAT 1 konten (bukan semua sekaligus) - konten tersebar rapi sepanjang
+                  hari. Kalau konten hari ini lebih banyak dari jumlah jam di sini, sisanya nunggu jam besok - samakan
+                  jumlah jam dgn total konten harian ({automationTotal}) biar semua kebagian hari itu juga.
+                </p>
+                <div className="space-y-1.5">
+                  {autoPublishTimes.map((t, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Input
+                        type="time"
+                        value={t}
+                        onChange={(e) => handleChangePublishTime(i, e.target.value)}
+                        className="w-32"
+                      />
+                      <Button
+                        variant="ghost" size="sm" className="h-8 px-2"
+                        onClick={() => handleRemovePublishTime(i)}
+                        disabled={autoPublishTimes.length <= 1}
+                      >
+                        Hapus
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={handleAddPublishTime}>+ Tambah jam</Button>
+                  <Button variant="outline" size="sm" onClick={handleSpreadPublishTimes}>
+                    ⚡ Sebar otomatis ({automationTotal} slot)
+                  </Button>
+                </div>
+                {autoPublishInvalid && <p className="text-xs text-destructive">Minimal 1 jam wajib diisi, format HH:MM</p>}
               </div>
             )}
 

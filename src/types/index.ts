@@ -13,7 +13,7 @@ export type Brand = {
   manualKnowledge: string | null;
   knowledgeSite: string | null;
   publishMode: "draft" | "auto";
-  autoPublishTime: string | null;
+  autoPublishTimes: string | null; // JSON string[] "HH:MM" mentah dari DB, lihat schema.ts - parse dulu sebelum dipakai
   createdAt: string;
 };
 

@@ -7,10 +7,16 @@ import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyConten
 import { todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { runAutoContent } from "@/lib/pipeline/autoContent";
 
-// Cron #2 - utk brand publishMode="auto" SAJA (2026-08-06, permintaan Agus - "jika
-// langsung publis mekanismenya konten tetap di generate sama seperti sistem draft").
-// Brand publishMode="draft" TIDAK disentuh sama sekali di sini - Agus tetap yg pilih ide
-// & klik generate manual spt biasa, TIDAK ADA perubahan perilaku utk brand draft.
+// Cron #2 - SEMUA brand, bukan cuma publishMode="auto" (2026-08-06, revisi permintaan
+// Agus - "ketika owner buat setting 5 vidio 5 foto ini akan disiapkan idenya di rencana
+// konten hari ini dan di jalankan secara otomatis"). SEBELUMNYA dibatasi publishMode=
+// "auto" saja (mental model lama: draft = generate MAUPUN publish manual keduanya) -
+// direvisi: draft/auto SEKARANG cuma ngatur tahap PUBLISH (lihat cron/auto-publish),
+// GENERATE kontennya sendiri otomatis utk SEMUA brand sesuai target harian yg brand itu
+// set (dailyVideoCount/dailySinglePhotoCount/dailyCarouselCount) - brand publishMode=
+// "draft" hasilnya nongkrong di draft utk Agus review manual sebelum publish, brand
+// publishMode="auto" hasilnya jg nongkrong "ready" dulu sampai autoPublishTimes-nya tiba
+// (lihat auto-publish) - beda cuma di ujung (siapa yg klik publish), bukan di generate.
 //
 // SEKUENSIAL (bukan Promise.all paralel) SENGAJA - tiap render video/generate poster py
 // beberapa panggilan API berbayar (OpenAI/fal.ai) + kerja CPU (ffmpeg) - jalan paralel utk
@@ -20,10 +26,10 @@ export async function POST(req: NextRequest) {
   const unauthorized = verifyCronSecret(req);
   if (unauthorized) return unauthorized;
 
-  const autoBrands = await db.select().from(brands).where(eq(brands.publishMode, "auto"));
+  const allBrands = await db.select().from(brands);
   const results: Array<{ brandId: string; name: string; generated: number; failed: number }> = [];
 
-  for (const brand of autoBrands) {
+  for (const brand of allBrands) {
     await getOrGenerateDailyIdeas(brand.id); // idempotent - pastikan ide hari ini ada dulu
     const today = todayDateKeyWita();
     const todaysIdeas = await db

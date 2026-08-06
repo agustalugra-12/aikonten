@@ -74,9 +74,14 @@ export const brands = sqliteTable("brands", {
   // nunggu klik manual, publishProject() dipanggil otomatis begitu autoPublishTime
   // (WITA) tiba (lihat cron/auto-publish).
   publishMode: text("publish_mode", { enum: ["draft", "auto"] }).notNull().default("draft"),
-  // "HH:MM" WITA, nullable - HANYA relevan kalau publishMode="auto". Validasi format di
-  // route.ts PATCH.
-  autoPublishTime: text("auto_publish_time"),
+  // JSON string[] "HH:MM" WITA, nullable - HANYA relevan kalau publishMode="auto"
+  // (2026-08-06, revisi dari single autoPublishTime - permintaan Agus "auto publis mau
+  // di publis jam brapa aja menyesuaikan dengan jumlah konten yang ada"). Beberapa jam
+  // slot, BUKAN cuma satu - cron/auto-publish publish 1 konten "ready" per slot yg sudah
+  // lewat & belum kepakai hari itu (lihat cron/auto-publish), jadi konten tersebar
+  // sepanjang hari sesuai berapa banyak slot yg di-set, bukan numpuk di 1 jam. Validasi
+  // format di route.ts PATCH.
+  autoPublishTimes: text("auto_publish_times"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
