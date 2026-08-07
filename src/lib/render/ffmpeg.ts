@@ -184,6 +184,7 @@ export async function renderFinalVideo(opts: {
     await writeFile(concatListPath, normalizedPaths.map((p) => `file '${escapeFilterPath(p)}'`).join("\n"));
     const concatenatedPath = path.join(workDir, "concatenated.mp4");
     await run("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", concatListPath, "-c", "copy", concatenatedPath]);
+    const videoDurationSeconds = await getDurationSeconds(concatenatedPath);
 
     // 3) Subtitle -> .ass eksplisit (lihat buildAssContent - WAJIB, bukan subtitles=
     // +force_style yg terbukti nyata tidak predictable posisi/ukurannya).
@@ -240,11 +241,24 @@ export async function renderFinalVideo(opts: {
       filterStages.push(`[${logoInputIdx}:v]format=rgba[logofmt]`);
       filterStages.push(`[${curLabel}][logofmt]overlay=W-w-${logoMargin}:${logoMargin}[vout]`);
     }
-    finalArgs.push("-filter_complex", filterStages.join(";"));
-    finalArgs.push("-map", "[vout]");
+    // Video yg jadi patokan durasi, BUKAN audio (bug nyata ditemukan 2026-08-07: video
+    // Laundry In Bali yg sudah dibudget >=33dtk [lihat PRE_RENDER_TARGET_SECONDS,
+    // processProject.ts] tetap keluar cuma 23-28dtk). Akar masalah SEBENARNYA bukan
+    // estimasi footage meleset (spt diasumsikan gate di processProject.ts) - "-shortest"
+    // di sini bikin video ikut TERPOTONG kalau audio TTS dubbing (caption pendek -> baca
+    // cepat) lebih pendek dari total visual yg sudah dibudget pas/lebih. Sekarang: audio
+    // pendek diisi SILENCE (apad) sampai minimal sepanjang video, lalu output di-cap
+    // eksplisit ke videoDurationSeconds - video (yg sudah lolos gate minimum) tidak
+    // pernah lagi terpotong gara-gara narasi lebih pendek dari visualnya.
     if (audioInputIdx !== null) {
-      finalArgs.push("-map", `${audioInputIdx}:a`, "-shortest");
+      filterStages.push(`[${audioInputIdx}:a]apad[aout]`);
+      finalArgs.push("-filter_complex", filterStages.join(";"));
+      finalArgs.push("-map", "[vout]", "-map", "[aout]");
+    } else {
+      finalArgs.push("-filter_complex", filterStages.join(";"));
+      finalArgs.push("-map", "[vout]");
     }
+    finalArgs.push("-t", String(videoDurationSeconds));
     finalArgs.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-pix_fmt", "yuv420p", finalPath);
     await run("ffmpeg", finalArgs);
 
