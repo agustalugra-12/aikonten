@@ -119,6 +119,15 @@ export const socialAccounts = sqliteTable("social_accounts", {
   refreshToken: text("refresh_token"),
   tokenExpiresAt: integer("token_expires_at", { mode: "timestamp" }),
   bufferChannelId: text("buffer_channel_id"),
+  // Cache metrik analitik (2026-08-07, permintaan Agus - "analitik diperbaharui 2x
+  // sehari saja, ini tidak berubah setiap saat datanya") - SEBELUM ini endpoint
+  // analitik manggil Buffer API LANGSUNG tiap kali dashboard dibuka/refresh, TANPA
+  // caching sama sekali (ikut jadi penyebab nyata kuota 250-request/hari Buffer abis -
+  // buka dashboard berkali-kali = request berkali-kali, padahal komentar
+  // performanceLearning.ts sendiri sudah bilang "metrik Buffer sendiri jg tidak
+  // update real-time"). cachedMetricsAt null/lawas (>12 jam) -> baru fetch API asli.
+  cachedMetrics: text("cached_metrics"),
+  cachedMetricsAt: integer("cached_metrics_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

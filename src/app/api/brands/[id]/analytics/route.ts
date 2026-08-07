@@ -20,6 +20,11 @@ import { getAggregatedMetrics } from "@/lib/publish/bufferAuth";
 // brand itu di-upgrade dari free plan - bukan sesuatu yg bisa diperbaiki dari sisi kode
 // app ini. `days` query param opsional kalau nanti perlu jendela lebih pendek.
 const DEFAULT_WINDOW_DAYS = 30;
+// Cache 12 jam = 2x update sehari (2026-08-07, permintaan Agus setelah ketahuan
+// endpoint ini ikut menghabiskan kuota 250-request/hari Buffer - dashboard yg dibuka
+// berkali-kali sehari sebelumnya manggil API asli TIAP KALI, padahal datanya "tidak
+// berubah setiap saat"). Bukan per-jam presisi, cukup "sudah lewat setengah hari".
+const CACHE_MS = 12 * 60 * 60 * 1000;
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: brandId } = await params;
@@ -35,6 +40,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       if (acc.publishVia !== "buffer" || !acc.bufferChannelId) {
         return { ...base, available: false as const };
       }
+
+      const isFresh = acc.cachedMetricsAt && now.getTime() - acc.cachedMetricsAt.getTime() < CACHE_MS;
+      if (isFresh && acc.cachedMetrics) {
+        return { ...base, available: true as const, metrics: JSON.parse(acc.cachedMetrics), cachedAt: acc.cachedMetricsAt };
+      }
+
       try {
         const metrics = await getAggregatedMetrics(
           acc.bufferChannelId,
@@ -42,8 +53,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           now.toISOString(),
           acc.accessToken
         );
-        return { ...base, available: true as const, metrics };
+        await db
+          .update(socialAccounts)
+          .set({ cachedMetrics: JSON.stringify(metrics), cachedMetricsAt: now })
+          .where(eq(socialAccounts.id, acc.id));
+        return { ...base, available: true as const, metrics, cachedAt: now };
       } catch (err) {
+        // Gagal fetch baru (mis. kena rate limit) - tampilkan cache LAWAS drpd error
+        // kosong, kalau ada. Lebih baik angka agak basi drpd dashboard blank.
+        if (acc.cachedMetrics) {
+          return { ...base, available: true as const, metrics: JSON.parse(acc.cachedMetrics), cachedAt: acc.cachedMetricsAt, stale: true as const };
+        }
         return {
           ...base,
           available: false as const,
