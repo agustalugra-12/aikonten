@@ -2,9 +2,43 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyCronSecret } from "@/lib/cron/verify";
 import { db } from "@/db";
 import { brands, projects } from "@/db/schema";
-import { eq, and, gte } from "drizzle-orm";
+import { eq, and, gte, lt } from "drizzle-orm";
 import { nowTimeStringWita, todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { publishProject } from "@/lib/publish/orchestrate";
+
+// Retry publish "partial" (2026-08-07, permintaan Agus - "yang berhasil di uploud ke
+// tiktok saja sedangkan fb dan ig gagal agar nanti di uploud ulang") - BEDA dari slot
+// auto-publish di bawah (itu utk konten BARU yg belum pernah dicoba, cuma jalan kalau
+// brand.publishMode="auto"). Retry ini utk publish yg SUDAH dicoba tapi sebagian akun
+// gagal (status "partial", lihat orchestrate.ts) - berlaku ke SEMUA brand apa pun
+// publishMode-nya (kegagalan platform bukan soal jadwal, itu bug/API sementara yg
+// perlu diperbaiki, bukan preferensi jadwal publish). publishProject() SEKARANG
+// idempotent per-akun (skip yg sudah "success") jadi aman dipanggil ulang.
+//
+// Backoff 2 jam (bukan retry tiap 15 menit tiap cron jalan) - supaya kegagalan yg
+// masih berlangsung (mis. Buffer API down/rate limit sementara) tidak diulang-ulang
+// tiap siklus cron & spam notifikasi Telegram tiap 15 menit, tapi tetap otomatis
+// pulih dlm hari yg sama begitu API-nya normal lagi.
+const RETRY_BACKOFF_HOURS = 2;
+
+async function retryPartialPublishes(): Promise<Array<{ projectId: string; brandId: string }>> {
+  const backoffCutoff = new Date(Date.now() - RETRY_BACKOFF_HOURS * 60 * 60 * 1000);
+  const toRetry = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.status, "partial"), lt(projects.updatedAt, backoffCutoff)));
+
+  const retried: Array<{ projectId: string; brandId: string }> = [];
+  for (const p of toRetry) {
+    try {
+      await publishProject(p.id);
+      retried.push({ projectId: p.id, brandId: p.brandId });
+    } catch (err) {
+      console.error(`[cron/auto-publish] gagal retry partial project ${p.id}:`, err);
+    }
+  }
+  return retried;
+}
 
 // Cron #3 - utk brand publishMode="auto", SEBARKAN publish sepanjang hari sesuai berapa
 // slot jam yg di-set (2026-08-06, revisi permintaan Agus - "auto publis mau di publis
@@ -34,6 +68,8 @@ function timeStringToMinutes(hhmm: string): number {
 export async function POST(req: NextRequest) {
   const unauthorized = verifyCronSecret(req);
   if (unauthorized) return unauthorized;
+
+  const retriedPartial = await retryPartialPublishes();
 
   const nowWita = nowTimeStringWita();
   const nowMinutes = timeStringToMinutes(nowWita);
@@ -90,5 +126,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, nowWita, results });
+  return NextResponse.json({ ok: true, nowWita, results, retriedPartial });
 }

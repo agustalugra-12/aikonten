@@ -138,8 +138,16 @@ export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   brandId: text("brand_id").notNull().references(() => brands.id),
   type: text("type", { enum: ["video", "carousel"] }).notNull(),
+  // "partial" (2026-08-07, permintaan Agus - "yang berhasil di uploud ke tiktok saja
+  // sedangkan fb dan ig gagal agar nanti di uploud ulang") - SEBELUM ini status cuma
+  // "published" (kalau ADA SATU akun sukses, walau akun lain gagal) atau "failed" -
+  // publish yg gagal sebagian jadi kelihatan "published" (dianggap selesai), platform
+  // yg gagal TIDAK PERNAH dicoba ulang, walau publishLogs per-akun sudah benar mencatat
+  // gagal/sukses-nya. "partial" = ada yg sukses TAPI belum SEMUA akun - dicoba ulang
+  // otomatis (lihat orchestrate.ts + cron/auto-publish.ts), akun yg SUDAH sukses tidak
+  // pernah dipublish ulang (idempotent per-akun, cek publishLogs yg sudah ada).
   status: text("status", {
-    enum: ["uploaded", "processing", "ready", "publishing", "published", "failed"],
+    enum: ["uploaded", "processing", "ready", "publishing", "published", "partial", "failed"],
   })
     .notNull()
     .default("uploaded"),

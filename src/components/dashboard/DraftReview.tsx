@@ -82,6 +82,10 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
     const updated = await res.json();
     if (updated.status === "published") {
       toast.success("Berhasil dipublikasikan!");
+    } else if (updated.status === "partial") {
+      // 2026-08-07 - sebagian platform gagal, akan dicoba ulang otomatis (lihat
+      // cron/auto-publish.ts) tanpa publish dobel ke platform yg sudah sukses.
+      toast.warning("Sebagian platform gagal - akan dicoba ulang otomatis nanti, cek notifikasi Telegram");
     } else {
       toast.error(updated.errorMessage || "Publish gagal, cek notifikasi Telegram");
     }

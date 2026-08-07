@@ -58,13 +58,25 @@ export async function publishProject(projectId: string): Promise<void> {
 
   await db.update(projects).set({ status: "publishing", updatedAt: new Date() }).where(eq(projects.id, projectId));
 
+  // Idempotent per-akun (2026-08-07, permintaan Agus - "yang berhasil di uploud ke
+  // tiktok saja sedangkan fb dan ig gagal agar nanti di uploud ulang") - fungsi ini
+  // SEKARANG dipanggil ulang utk RETRY project "partial" (lihat cron/auto-publish.ts),
+  // jadi WAJIB skip akun yg publishLogs-nya SUDAH "success" di percobaan sebelumnya -
+  // supaya retry cuma menyentuh platform yg gagal, tidak pernah publish dobel ke
+  // platform yg sudah berhasil.
+  const existingLogs = await db.select().from(publishLogs).where(eq(publishLogs.projectId, projectId));
+  const alreadySucceededAccountIds = new Set(
+    existingLogs.filter((l) => l.status === "success").map((l) => l.socialAccountId)
+  );
+
   // Kumpulkan hasil SEMUA akun dulu (2026-08-06, permintaan Agus - "report ai marketing
   // cukup sekali saja jangan ketiganya") - kirim SATU notifikasi ringkasan di akhir,
   // bukan 1 notifikasi terpisah per akun/platform di dalam loop (lihat formatPublish
   // SummaryNotification di telegram.ts).
   const notifyResults: Array<{ platform: string; success: boolean; postUrl?: string; error?: string }> = [];
-  let anySuccess = false;
   for (const account of accounts) {
+    if (alreadySucceededAccountIds.has(account.id)) continue; // sudah sukses percobaan sebelumnya - jangan publish dobel
+
     const publisher = getPublisher(account.platform, account.publishVia);
     const logId = newId("pub");
     if (!publisher) {
@@ -120,8 +132,6 @@ export async function publishProject(projectId: string): Promise<void> {
       thumbnailUrl: thumbnail?.fileUrl,
     });
 
-    if (result.success) anySuccess = true;
-
     await db.insert(publishLogs).values({
       id: logId,
       projectId,
@@ -142,12 +152,26 @@ export async function publishProject(projectId: string): Promise<void> {
     });
   }
 
+  // Notif cuma kalau ADA yg benar2 dicoba run ini (bukan project yg semua akunnya
+  // sudah sukses dari sebelumnya - seharusnya tidak pernah masuk sini krn cron retry
+  // cuma manggil project "partial", tapi jaring pengaman tetap aman kalau dipanggil
+  // manual di project yg sudah "published" penuh).
   if (notifyResults.length > 0) {
     await sendTelegramNotification(formatPublishSummaryNotification({ brandName, projectId, results: notifyResults }));
   }
 
+  // Status akhir dihitung dari SEMUA publishLogs (lama + baru), bukan cuma anySuccess
+  // run ini - "partial" (2026-08-07) kalau ADA yg sukses TAPI belum SEMUA akun, supaya
+  // cron retry bisa nemuin & coba lagi platform yg masih gagal. "published" cuma kalau
+  // BENAR2 semua akun sukses (dulu: 1 akun sukses saja sudah dianggap "published",
+  // platform lain yg gagal jadi tidak pernah dicoba lagi).
+  const finalLogs = await db.select().from(publishLogs).where(eq(publishLogs.projectId, projectId));
+  const succeededIds = new Set(finalLogs.filter((l) => l.status === "success").map((l) => l.socialAccountId));
+  const finalStatus =
+    succeededIds.size === 0 ? "failed" : succeededIds.size === accounts.length ? "published" : "partial";
+
   await db
     .update(projects)
-    .set({ status: anySuccess ? "published" : "failed", updatedAt: new Date() })
+    .set({ status: finalStatus, updatedAt: new Date() })
     .where(eq(projects.id, projectId));
 }
