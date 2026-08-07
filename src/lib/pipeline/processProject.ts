@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { projects, mediaAssets, brands, socialAccounts } from "@/db/schema";
+import { projects, mediaAssets, brands, socialAccounts, footageBank } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { transcribeFootage, transcribeAudioBuffer, type TranscriptSegment } from "@/lib/ai/transcribe";
 import {
@@ -15,6 +15,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
+import { imageToVideoClip } from "@/lib/render/imageToClip";
 import { generatePosterCopy } from "@/lib/ai/posterCopy";
 import { applyPosterDesign } from "@/lib/ai/posterDesign";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
@@ -335,6 +336,45 @@ export async function processProject(id: string): Promise<ProcessResult> {
       const broll = await searchBrollVideo(brollKeywords, recentlyUsedUrls);
       if (broll) {
         brollClips = [{ videoUrl: broll.videoUrl, durationSeconds: Math.min(broll.durationSeconds, 5) }];
+      }
+    }
+
+    // Variety via foto brand SENDIRI (2026-08-07, permintaan Agus - "footage jangan
+    // monoton untuk semua brand... silahkan gunakan footage foto sebagai video tidak
+    // apa namun tambahkan efek seperti zoom in zoom out pan" - laporan nyata: video
+    // Pelangi kelihatan pakai footage yang sama terus). Root cause NYATA: bank video
+    // brand manapun jauh lebih kecil drpd bank foto (mis. Pelangi 24 video vs 44 foto
+    // saat ditemukan) - anti-monoton yg SUDAH ADA (recentlyUsedUrls, window 5 project
+    // video terakhir) tetap kelihatan berulang kalau SATU-SATUNYA sumber cuma pool
+    // video kecil itu. Sisipkan sampai 2 klip dari FOTO yang belum dipakai baru-baru
+    // ini (anti-monoton SAMA, extend ke tipe foto), diubah jadi klip pendek via efek
+    // zoom/pan (imageToClip.ts, variasi otomatis per foto - bukan cuma zoom-in-center
+    // spt versi lama yang TIDAK PERNAH benar-benar disambungkan ke pipeline manapun).
+    // MEMPERLUAS pool sumber visual (24+44), bukan menggantikan mekanisme yang sudah ada.
+    if (!isStockFootage) {
+      const bankPhotos = await db
+        .select({ fileUrl: footageBank.fileUrl })
+        .from(footageBank)
+        .where(and(eq(footageBank.brandId, project.brandId), eq(footageBank.mediaType, "image")));
+      const freshPhotos = bankPhotos.filter((p) => !recentlyUsedUrls.has(p.fileUrl));
+      for (const photo of freshPhotos.slice(0, 2)) {
+        try {
+          const clip = await imageToVideoClip(photo.fileUrl, project.brandId);
+          brollClips.push(clip);
+          // Catat foto ASLI-nya (bukan URL klip mp4 hasil generate) sbg "dipakai" -
+          // supaya anti-monoton (getRecentlyUsedFootageUrls) juga berlaku ke foto ini
+          // di project berikutnya, sama perlakuan dgn raw_footage/broll_used lain.
+          await db.insert(mediaAssets).values({
+            id: newId("asset"),
+            projectId: id,
+            type: "broll_used",
+            fileUrl: photo.fileUrl,
+            durationSeconds: clip.durationSeconds,
+            createdAt: new Date(),
+          });
+        } catch (err) {
+          console.warn(`[processProject] gagal ubah foto ${photo.fileUrl} jadi klip zoom/pan, dilewati:`, err);
+        }
       }
     }
 
