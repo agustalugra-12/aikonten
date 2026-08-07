@@ -175,7 +175,7 @@ function DashboardContent() {
                 <CardTitle>Konten</CardTitle>
               </CardHeader>
               <CardContent>
-                <ProjectList projects={projects} />
+                <ProjectList projects={projects} onRetry={() => selectedBrandId && loadProjects(selectedBrandId)} />
               </CardContent>
             </Card>
 
