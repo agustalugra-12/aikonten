@@ -7,7 +7,7 @@ import { processProject, type ProcessResult } from "@/lib/pipeline/processProjec
 import { isIdeSpesifikProperti } from "@/lib/ai/classifyIdea";
 import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { searchBrollVideo } from "@/lib/assets/broll";
-import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, selectBalancedRealFootage } from "@/lib/ai/footageVariety";
+import { getFootageUsageRecency, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, selectBalancedRealFootage } from "@/lib/ai/footageVariety";
 import { getDurationConfig } from "@/lib/ai/clipSelect";
 import { eq, desc } from "drizzle-orm";
 
@@ -95,7 +95,7 @@ export async function runAutoContent(
       matchedItems[0]?.mediaType === "video";
     type = isVideo ? "video" : "carousel";
     if (isVideo) {
-      const recentlyUsed = await getRecentlyUsedFootageUrls(brandId);
+      const usageRecency = await getFootageUsageRecency(brandId);
 
       async function filterViableSize<T extends { fileUrl: string }>(items: T[]): Promise<T[]> {
         const sized = await Promise.all(
@@ -111,7 +111,7 @@ export async function runAutoContent(
       urlsToUse = await selectBalancedRealFootage({
         themedCandidates: videoCandidates,
         allBankVideos,
-        recentlyUsed,
+        usageRecency,
         targetCount: Math.min(TARGET_VIDEO_CLIP_COUNT, MAX_VIDEO_CLIPS_AUTO),
         filterViableSize,
       });

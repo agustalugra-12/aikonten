@@ -31,6 +31,46 @@ export async function getRecentlyUsedFootageUrls(brandId: string): Promise<Set<s
   );
 }
 
+// Rolling bank footage (2026-08-07, permintaan Agus - "kebanyakan video yang dibuat
+// footage yang diambil sama persis sehingga terlihat monoton"). Root cause NYATA:
+// getRecentlyUsedFootageUrls di atas cuma lihat window 5 project TERAKHIR lalu
+// membagi kandidat jadi 2 kelompok biner (fresh/stale) - utk brand yg bank footage
+// ASLI-nya kecil (mis. Pelangi ~24 video), 5 project TERAKHIR saja sudah menyentuh
+// HAMPIR SELURUH bank, jadi hampir semua kandidat jatuh ke kelompok "stale" yang
+// SAMA, dan pengurutan DI DALAM kelompok stale itu balik ke urutan asal array
+// (bukan rotasi) - klip yang kebetulan urutan pertama di situ dipilih berulang-
+// ulang, persis gejala yang dilaporkan.
+//
+// Fix: ROTASI SUNGGUHAN, bukan window biner. Baca SELURUH riwayat pemakaian brand
+// ini (media_assets type raw_footage/broll_used, TANPA batas window - footage lama
+// yang belum pernah lama dipakai lagi WAJIB diprioritaskan, bukan cuma "boleh dipakai
+// lagi nanti"), simpan waktu PEMAKAIAN TERAKHIR tiap fileUrl, lalu kandidat diurutkan
+// waktu-pakai-terakhir PALING LAMA (atau belum pernah dipakai sama sekali) duluan -
+// setiap video baru otomatis "menggilir" ke footage yang paling lama absen, bukan
+// cuma menghindari 5 project terakhir.
+export async function getFootageUsageRecency(brandId: string): Promise<Map<string, number>> {
+  const videoProjects = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.brandId, brandId), eq(projects.type, "video")));
+  const recency = new Map<string, number>();
+  if (videoProjects.length === 0) return recency;
+
+  const ids = videoProjects.map((p) => p.id);
+  const assets = await db
+    .select({ type: mediaAssets.type, fileUrl: mediaAssets.fileUrl, createdAt: mediaAssets.createdAt })
+    .from(mediaAssets)
+    .where(inArray(mediaAssets.projectId, ids));
+
+  for (const a of assets) {
+    if (a.type !== "raw_footage" && a.type !== "broll_used") continue;
+    const ts = a.createdAt.getTime();
+    const prev = recency.get(a.fileUrl);
+    if (prev === undefined || ts > prev) recency.set(a.fileUrl, ts);
+  }
+  return recency;
+}
+
 // Batas ukuran footage yg BOLEH dipakai (2026-08-05, larangan Agus - "jangan pernah
 // pakai 1 footage panjang", lihat processProject.ts) - dipindah ke sini (bukan private
 // di processProject.ts lagi) krn auto-content/route.ts JUGA perlu tahu ini SEBELUM
@@ -88,11 +128,11 @@ type FootageBankLike = { fileUrl: string; description: string | null; tags: stri
 export async function selectBalancedRealFootage(opts: {
   themedCandidates: FootageBankLike[];
   allBankVideos: FootageBankLike[];
-  recentlyUsed: Set<string>;
+  usageRecency: Map<string, number>;
   targetCount: number;
   filterViableSize: <T extends FootageBankLike>(items: T[]) => Promise<T[]>;
 }): Promise<string[]> {
-  const { themedCandidates, allBankVideos, recentlyUsed, targetCount, filterViableSize } = opts;
+  const { themedCandidates, allBankVideos, usageRecency, targetCount, filterViableSize } = opts;
   const roomTarget = Math.ceil(targetCount * ROOM_FOOTAGE_RATIO);
   const locationTarget = targetCount - roomTarget;
 
@@ -103,19 +143,25 @@ export async function selectBalancedRealFootage(opts: {
     };
   }
 
-  function pickPreferringFresh(items: FootageBankLike[], count: number, exclude: Set<string>): FootageBankLike[] {
+  // Rotasi sungguhan (2026-08-07, lihat getFootageUsageRecency) - urutkan berdasar
+  // waktu pemakaian TERAKHIR paling lama duluan (belum pernah dipakai = -Infinity,
+  // otomatis paling prioritas), bukan cuma partisi biner fresh/stale spt sebelumnya -
+  // ini yang membuatnya benar-benar "menggilir" seluruh bank dari waktu ke waktu,
+  // bukan berulang ke klip yang sama tiap kali window 5-project-terakhir jenuh.
+  function pickByRotation(items: FootageBankLike[], count: number, exclude: Set<string>): FootageBankLike[] {
     const pool = items.filter((r) => !exclude.has(r.fileUrl));
-    const fresh = pool.filter((r) => !recentlyUsed.has(r.fileUrl));
-    const stale = pool.filter((r) => recentlyUsed.has(r.fileUrl));
-    return [...fresh, ...stale].slice(0, count);
+    const sorted = [...pool].sort(
+      (a, b) => (usageRecency.get(a.fileUrl) ?? -Infinity) - (usageRecency.get(b.fileUrl) ?? -Infinity)
+    );
+    return sorted.slice(0, count);
   }
 
   const themedViable = await filterViableSize(themedCandidates);
   const themedSplit = split(themedViable);
 
   const selected: FootageBankLike[] = [
-    ...pickPreferringFresh(themedSplit.room, roomTarget, new Set()),
-    ...pickPreferringFresh(themedSplit.location, locationTarget, new Set()),
+    ...pickByRotation(themedSplit.room, roomTarget, new Set()),
+    ...pickByRotation(themedSplit.location, locationTarget, new Set()),
   ];
 
   const haveUrls = new Set(selected.map((r) => r.fileUrl));
@@ -125,10 +171,10 @@ export async function selectBalancedRealFootage(opts: {
   if (roomShortfall > 0 || locationShortfall > 0) {
     const bankViable = await filterViableSize(allBankVideos.filter((r) => !haveUrls.has(r.fileUrl)));
     const bankSplit = split(bankViable);
-    if (roomShortfall > 0) selected.push(...pickPreferringFresh(bankSplit.room, roomShortfall, haveUrls));
+    if (roomShortfall > 0) selected.push(...pickByRotation(bankSplit.room, roomShortfall, haveUrls));
     if (locationShortfall > 0) {
       const haveUrls2 = new Set(selected.map((r) => r.fileUrl));
-      selected.push(...pickPreferringFresh(bankSplit.location, locationShortfall, haveUrls2));
+      selected.push(...pickByRotation(bankSplit.location, locationShortfall, haveUrls2));
     }
   }
 
