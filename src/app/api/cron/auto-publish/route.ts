@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyCronSecret } from "@/lib/cron/verify";
 import { db } from "@/db";
-import { brands, projects } from "@/db/schema";
-import { eq, and, gte, lt } from "drizzle-orm";
+import { brands, projects, publishLogs } from "@/db/schema";
+import { eq, and, gte, lt, inArray } from "drizzle-orm";
 import { nowTimeStringWita, todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { publishProject } from "@/lib/publish/orchestrate";
 
@@ -28,13 +28,32 @@ async function retryPartialPublishes(): Promise<Array<{ projectId: string; brand
     .from(projects)
     .where(and(eq(projects.status, "partial"), lt(projects.updatedAt, backoffCutoff)));
 
+  // "failed" TOTAL yg SUDAH sempat coba publish (2026-08-07, permintaan Agus - laporan
+  // nyata: konten Pelangi/Laundry In Bali sempat "tampil" [assets final SUDAH jadi]
+  // lalu "hilang lagi" krn status jatuh ke "failed" - dicek langsung ke publishLogs,
+  // penyebabnya BUKAN generate gagal [final_video/final_image SUDAH ada], murni Buffer
+  // rate limit kena di SEMUA akun sekaligus [succeededIds.size===0 -> "failed", lihat
+  // orchestrate.ts]. Beda dari "failed" krn generate gagal duluan [tidak pernah py
+  // publishLogs sama sekali] - itu TETAP tidak di-auto-retry di sini (biar Agus pilih
+  // sadar via tombol "Coba Lagi" manual, krn itu re-generate ulang yg ada biayanya).
+  const failedWithAttempt = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.status, "failed"), lt(projects.updatedAt, backoffCutoff)));
+  const failedIds = failedWithAttempt.map((p) => p.id);
+  const logsForFailed = failedIds.length
+    ? await db.select({ projectId: publishLogs.projectId }).from(publishLogs).where(inArray(publishLogs.projectId, failedIds))
+    : [];
+  const failedIdsWithPublishAttempt = new Set(logsForFailed.map((l) => l.projectId));
+  const toRetryFailed = failedWithAttempt.filter((p) => failedIdsWithPublishAttempt.has(p.id));
+
   const retried: Array<{ projectId: string; brandId: string }> = [];
-  for (const p of toRetry) {
+  for (const p of [...toRetry, ...toRetryFailed]) {
     try {
       await publishProject(p.id);
       retried.push({ projectId: p.id, brandId: p.brandId });
     } catch (err) {
-      console.error(`[cron/auto-publish] gagal retry partial project ${p.id}:`, err);
+      console.error(`[cron/auto-publish] gagal retry project ${p.id}:`, err);
     }
   }
   return retried;

@@ -21,13 +21,17 @@ export function ProjectList({ projects, onRetry }: { projects: Project[]; onRetr
   async function handleRetry(id: string) {
     setRetrying(id);
     try {
-      const res = await fetch(`/api/projects/${id}/process`, { method: "POST" });
+      const res = await fetch(`/api/projects/${id}/retry`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         toast.error(body.error || "Gagal coba ulang, coba lagi nanti");
         return;
       }
-      toast.success("Diproses ulang - cek status beberapa saat lagi");
+      toast.success(
+        body.mode === "publish"
+          ? "Konten sudah ada, coba publish ulang - cek status beberapa saat lagi"
+          : "Diproses ulang dari awal - cek status beberapa saat lagi"
+      );
       onRetry?.();
     } catch {
       toast.error("Gagal coba ulang, coba lagi nanti");
