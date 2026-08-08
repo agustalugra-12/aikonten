@@ -102,3 +102,48 @@ export const publishToYoutube: Publisher = async (input: PublishInput): Promise<
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 };
+
+const YOUTUBE_VIDEOS_LIST_URL = "https://www.googleapis.com/youtube/v3/videos";
+
+export type YoutubeVideoMetric = { name: string; value: number; unit: string; type: string };
+
+// Analytics Learning Loop - jalur NATIVE (2026-08-08, PRD "YouTube Content &
+// Monetization Safety System" Section 41) - performanceLearning.ts SEBELUM ini SELALU
+// panggil getPostMetrics (bufferAuth.ts, GraphQL Buffer) utk SEMUA platform tanpa
+// pandang publishVia - itu BENAR utk platform Buffer-mediated (TikTok, IG kadang), TAPI
+// YouTube publish di app ini lewat native OAuth (lihat komentar publishVia di
+// db/schema.ts) - post YouTube TIDAK PERNAH melalui Buffer sama sekali, jadi
+// platformPostId-nya (video ID YouTube asli) tidak dikenal Buffer API sama sekali,
+// query metrik akan gagal diam-diam. Fungsi ini pengganti utk cabang native: `videos.list`
+// (endpoint publik stabil YouTube Data API v3, sudah lama tidak berubah kontraknya) ambil
+// viewCount/likeCount/commentCount asli, engagementRate DIHITUNG sendiri (YouTube API
+// tidak kasih field ini langsung) = (like+comment)/view*100, dibungkus jadi bentuk yg
+// SAMA persis dgn BufferMetric (name/value/unit/type) supaya performanceLearning.ts bisa
+// pakai SATU logika baca metrics utk kedua sumber tanpa percabangan lagi di situ.
+//
+// BELUM PERNAH DITES ke video YouTube nyata (2026-08-08) - SAMA seperti publishToYoutube
+// di atas ("BELUM pernah dites ke akun nyata"), krn belum ada channel YouTube yang
+// benar-benar connect ke sistem ini sampai catatan ini ditulis. Endpoint & field yang
+// dipakai (`part=statistics`, `viewCount`/`likeCount`/`commentCount`) adalah kontrak
+// publik YouTube Data API v3 yang stabil & terdokumentasi resmi, TAPI tetap WAJIB
+// diverifikasi ke akun nyata begitu channel pertama connect - jangan asumsikan ini
+// otomatis benar hanya krn cocok dokumentasi.
+export async function getYoutubeVideoMetrics(videoId: string, accessToken: string): Promise<YoutubeVideoMetric[] | null> {
+  const url = `${YOUTUBE_VIDEOS_LIST_URL}?part=statistics&id=${encodeURIComponent(videoId)}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  const stats = data.items?.[0]?.statistics;
+  if (!stats) return null;
+
+  const views = parseInt(stats.viewCount, 10) || 0;
+  const likes = parseInt(stats.likeCount, 10) || 0;
+  const comments = parseInt(stats.commentCount, 10) || 0;
+  const engagementRate = views > 0 ? ((likes + comments) / views) * 100 : 0;
+
+  return [
+    { name: "views", value: views, unit: "count", type: "views" },
+    { name: "engagementRate", value: engagementRate, unit: "percent", type: "engagementRate" },
+  ];
+}

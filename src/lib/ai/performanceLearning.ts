@@ -2,6 +2,8 @@ import { db } from "@/db";
 import { projects, publishLogs, socialAccounts } from "@/db/schema";
 import { and, eq, isNull, or, lt, isNotNull } from "drizzle-orm";
 import { getPostMetrics } from "@/lib/publish/bufferAuth";
+import { getYoutubeVideoMetrics } from "@/lib/publish/youtube";
+import { ensureFreshYoutubeAccessToken } from "@/lib/publish/youtubeAuth";
 
 // AI Learning Engine (2026-08-05, PRD "AI Content Brain" modul 13, permintaan Agus -
 // "AI membaca View/Like/Share/Comment/Watch Time/CTR, belajar konten mana yg paling
@@ -59,9 +61,25 @@ async function syncProjectPerformance(projectId: string): Promise<void> {
     // Token per-akun (2026-08-06, permintaan Agus - lihat catatan bufferAuth.ts) - akun
     // Buffer brand ini bisa beda dari default, cari token tersimpannya dulu.
     const [account] = log.socialAccountId
-      ? await db.select({ accessToken: socialAccounts.accessToken }).from(socialAccounts).where(eq(socialAccounts.id, log.socialAccountId))
+      ? await db.select().from(socialAccounts).where(eq(socialAccounts.id, log.socialAccountId))
       : [];
-    const metrics = await getPostMetrics(log.platformPostId, account?.accessToken);
+
+    // Cabang native YouTube (2026-08-08, lihat catatan lengkap di getYoutubeVideoMetrics,
+    // youtube.ts) - post YouTube TIDAK PERNAH lewat Buffer, getPostMetrics generic di
+    // bawah tidak akan pernah mengenali platformPostId-nya. UNTESTED ke channel nyata
+    // (belum ada yang connect) - lihat catatan di getYoutubeVideoMetrics.
+    let metrics;
+    if (account?.platform === "youtube" && account.publishVia === "native") {
+      try {
+        const accessToken = await ensureFreshYoutubeAccessToken(account);
+        metrics = await getYoutubeVideoMetrics(log.platformPostId, accessToken);
+      } catch (err) {
+        console.error(`[performanceLearning] gagal sync metrik YouTube native utk post ${log.platformPostId}:`, err);
+        continue;
+      }
+    } else {
+      metrics = await getPostMetrics(log.platformPostId, account?.accessToken);
+    }
     if (!metrics) continue;
     anyMetricsFound = true;
     const views = metrics.find((m) => m.type === "views")?.value;
