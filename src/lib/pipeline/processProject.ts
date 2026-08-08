@@ -20,7 +20,7 @@ import { generatePosterCopy } from "@/lib/ai/posterCopy";
 import { applyPosterDesign } from "@/lib/ai/posterDesign";
 import { generateThumbnail } from "@/lib/ai/thumbnail";
 import { searchBrollVideo } from "@/lib/assets/broll";
-import { fetchDestinationBrollClips, isDestinationContent } from "@/lib/ai/destinationBroll";
+import { fetchDestinationBrollClips, isDestinationContent, type DestinationBrollClip } from "@/lib/ai/destinationBroll";
 import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
 import { applyLogoToImage } from "@/lib/ai/logoOverlay";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
@@ -325,7 +325,12 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // sama tidak kepilih lagi persis di video berikutnya.
     const recentlyUsedUrls = await getRecentlyUsedFootageUrls(project.brandId);
 
-    let brollClips: Array<{ videoUrl: string; durationSeconds: number }> = [];
+    // Metadata lisensi (2026-08-08, PRD "YouTube Content & Monetization Safety System"
+    // Section 16) - `source*` fields opsional krn footage foto-brand-sendiri
+    // (imageToVideoClip di bawah) TIDAK PERNAH punya sumber Pexels/Pixabay, tetap
+    // undefined utk klip itu (BENAR, bukan lisensi tidak diketahui - itu footage asli
+    // milik brand sendiri, tidak perlu jejak lisensi pihak ketiga).
+    let brollClips: DestinationBrollClip[] = [];
     if (!isStockFootage) {
       const stockBudget = computeFootageBudgets(isDestinationContent(project.script), durationConfig.target).stockBudgetSeconds;
       brollClips = await fetchDestinationBrollClips(project.script, stockBudget, recentlyUsedUrls);
@@ -335,7 +340,14 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // klip suasana umum spt sebelumnya (mis. "tropical homestay garden").
       const broll = await searchBrollVideo(brollKeywords, recentlyUsedUrls);
       if (broll) {
-        brollClips = [{ videoUrl: broll.videoUrl, durationSeconds: Math.min(broll.durationSeconds, 5) }];
+        brollClips = [{
+          videoUrl: broll.videoUrl,
+          durationSeconds: Math.min(broll.durationSeconds, 5),
+          source: broll.source,
+          sourceCreator: broll.creator,
+          sourceUrl: broll.sourceUrl,
+          sourceQuery: brollKeywords,
+        }];
       }
     }
 
@@ -437,7 +449,14 @@ export async function processProject(id: string): Promise<ProcessResult> {
         const broll = await searchBrollVideo(brollKeywords, usedBrollUrls);
         if (!broll) break;
         usedBrollUrls.add(broll.videoUrl);
-        brollClips.push({ videoUrl: broll.videoUrl, durationSeconds: Math.min(broll.durationSeconds, MAX_CLIP_DURATION) });
+        brollClips.push({
+          videoUrl: broll.videoUrl,
+          durationSeconds: Math.min(broll.durationSeconds, MAX_CLIP_DURATION),
+          source: broll.source,
+          sourceCreator: broll.creator,
+          sourceUrl: broll.sourceUrl,
+          sourceQuery: brollKeywords,
+        });
       }
     }
 
@@ -539,7 +558,11 @@ export async function processProject(id: string): Promise<ProcessResult> {
 
     // Catat klip Pexels/Pixabay yg baru dipakai (anti-monoton, lihat
     // getRecentlyUsedFootageUrls di atas) - dibaca project VIDEO berikutnya brand ini
-    // supaya klip yg sama tidak kepilih lagi persis.
+    // supaya klip yg sama tidak kepilih lagi persis. Ikut simpan metadata lisensi
+    // (source/creator/url, 2026-08-08 Section 16 PRD YouTube Safety) kalau klip ini
+    // dari Pexels/Pixabay - undefined utk klip dari footage foto brand sendiri
+    // (imageToVideoClip di atas), otomatis tersimpan null (tidak perlu jejak lisensi
+    // pihak ketiga utk footage milik sendiri).
     for (const c of brollClips) {
       await db.insert(mediaAssets).values({
         id: newId("asset"),
@@ -547,6 +570,10 @@ export async function processProject(id: string): Promise<ProcessResult> {
         type: "broll_used",
         fileUrl: c.videoUrl,
         durationSeconds: c.durationSeconds,
+        source: c.source,
+        sourceCreator: c.sourceCreator,
+        sourceUrl: c.sourceUrl,
+        sourceQuery: c.sourceQuery,
         createdAt: new Date(),
       });
     }

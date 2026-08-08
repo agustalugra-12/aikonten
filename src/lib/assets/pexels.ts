@@ -4,6 +4,12 @@ export type PexelsVideoResult = {
   videoUrl: string;
   durationSeconds: number;
   photographer: string;
+  // Link halaman ASLI video ini di pexels.com (2026-08-08, PRD "YouTube Content &
+  // Monetization Safety System" Section 16 "Footage License Tracking") - dipakai
+  // sbg jejak audit sumber/lisensi, disimpan ke media_assets.source_url (lihat
+  // broll.ts & processProject.ts). BEDA dari `videoUrl` (link file CDN mp4 langsung,
+  // bisa expired/berubah) - link halaman ini stabil utk ditelusuri manusia nanti.
+  pageUrl: string;
 };
 
 // B-roll "pendamping" (lihat PRD diskusi - Agus TIDAK mau full AI-generated content,
@@ -38,7 +44,7 @@ export async function searchPexelsVideo(
   if (!apiKey) throw new Error("PEXELS_API_KEY belum diisi di .env");
 
   type PexelsVideoFile = { link: string; quality: string; width: number; height: number };
-  type PexelsVideo = { video_files?: PexelsVideoFile[]; duration: number; user?: { name: string } };
+  type PexelsVideo = { video_files?: PexelsVideoFile[]; duration: number; user?: { name: string }; url?: string };
 
   let allSeenCandidates: PexelsVideoResult[] = [];
 
@@ -58,7 +64,12 @@ export async function searchPexelsVideo(
         // bikin proses lebih lama) - kalau tidak ada, pakai apa saja yg ada.
         const file = files.find((f) => f.quality === "hd") || files[0];
         if (!file) return null;
-        return { videoUrl: file.link, durationSeconds: Math.round(video.duration), photographer: video.user?.name || "Pexels" };
+        return {
+          videoUrl: file.link,
+          durationSeconds: Math.round(video.duration),
+          photographer: video.user?.name || "Pexels",
+          pageUrl: video.url || "",
+        };
       })
       .filter((c): c is PexelsVideoResult => c !== null);
 

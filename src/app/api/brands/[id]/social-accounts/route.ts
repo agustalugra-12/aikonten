@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { socialAccounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
+import { ensurePlatformPolicyEnabled } from "@/lib/policy/platformPolicy";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -64,6 +65,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   if (existing) {
     await db.update(socialAccounts).set({ username, accessToken }).where(eq(socialAccounts.id, existing.id));
+    // Auto-enable Platform Policy (2026-08-08, PRD "YouTube Content & Monetization
+    // Safety System" Section 4) - jalur Buffer JUGA bisa dipakai utk connect YouTube
+    // (lihat SUPPORTED_BUFFER_PLATFORMS di atas), bukan cuma jalur native OAuth
+    // (auth/youtube/callback) - no-op utk platform selain youtube (lihat
+    // PLATFORM_PROFILES di platformPolicy.ts).
+    await ensurePlatformPolicyEnabled(brandId, platform as (typeof SUPPORTED_BUFFER_PLATFORMS)[number]);
     return NextResponse.json({ ok: true, id: existing.id });
   }
 
@@ -81,5 +88,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     createdAt: new Date(),
   };
   await db.insert(socialAccounts).values(row);
+  await ensurePlatformPolicyEnabled(brandId, row.platform);
   return NextResponse.json({ ok: true, id: row.id }, { status: 201 });
 }

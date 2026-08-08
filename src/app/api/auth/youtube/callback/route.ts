@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { socialAccounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
+import { ensurePlatformPolicyEnabled } from "@/lib/policy/platformPolicy";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
@@ -99,6 +100,12 @@ export async function GET(req: NextRequest) {
         createdAt: new Date(),
       });
     }
+
+    // Auto-enable YouTube Policy Profile (2026-08-08, PRD "YouTube Content &
+    // Monetization Safety System" Section 4) - begitu channel YouTube connect (baik
+    // baru maupun re-auth), langsung aktif tanpa toggle manual. Aman dipanggil di
+    // kedua cabang di atas (insert maupun update/re-auth), idempotent.
+    await ensurePlatformPolicyEnabled(brandId, "youtube");
 
     return NextResponse.redirect(`${appUrl}/?youtube_connected=${encodeURIComponent(channelTitle)}`);
   } catch (err) {

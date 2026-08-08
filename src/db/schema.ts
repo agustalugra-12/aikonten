@@ -206,6 +206,17 @@ export const mediaAssets = sqliteTable("media_assets", {
   }).notNull(),
   fileUrl: text("file_url").notNull(),
   durationSeconds: integer("duration_seconds"),
+  // Lisensi/asal aset (2026-08-08, PRD "YouTube Content & Monetization Safety System"
+  // Section 16 "Footage License Tracking") - SEBELUM ini fileUrl broll_used tersimpan
+  // TANPA jejak sumber/lisensi/kreator sama sekali (dicek langsung ke kode, kosong) -
+  // kalau suatu saat ada sengketa copyright/audit monetisasi YouTube, tidak ada cara
+  // menelusuri dari mana & lisensi apa suatu klip berasal. Nullable - SEMUA aset lama
+  // (raw_footage/final_video/dst, dan broll_used sebelum kolom ini ada) tetap null,
+  // tidak retroaktif. Cuma diisi utk broll_used ke depannya (lihat broll.ts).
+  source: text("source", { enum: ["pexels", "pixabay", "mixkit"] }),
+  sourceCreator: text("source_creator"), // nama fotografer/kreator asli dari API sumber
+  sourceUrl: text("source_url"), // link halaman asal video di situs sumber (bukan CDN file url)
+  sourceQuery: text("source_query"), // keyword pencarian yg menghasilkan aset ini - jejak audit
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -363,4 +374,59 @@ export const llmUsageLog = sqliteTable("llm_usage_log", {
   completionTokens: integer("completion_tokens"),
   totalTokens: integer("total_tokens"),
   costUsd: real("cost_usd"),
+});
+
+// Platform Policy (2026-08-08, permintaan Agus - PRD "YouTube Content & Monetization
+// Safety System") - PRINSIP ARSITEKTUR INTI dari PRD ini: aturan safety/monetization
+// khusus platform (BUKAN cuma YouTube - dirancang generic per platform, walau baru
+// YouTube yang punya profile konkret sekarang) TIDAK PERNAH jadi toggle global
+// ("Enable Monetization Safe Mode = ON" di 1 tempat) - harus otomatis AKTIF per
+// brand+platform begitu brand itu connect akun platform tsb, dan TIDAK PERNAH
+// memengaruhi platform lain milik brand yang sama. Baris ini di-upsert otomatis oleh
+// hook di social-accounts route (lihat komentar di sana) - user TIDAK PERNAH set field
+// ini manual dari UI. `enabled=false` (bukan row dihapus) saat akun didisconnect -
+// riwayat kapan pernah aktif tetap ada utk audit, cuma berhenti dijalankan.
+//
+// PENTING: belum ada channel YouTube yang benar-benar connect di sistem ini per
+// 2026-08-08 (dicek langsung ke social_accounts, kosong) - tabel ini FONDASI yang
+// disiapkan LEBIH DULU (permintaan eksplisit Agus "kita siapkan dulu"), bukan reaksi
+// atas bug yang sudah terjadi. Wiring penuh ke pipeline publish (gating youtube_ready)
+// menyusul di fase berikutnya setelah channel beneran connect & ada data nyata utk
+// diuji.
+export const platformPolicies = sqliteTable("platform_policies", {
+  id: text("id").primaryKey(),
+  brandId: text("brand_id").notNull().references(() => brands.id),
+  platform: text("platform", {
+    enum: ["instagram", "facebook", "tiktok", "youtube"],
+  }).notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  // Nama profile aturan yang berlaku (mis. "youtube_monetization_safe") - string bebas,
+  // BUKAN enum kaku, supaya platform baru/varian profile baru tidak perlu migrasi
+  // schema, cukup baris data baru.
+  profile: text("profile"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+// Channel Profile (2026-08-08, sama PRD di atas, Section 6-8 "YouTube Content Profile"
+// & "Niche System") - SENGAJA terpisah per socialAccountId (bukan per brand) krn 1
+// brand bisa punya BEBERAPA channel YouTube dgn niche/audiens beda2 (PRD Section 39
+// "Multiple YouTube Channels" - contoh: "YouTube Animal English" vs "YouTube Animal
+// Shorts" di brand yang sama, histori/niche TIDAK BOLEH tercampur). SENGAJA TIDAK
+// menyentuh/menggantikan `projects.pillar` (enum lama, khusus Pelangi Homestay,
+// hardcoded 5 nilai) - itu punya sistem sendiri yang sudah jalan & teruji utk
+// IG/TikTok, generalisasinya adalah kerja terpisah kalau memang dibutuhkan nanti,
+// bukan bagian dari fondasi YouTube ini.
+export const channelProfiles = sqliteTable("channel_profiles", {
+  id: text("id").primaryKey(),
+  socialAccountId: text("social_account_id").notNull().references(() => socialAccounts.id).unique(),
+  primaryNiche: text("primary_niche"),
+  contentPillars: text("content_pillars"), // JSON string[]
+  forbiddenTopics: text("forbidden_topics"), // JSON string[]
+  preferredTopics: text("preferred_topics"), // JSON string[]
+  language: text("language"),
+  targetCountry: text("target_country"),
+  targetAudience: text("target_audience"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

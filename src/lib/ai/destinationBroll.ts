@@ -57,7 +57,14 @@ export function isDestinationContent(script: string): boolean {
   return detectDestinationMentions(script).length > 0;
 }
 
-export type DestinationBrollClip = { videoUrl: string; durationSeconds: number };
+export type DestinationBrollClip = {
+  videoUrl: string;
+  durationSeconds: number;
+  source?: "pexels" | "pixabay";
+  sourceCreator?: string;
+  sourceUrl?: string;
+  sourceQuery?: string;
+};
 
 // Ambil klip Pexels utk landmark wisata yg disebut skrip, SAMPAI budget durasi terisi
 // (default STOCK_FOOTAGE_BUDGET_SECONDS = porsi 30% dari target 45 detik, lihat
@@ -81,7 +88,14 @@ export async function fetchDestinationBrollClips(
       const broll = await searchBrollVideo(query, excludeUrls);
       if (broll) {
         const durationSeconds = Math.min(broll.durationSeconds, CLIP_DURATION_CAP);
-        clips.push({ videoUrl: broll.videoUrl, durationSeconds });
+        clips.push({
+          videoUrl: broll.videoUrl,
+          durationSeconds,
+          source: broll.source,
+          sourceCreator: broll.creator,
+          sourceUrl: broll.sourceUrl,
+          sourceQuery: query,
+        });
         usedSeconds += durationSeconds;
       }
     } catch (err) {

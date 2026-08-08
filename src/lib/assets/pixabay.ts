@@ -4,6 +4,9 @@ export type PixabayVideoResult = {
   videoUrl: string;
   durationSeconds: number;
   photographer: string;
+  // Sama alasannya dgn PexelsVideoResult.pageUrl (lihat pexels.ts) - Section 16 PRD
+  // "Footage License Tracking".
+  pageUrl: string;
 };
 
 // Sumber KEDUA utk B-roll (lihat pexels.ts) - dipakai sbg fallback kalau Pexels tidak
@@ -24,7 +27,7 @@ export async function searchPixabayVideo(
   const apiKey = process.env.PIXABAY_API_KEY;
   if (!apiKey) throw new Error("PIXABAY_API_KEY belum diisi di .env");
 
-  type PixabayHit = { videos?: { small?: { url: string }; medium?: { url: string }; tiny?: { url: string } }; duration: number; user?: string };
+  type PixabayHit = { videos?: { small?: { url: string }; medium?: { url: string }; tiny?: { url: string } }; duration: number; user?: string; pageURL?: string };
 
   let allSeenCandidates: PixabayVideoResult[] = [];
 
@@ -43,7 +46,12 @@ export async function searchPixabayVideo(
         // bikin proses lebih lama.
         const file = hit.videos?.small || hit.videos?.medium || hit.videos?.tiny;
         if (!file) return null;
-        return { videoUrl: file.url, durationSeconds: Math.round(hit.duration), photographer: hit.user || "Pixabay" };
+        return {
+          videoUrl: file.url,
+          durationSeconds: Math.round(hit.duration),
+          photographer: hit.user || "Pixabay",
+          pageUrl: hit.pageURL || "",
+        };
       })
       .filter((c): c is PixabayVideoResult => c !== null);
 
