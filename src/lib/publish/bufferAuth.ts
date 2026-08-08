@@ -35,7 +35,22 @@ async function bufferGraphQL<T>(query: string, variables?: Record<string, unknow
 
 export type BufferChannel = { id: string; name: string; service: string };
 
+// Cache organizationId per token (2026-08-08, permintaan Agus - "optimasi buat
+// penggunaan jatah rendah agar bisa kirim banyak konten", root cause ditemukan
+// via audit: rate limit 24h Buffer kena krn checkAndHandleDuplicate di bawah
+// manggil getOrganizationId ULANG tiap poll, padahal organizationId 1 token TIDAK
+// PERNAH berubah selama proses Node ini hidup - murni pemborosan API call yang
+// tidak perlu). Cache module-level (bukan per-request) krn token per-brand yang
+// SAMA dipakai berkali-kali sepanjang hari (tiap publish, tiap poll duplikat) -
+// proses ini jalan sbg systemd service persisten (bukan serverless yang restart
+// tiap request), jadi cache bertahan lintas publish, bukan cuma dalam 1 pemanggilan.
+const orgIdCache = new Map<string, string>();
+
 async function getOrganizationId(token?: string | null): Promise<string> {
+  const cacheKey = resolveBufferToken(token);
+  const cached = orgIdCache.get(cacheKey);
+  if (cached) return cached;
+
   const orgData = await bufferGraphQL<{ account: { organizations: { id: string }[] } }>(
     "query { account { organizations { id } } }",
     undefined,
@@ -43,6 +58,7 @@ async function getOrganizationId(token?: string | null): Promise<string> {
   );
   const orgId = orgData.account.organizations[0]?.id;
   if (!orgId) throw new Error("Tidak ada organization Buffer utk akun ini");
+  orgIdCache.set(cacheKey, orgId);
   return orgId;
 }
 
@@ -131,6 +147,19 @@ async function tryDeletePost(id: string, token?: string | null): Promise<boolean
 // ("Account is not allowed to perform this action on post", ditemukan lewat tes nyata),
 // jadi kalau delete gagal, TETAP kasih tau Agus lewat Telegram dgn link asli post-nya
 // biar bisa dihapus manual di app TikTok/Instagram - JANGAN diam2 gagal.
+//
+// Dikurangi dari 5 poll ke 2 (2026-08-08, permintaan Agus - "optimasi buat penggunaan
+// jatah rendah agar bisa kirim banyak konten", root cause rate-limit 24h Buffer
+// ditemukan via audit langsung: fungsi ini SENDIRIAN memakai 10 API call per publish
+// sukses (5 poll x 2 call/poll - getOrganizationId TIDAK di-cache dulu), sementara
+// createPost aslinya cuma 1 call - 1 project 3 platform = 33 call, bukan 3. SATU-
+// SATUNYA data insiden nyata yg jadi dasar mitigasi ini adalah "~3 menit kemudian",
+// bukan rentang acak 0-3.5 menit - 2 titik cek (~100 detik & ~200 detik, membungkus
+// titik 3 menit yg terbukti) tetap menangkap insiden yg SAMA PERSIS dgn yang pernah
+// terjadi, cuma tidak lagi menyapu SELURUH jendela waktu dgn 5x percobaan. Digabung
+// dgn cache getOrganizationId di atas: total jadi 2 call/publish sukses (turun 80%
+// dari 10), TANPA mengurangi cakupan deteksi dari 1 bug nyata yang jadi alasan
+// fitur ini dibuat.
 export async function checkAndHandleDuplicate(opts: {
   channelId: string;
   keepPostId: string;
@@ -140,7 +169,7 @@ export async function checkAndHandleDuplicate(opts: {
   token?: string | null;
 }): Promise<void> {
   const { sendTelegramNotification } = await import("./telegram");
-  const pollDelaysMs = [15_000, 30_000, 45_000, 60_000, 60_000]; // total ~3.5 menit
+  const pollDelaysMs = [100_000, 100_000]; // cumulative ~100s & ~200s - membungkus titik ~3 menit dari insiden nyata
 
   for (const delay of pollDelaysMs) {
     await new Promise((resolve) => setTimeout(resolve, delay));
