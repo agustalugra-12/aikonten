@@ -24,6 +24,7 @@ import { fetchDestinationBrollClips, isDestinationContent, type DestinationBroll
 import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
 import { applyLogoToImage } from "@/lib/ai/logoOverlay";
 import { checkContentSimilarity } from "@/lib/ai/contentSimilarity";
+import { factCheckCaption } from "@/lib/ai/factCheck";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { newId } from "@/lib/ids";
 
@@ -91,7 +92,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
 
     if (project.type === "carousel") {
       const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
-      const { caption, hashtags, promoText, pillar, angle, targetKeyword, keywordLevel } = await generateCaptionForImages(
+      const { caption, hashtags, promoText, pillar, angle, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionForImages(
         brand?.name || "Brand",
         project.script,
         photoUrls,
@@ -161,6 +162,15 @@ export async function processProject(id: string): Promise<ProcessResult> {
         console.error("[processProject] gagal hitung content similarity, dilewati:", err);
       }
 
+      // Fact Check Engine (2026-08-08, PRD Section 12) - lihat factCheck.ts. Gagal
+      // (API error) TIDAK BOLEH menggagalkan project, sama filosofi dgn similarity di atas.
+      let factCheck: { confidence: number; unsupportedClaims: string[] } | null = null;
+      try {
+        factCheck = await factCheckCaption(caption, knowledgeUsed);
+      } catch (err) {
+        console.error("[processProject] gagal fact-check caption, dilewati:", err);
+      }
+
       await db
         .update(projects)
         .set({
@@ -174,6 +184,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
           captionEmbedding: similarity ? JSON.stringify(similarity.embedding) : null,
           similarityScore: similarity?.similarityScore ?? null,
           similarToProjectId: similarity?.similarToProjectId ?? null,
+          factCheckConfidence: factCheck?.confidence ?? null,
+          factCheckFlags: factCheck && factCheck.unsupportedClaims.length > 0 ? JSON.stringify(factCheck.unsupportedClaims) : null,
           updatedAt: new Date(),
         })
         .where(eq(projects.id, id));
@@ -316,7 +328,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       selected = hook ? [hook, ...rest] : rest;
       selectedText = selected.map((s) => s.text).join(" ");
     }
-    const { caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, targetKeyword, keywordLevel } = await generateCaptionAndHashtags(
+    const { caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionAndHashtags(
       brand?.name || "Brand",
       project.script,
       selectedText,
@@ -513,6 +525,15 @@ export async function processProject(id: string): Promise<ProcessResult> {
       console.error("[processProject] gagal hitung content similarity, dilewati:", err);
     }
 
+    // Fact Check Engine (2026-08-08, PRD Section 12) - sama pola dgn cabang carousel di
+    // atas, lihat catatan lengkap di sana & factCheck.ts.
+    let factCheck: { confidence: number; unsupportedClaims: string[] } | null = null;
+    try {
+      factCheck = await factCheckCaption(caption, knowledgeUsed);
+    } catch (err) {
+      console.error("[processProject] gagal fact-check caption, dilewati:", err);
+    }
+
     await db
       .update(projects)
       .set({
@@ -528,6 +549,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
         captionEmbedding: similarity ? JSON.stringify(similarity.embedding) : null,
         similarityScore: similarity?.similarityScore ?? null,
         similarToProjectId: similarity?.similarToProjectId ?? null,
+        factCheckConfidence: factCheck?.confidence ?? null,
+        factCheckFlags: factCheck && factCheck.unsupportedClaims.length > 0 ? JSON.stringify(factCheck.unsupportedClaims) : null,
         updatedAt: new Date(),
       })
       .where(eq(projects.id, id));

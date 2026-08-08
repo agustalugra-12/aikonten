@@ -206,6 +206,14 @@ export const projects = sqliteTable("projects", {
   captionEmbedding: text("caption_embedding"), // JSON number[], null kalau belum sempat dihitung (mis. API embedding gagal)
   similarityScore: integer("similarity_score"), // cosine similarity (0-1) x100 -> disimpan 0-100
   similarToProjectId: text("similar_to_project_id"),
+  // Fact Check Engine (2026-08-08, PRD Section 12) - lihat factCheck.ts utk penjelasan
+  // lengkap arsitektur (cross-check ke KB brand sendiri via GPT, bukan search API
+  // berbayar - konsisten dgn filosofi app ini). null (bukan 100) kalau brand tidak
+  // punya Knowledge Base sama sekali - tidak ada apa pun yang dicek, beda makna dari
+  // "sudah dicek & lolos semua klaim". SENGAJA WARNING-ONLY sama alasan persis dgn
+  // similarityScore di atas.
+  factCheckConfidence: integer("fact_check_confidence"), // 0-100, null = tidak dicek (brand tanpa KB)
+  factCheckFlags: text("fact_check_flags"), // JSON string[] kutipan klaim tak-didukung, null/[] kalau tidak ada masalah
   errorMessage: text("error_message"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

@@ -71,6 +71,14 @@ export type GeneratedContent = {
   angle: ContentAngle | null;
   targetKeyword: string | null;
   keywordLevel: number | null;
+  // Knowledge Base MENTAH yang dipakai grounding generate ini (2026-08-08, Fact Check
+  // Engine PRD Section 12) - diteruskan apa adanya ke factCheckCaption() di
+  // processProject.ts, supaya cross-check-nya konsisten pakai KB PERSIS yang sama dgn
+  // yang dibaca model saat generate (bukan fetch ulang terpisah yang berisiko out-of-
+  // sync kalau KB berubah di antara 2 panggilan). String kosong = brand ini tidak
+  // punya KB terkonfigurasi (lihat buildKnowledgeGroundingBlock) - factCheckCaption
+  // menangani ini dgn skip (return null), bukan dianggap "0 klaim ditemukan".
+  knowledgeUsed: string;
 };
 
 export type GeneratedImageContent = GeneratedContent & {
@@ -163,11 +171,12 @@ export const VIDEO_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
 async function buildKnowledgeGroundingBlock(
   knowledgeSite?: string | null,
   manualKnowledge?: string | null
-): Promise<{ instruction: string; contextBlock: string }> {
+): Promise<{ instruction: string; contextBlock: string; knowledge: string }> {
   const autoKnowledge = knowledgeSite ? await fetchPelangiKnowledge(knowledgeSite) : "";
   const knowledge = mergeManualKnowledge(autoKnowledge, manualKnowledge);
-  if (!knowledge) return { instruction: "", contextBlock: "" };
+  if (!knowledge) return { instruction: "", contextBlock: "", knowledge: "" };
   return {
+    knowledge,
     instruction:
       " KAMU PUNYA KNOWLEDGE BASE ASLI PROPERTI DI KONTEKS - SEMUA klaim fasilitas/harga " +
       "WAJIB berasal dari situ, dan kalau Knowledge Base eksplisit bilang properti TIDAK " +
@@ -288,6 +297,7 @@ export async function generateCaptionAndHashtags(
     structureTemplate: structureTemplate.name,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
+    knowledgeUsed: grounding.knowledge,
     ...normalizeTargetKeyword(parsed.targetKeyword),
   };
 }
@@ -345,6 +355,7 @@ export async function generateCaptionForImages(
     promoText: parsed.promoText || null,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
+    knowledgeUsed: grounding.knowledge,
     ...normalizeTargetKeyword(parsed.targetKeyword),
   };
 }
