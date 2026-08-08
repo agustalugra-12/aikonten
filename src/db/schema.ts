@@ -186,6 +186,26 @@ export const projects = sqliteTable("projects", {
   performanceViews: integer("performance_views"),
   performanceEngagementRate: integer("performance_engagement_rate"), // x100 (mis. 1.25% disimpan 125) - SQLite INTEGER, hindari float rounding
   performanceSyncedAt: integer("performance_synced_at", { mode: "timestamp" }),
+  // Duplicate/Repetition Detector (2026-08-08, PRD "YouTube Content & Monetization
+  // Safety System" Section 9-10 "Originality Engine" & "Duplicate/Repetition
+  // Detector") - captionEmbedding (JSON number[] dari OpenAI text-embedding-3-small)
+  // dihitung SEKALI begitu caption/naskah final digenerate (processProject.ts),
+  // dibandingkan (cosine similarity) ke project VIDEO terakhir brand yg sama -
+  // similarityScore (x100, sama pola dgn performanceEngagementRate di atas) & project
+  // paling mirip disimpan utk visibilitas.
+  //
+  // SENGAJA WARNING-ONLY dulu (skor disimpan, TIDAK memblokir generate) - PRD minta
+  // "BLOCK GENERATION" begitu similarity > threshold, TAPI belum ada data nyata sama
+  // sekali utk kalibrasi angka threshold yang aman (lihat pola yang SAMA di
+  // web-pelangi/backend/scripts/seo_agent.py: cannibalization check di sana perlu "3
+  // revisi empiris" sebelum threshold-nya benar - flat threshold pertama SALAH-TOLAK
+  // 88% keyword yang sebenarnya angle beda). Memblokir generate harian tanpa kalibrasi
+  // beresiko menghentikan produksi konten Agus tanpa alasan nyata. Fase berikutnya
+  // (setelah cukup data similarityScore riil terkumpul) baru dipertimbangkan jadi hard
+  // block, bukan sekarang.
+  captionEmbedding: text("caption_embedding"), // JSON number[], null kalau belum sempat dihitung (mis. API embedding gagal)
+  similarityScore: integer("similarity_score"), // cosine similarity (0-1) x100 -> disimpan 0-100
+  similarToProjectId: text("similar_to_project_id"),
   errorMessage: text("error_message"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

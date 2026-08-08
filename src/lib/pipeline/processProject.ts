@@ -23,6 +23,7 @@ import { searchBrollVideo } from "@/lib/assets/broll";
 import { fetchDestinationBrollClips, isDestinationContent, type DestinationBrollClip } from "@/lib/ai/destinationBroll";
 import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
 import { applyLogoToImage } from "@/lib/ai/logoOverlay";
+import { checkContentSimilarity } from "@/lib/ai/contentSimilarity";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { newId } from "@/lib/ids";
 
@@ -149,6 +150,17 @@ export async function processProject(id: string): Promise<ProcessResult> {
           )
         : finalImageUrls;
 
+      // Duplicate/Repetition Detector (2026-08-08, PRD Section 9-10) - lihat catatan
+      // lengkap di schema.ts & contentSimilarity.ts. Gagal embed (mis. API down sesaat)
+      // TIDAK BOLEH menggagalkan project - skor/embedding tetap null, project lanjut
+      // normal, cuma kehilangan visibilitas similarity utk project ini saja.
+      let similarity: { embedding: number[]; similarityScore: number; similarToProjectId: string | null } | null = null;
+      try {
+        similarity = await checkContentSimilarity(project.brandId, caption, id);
+      } catch (err) {
+        console.error("[processProject] gagal hitung content similarity, dilewati:", err);
+      }
+
       await db
         .update(projects)
         .set({
@@ -159,6 +171,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
           angle,
           targetKeyword,
           keywordLevel,
+          captionEmbedding: similarity ? JSON.stringify(similarity.embedding) : null,
+          similarityScore: similarity?.similarityScore ?? null,
+          similarToProjectId: similarity?.similarToProjectId ?? null,
           updatedAt: new Date(),
         })
         .where(eq(projects.id, id));
@@ -489,6 +504,15 @@ export async function processProject(id: string): Promise<ProcessResult> {
       srt = buildCaptionSrt(caption, totalDuration);
     }
 
+    // Duplicate/Repetition Detector (2026-08-08, PRD Section 9-10) - sama pola dgn
+    // cabang carousel di atas, lihat catatan lengkap di sana & contentSimilarity.ts.
+    let similarity: { embedding: number[]; similarityScore: number; similarToProjectId: string | null } | null = null;
+    try {
+      similarity = await checkContentSimilarity(project.brandId, caption, id);
+    } catch (err) {
+      console.error("[processProject] gagal hitung content similarity, dilewati:", err);
+    }
+
     await db
       .update(projects)
       .set({
@@ -501,6 +525,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
         angle,
         targetKeyword,
         keywordLevel,
+        captionEmbedding: similarity ? JSON.stringify(similarity.embedding) : null,
+        similarityScore: similarity?.similarityScore ?? null,
+        similarToProjectId: similarity?.similarToProjectId ?? null,
         updatedAt: new Date(),
       })
       .where(eq(projects.id, id));

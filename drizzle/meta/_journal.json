@@ -148,6 +148,13 @@
       "when": 1786177984820,
       "tag": "0020_broad_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1786179563869,
+      "tag": "0021_next_living_lightning",
+      "breakpoints": true
     }
   ]
 }
