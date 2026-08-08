@@ -124,17 +124,29 @@ export async function resizeImageForTiktok(imageUrl: string): Promise<string> {
   const hash = createHash("sha1").update(imageUrl).digest("hex").slice(0, 16);
   const publicId = `kontenpilot_tiktok_resize_${hash}`;
 
+  // EAGER, bukan lazy URL (2026-08-08, bug nyata: publish TikTok brand "Laundry In Bali"
+  // gagal "Invalid post: Image could not be read from its URL." padahal Facebook/Instagram
+  // di publish yang SAMA sukses, dan sejam kemudian URL yang sama terbukti valid & bisa
+  // diakses normal). Root cause: cloudinary.url(...) dgn transformation cuma MEMBANGUN URL,
+  // transformasi resize+convert-jpg-nya baru benar-benar diproses Cloudinary saat URL itu
+  // DIAKSES PERTAMA KALI (on-the-fly, bisa perlu waktu) - kalau fetcher TikTok/Buffer
+  // membaca URL itu SEBELUM transformasi selesai, dia dapat error/timeout, bukan gambar.
+  // Pakai eager transformation di uploader.upload() supaya Cloudinary MEMPROSES &
+  // MENYIMPAN hasil resize SAAT upload ini (respons baru kembali setelah eager selesai,
+  // default eager_async=false) - URL yang dikembalikan ke Buffer sudah pasti siap & cepat
+  // diakses, tidak ada lagi jendela race condition.
   const uploaded = await cloudinary.uploader.upload(imageUrl, {
     resource_type: "image",
     public_id: publicId,
     overwrite: true,
+    eager: [{ width: 1920, height: 1080, crop: "limit", format: "jpg" }],
   });
 
-  return cloudinary.url(uploaded.public_id, {
-    resource_type: "image",
-    format: "jpg",
-    transformation: [{ width: 1920, height: 1080, crop: "limit" }],
-  });
+  const eagerResult = uploaded.eager?.[0];
+  if (!eagerResult?.secure_url) {
+    throw new Error("Cloudinary tidak menghasilkan versi resize utk TikTok (eager transformation kosong)");
+  }
+  return eagerResult.secure_url;
 }
 
 // Ambil 1 frame dari video mentah sbg dasar thumbnail YouTube (lihat thumbnail.ts) -
