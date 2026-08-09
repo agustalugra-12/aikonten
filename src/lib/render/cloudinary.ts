@@ -66,8 +66,13 @@ export async function applyZoomToImage(opts: {
     const voiceoverBuffer = await generateVoiceover(opts.captionText);
     durationSeconds = Math.max(4, Math.round(await getAudioDurationSeconds(voiceoverBuffer)));
 
+    // MIME "audio/wav" (2026-08-10, sebelumnya "audio/mp3" dari era OpenAI tts-1) -
+    // Kokoro TTS (dubbing.ts) balikin WAV asli, BEDA dari ffmpeg.ts (probe isi file,
+    // ekstensi cuma kosmetik) - Cloudinary PERCAYA MIME type di data URI ini utk parse
+    // upload, salah label bisa gagal/rusak diam-diam, jadi ini perbaikan fungsional
+    // nyata, bukan sekadar rapi-rapi nama.
     voiceoverPublicId = publicIdFor(opts.projectId, "zoom_voiceover");
-    await cloudinary.uploader.upload(`data:audio/mp3;base64,${voiceoverBuffer.toString("base64")}`, {
+    await cloudinary.uploader.upload(`data:audio/wav;base64,${voiceoverBuffer.toString("base64")}`, {
       resource_type: "video",
       public_id: voiceoverPublicId,
       overwrite: true,

@@ -1,4 +1,6 @@
-import { getOpenAIClient, logNonTokenUsage } from "./openaiClient";
+import { fal } from "@fal-ai/client";
+import { subscribeFalWithRetry } from "./falRetry";
+import { logNonTokenUsage } from "./openaiClient";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFile, unlink } from "fs/promises";
@@ -7,26 +9,59 @@ import path from "path";
 
 const execFileAsync = promisify(execFile);
 
-// TTS-1 (2026-08-06, permintaan Agus - "cek ai konten juga agar transparan") - beda dari
-// chat.completions, audio.speech TIDAK balikin JSON/usage sama sekali (respons langsung
-// audio binary) - harganya per KARAKTER teks input ($15/1M karakter utk tts-1), dihitung
-// dari panjang teks SEBELUM dikirim, bukan dari respons.
-const TTS_PRICE_PER_1M_CHARS = 15.0;
+function ensureFalConfigured(): void {
+  const apiKey = process.env.FAL_KEY;
+  if (!apiKey) throw new Error("FAL_KEY belum diisi di .env");
+  fal.config({ credentials: apiKey });
+}
+
+// Kokoro TTS (2026-08-10, permintaan Agus - "gunakan ini juga untuk pengisi suara di ai
+// konten", https://github.com/hexgrad/kokoro) - GANTI dari OpenAI tts-1 (bukan
+// ditambahkan sbg opsi kedua, konsisten dgn pola swap penuh yg sudah dipakai di app ini
+// - lihat migrasi gpt-image-1 -> Nano Banana 2 di posterDesign.ts/thumbnail.ts, satu
+// provider konsisten drpd 2 jalur paralel yg makin lama makin sulit dirawat).
+//
+// Dijalankan via fal.ai (endpoint fal-ai/kokoro/american-english, DICEK LANGSUNG ke
+// dokumentasi resmi fal.ai sebelum dipakai - bukan asumsi), BUKAN inferensi lokal
+// (model onnx/kokoro-js) - VPS ini cuma 3.8GB RAM/2 core & SUDAH jalanin PMS/AI Chat
+// Bot/AI Blog/KontenPilot sekaligus (lihat memory proyek soal OOM berulang), inferensi
+// neural TTS lokal (walau Kokoro tergolong kecil, 82M parameter) beresiko rebutan
+// resource dgn ffmpeg render yg jalan bersamaan. fal.ai SUDAH jadi provider tepercaya di
+// app ini (Nano Banana 2 poster/thumbnail, lihat falRetry.ts) - reuse infrastruktur yg
+// sama (kredensial, retry wrapper), bukan nambah provider ketiga.
+//
+// Harga: $0.02/1000 karakter ($20/1M) - SEDIKIT LEBIH MAHAL drpd tts-1 lama ($15/1M),
+// dicatat jujur di sini supaya tidak dikira ini penghematan biaya - alasan pindah ke
+// Kokoro adalah KUALITAS suara (permintaan eksplisit Agus), bukan biaya lebih murah.
+const KOKORO_PRICE_PER_1M_CHARS = 20.0;
+// "am_michael" - suara pria Amerika, jernih & netral, cocok jadi default lintas brand
+// (Pelangi/Harmoni/laundry/Animal Story & Co dst - app ini multi-brand, belum ada
+// pengaturan suara per-brand). 19 suara lain tersedia (lihat dokumentasi endpoint) kalau
+// nanti Agus mau variasi/pilihan per-brand - PROPORTIONATE utk sekarang cuma 1 default,
+// jangan bangun UI pemilihan suara sebelum benar2 diminta.
+const KOKORO_VOICE = "am_michael";
 
 // AI Dubbing (lihat memory proyek - Agus konfirmasi: GANTI TOTAL suara asli syuting,
-// bukan tambahan/mixing). Pakai "tts-1" (BUKAN "tts-1-hd") - jauh lebih murah per
-// karakter, cukup utk narasi caption pendek (permintaan Agus: prioritaskan murah).
-// Teks narasinya REUSE caption yg SUDAH di-generate (bukan panggilan GPT baru) - caption
-// sudah ditulis sbg prosa natural jadi cocok dibacakan apa adanya, hemat 1 panggilan AI.
+// bukan tambahan/mixing). Teks narasinya REUSE caption yg SUDAH di-generate (bukan
+// panggilan GPT baru) - caption sudah ditulis sbg prosa natural jadi cocok dibacakan apa
+// adanya, hemat 1 panggilan AI.
 export async function generateVoiceover(text: string): Promise<Buffer> {
-  const client = getOpenAIClient();
-  const response = await client.audio.speech.create({
-    model: "tts-1",
-    voice: "alloy",
-    input: text,
+  ensureFalConfigured();
+
+  const result = await subscribeFalWithRetry("fal-ai/kokoro/american-english", {
+    prompt: text,
+    voice: KOKORO_VOICE,
+    speed: 1,
   });
-  await logNonTokenUsage("tts-1", (text.length / 1_000_000) * TTS_PRICE_PER_1M_CHARS);
-  return Buffer.from(await response.arrayBuffer());
+  const audioUrl = (result.data as { audio?: { url?: string } })?.audio?.url;
+  if (!audioUrl) throw new Error("Kokoro TTS (fal.ai) tidak mengembalikan hasil audio");
+
+  const res = await fetch(audioUrl);
+  if (!res.ok) throw new Error(`Gagal ambil hasil voiceover dari fal.ai: ${res.status}`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+
+  await logNonTokenUsage("kokoro-tts", (text.length / 1_000_000) * KOKORO_PRICE_PER_1M_CHARS);
+  return buffer;
 }
 
 // Dipakai utk foto-zoom (lihat cloudinary.ts applyZoomToImage) - durasi video pendek
