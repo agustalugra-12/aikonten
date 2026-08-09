@@ -1,6 +1,6 @@
 import { getOpenAIClient } from "./openaiClient";
 import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
-import { CONTENT_PILLARS, CONTENT_ANGLES, type ContentPillar, type ContentAngle } from "./generateContent";
+import { pillarsForSite, pillarTargetPercentForSite, CONTENT_ANGLES, type ContentAngle } from "./generateContent";
 import { buildSeasonalContext } from "./seasonalContext";
 import { buildKeywordPriorityBlock, type KeywordClassification } from "./keywordPriority";
 import { buildPerformanceInsightBlock, type PerformanceClassification } from "./performanceLearning";
@@ -34,14 +34,6 @@ export function nowTimeStringWita(): string {
   return new Date().toLocaleTimeString("sv-SE", { timeZone: "Asia/Makassar", hour: "2-digit", minute: "2-digit" }); // "HH:MM"
 }
 
-// Target komposisi Content Pillar (2026-08-05, PRD Agus, angka PERSIS dari PRD) - dipakai
-// buildDistributionBlock di bawah utk bandingkan realita vs target, BUKAN cuma dijadikan
-// dokumentasi mati.
-const PILLAR_TARGET_PERCENT: Record<ContentPillar, number> = {
-  "Pelangi Homestay": 40, "Wisata Sekitar": 25, "Tips Liburan Bedugul": 15,
-  "Kuliner Sekitar": 10, "Travel Tips": 10,
-};
-
 export type RecentClassification = KeywordClassification & { pillar: string | null; angle: string | null };
 
 // Content Restriction (2026-08-05, PRD modul 8, permintaan Agus - "AI DILARANG membuat
@@ -64,11 +56,32 @@ function isRestrictedIdea(idea: string): boolean {
   return RESTRICTED_TOPIC_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-const RESTRICTION_PROMPT_FRAGMENT =
-  " LARANGAN KERAS: JANGAN PERNAH usulkan ide bertema politik, agama, gosip/artis/" +
-  "selebriti, crypto/trading/saham, olahraga (sepak bola dst), atau drama/hiburan yg " +
-  "TIDAK ADA hubungannya dgn Pelangi Homestay/Bedugul/travel - SEMUA ide WAJIB " +
-  "berhubungan langsung dgn properti, wisata sekitar, atau travel tips yg relevan.";
+// Jadi fungsi per-brand (2026-08-10, bug nyata dilaporkan Agus - "AI konten di Animal
+// Story & Co bisa buat konten tentang homestay, harusnya buat konten berdasarkan
+// akunnya") - SEBELUM ini teks larangan HARDCODE "properti/wisata/travel" dipakai utk
+// SEMUA brand tanpa pandang bulu, termasuk brand yg SAMA SEKALI bukan hospitality
+// (Animal Story & Co, laundry in bali) - efeknya AI justru DIPAKSA menganggap topik di
+// LUAR properti/wisata/travel sbg "di luar jalur" & terus menarik ide balik ke arah
+// homestay krn itu satu2nya domain yg "diizinkan" instruksi ini. Pelangi (knowledgeSite
+// "pelangi") tetap dapat teks lama PERSIS (zero behavior change) - brand lain dapat
+// versi generik yg diikat ke NAMA brand itu sendiri, bukan ke Pelangi.
+function buildRestrictionFragment(brandName: string, knowledgeSite?: string | null): string {
+  if (knowledgeSite === "pelangi") {
+    return (
+      " LARANGAN KERAS: JANGAN PERNAH usulkan ide bertema politik, agama, gosip/artis/" +
+      "selebriti, crypto/trading/saham, olahraga (sepak bola dst), atau drama/hiburan yg " +
+      "TIDAK ADA hubungannya dgn Pelangi Homestay/Bedugul/travel - SEMUA ide WAJIB " +
+      "berhubungan langsung dgn properti, wisata sekitar, atau travel tips yg relevan."
+    );
+  }
+  return (
+    " LARANGAN KERAS: JANGAN PERNAH usulkan ide bertema politik, agama, gosip/artis/" +
+    "selebriti, crypto/trading/saham, olahraga (sepak bola dst), atau topik apa pun yg " +
+    `TIDAK ADA hubungannya sama sekali dgn bisnis brand "${brandName}" - SEMUA ide WAJIB ` +
+    "berhubungan langsung dgn produk/jasa/niche brand ini (lihat deskripsi & Knowledge Base " +
+    "brand di atas kalau ada)."
+  );
+}
 
 // Duplicate Checker & Content Pillar NYATA (2026-08-05, PRD modul 6 & 11, permintaan
 // Agus) - BEDA dari sebelumnya (instruksi teks "jangan monoton" doang, GPT nebak
@@ -77,7 +90,7 @@ const RESTRICTION_PROMPT_FRAGMENT =
 // distribusi SEBENARNYA (bukan tebakan) disuntik eksplisit ke prompt supaya AI benar2
 // tahu pilar/angle mana yg SUDAH terlalu sering & mana yg kurang - bukan lagi cuma
 // "usahakan beda", tapi ada angka nyata sbg pegangan.
-function buildDistributionBlock(classifications: RecentClassification[]): string {
+function buildDistributionBlock(classifications: RecentClassification[], knowledgeSite?: string | null): string {
   if (classifications.length === 0) return "";
 
   const pillarCounts: Record<string, number> = {};
@@ -88,10 +101,12 @@ function buildDistributionBlock(classifications: RecentClassification[]): string
   }
   const total = classifications.length;
 
-  const pillarLines = CONTENT_PILLARS.map((p) => {
+  const pillars = pillarsForSite(knowledgeSite);
+  const pillarTargetPercent = pillarTargetPercentForSite(knowledgeSite);
+  const pillarLines = pillars.map((p) => {
     const count = pillarCounts[p] || 0;
     const actualPercent = Math.round((count / total) * 100);
-    const target = PILLAR_TARGET_PERCENT[p];
+    const target = pillarTargetPercent[p];
     const flag = actualPercent < target - 5 ? " <- KURANG, prioritaskan" : actualPercent > target + 10 ? " <- KELEBIHAN, hindari dulu" : "";
     return `- ${p}: ${count}x (${actualPercent}%, target ${target}%)${flag}`;
   }).join("\n");
@@ -134,9 +149,13 @@ async function buildIdeaPromptBase(
   // dapat fakta kamar/harga Pelangi Homestay.
   const autoKnowledge = knowledgeSite ? await fetchPelangiKnowledge(knowledgeSite) : "";
   const knowledge = mergeManualKnowledge(autoKnowledge, manualKnowledge);
-  const distributionBlock = buildDistributionBlock(recentClassifications);
+  const distributionBlock = buildDistributionBlock(recentClassifications, knowledgeSite);
   const seasonalBlock = buildSeasonalContext();
-  const keywordBlock = buildKeywordPriorityBlock(recentClassifications);
+  // Keyword Priority List (2026-08-10, bug pilar hardcode - lihat catatan
+  // buildRestrictionFragment) - daftar keyword SEO ini murni Bedugul-spesifik, jadi
+  // HANYA relevan disuntik utk brand Pelangi (dulu disuntik ke SEMUA brand tanpa
+  // pandang bulu, ikut jadi salah satu sumber bias "AI selalu condong ke homestay").
+  const keywordBlock = knowledgeSite === "pelangi" ? buildKeywordPriorityBlock(recentClassifications) : "";
 
   const system =
     `Kamu content strategist media sosial utk bisnis lokal Indonesia. Usulkan ${count} ide ` +
@@ -170,7 +189,7 @@ async function buildIdeaPromptBase(
         "di luar radius itu (mis. Kuta/Seminyak/Nusa Penida), itu tidak relevan & " +
         "menyesatkan calon tamu yg cari penginapan DEKAT lokasi spesifik ini."
       : "") +
-    RESTRICTION_PROMPT_FRAGMENT;
+    buildRestrictionFragment(brandName, knowledgeSite);
   const user =
     `Brand: ${brandName}\nDeskripsi/niche: ${brandDescription || "(tidak ada deskripsi)"}\n` +
     `Tanggal hari ini: ${today}\n` +
@@ -275,17 +294,29 @@ export async function suggestScoredContentIdeas(
         `\n\nSisanya (${count - mustIncludeIdeas.length} ide) silakan usulkan sendiri sesuai instruksi di atas.`
       : "";
 
+  // Kriteria skor (2026-08-10, bug pilar hardcode - lihat catatan buildRestrictionFragment
+  // di atas) - kriteria (1) & (4) SEBELUMNYA hardcode "Pelangi Homestay/Bedugul" & keyword
+  // SEO Bedugul-spesifik utk SEMUA brand. Pelangi tetap dapat teks PERSIS sama (zero
+  // behavior change) - brand lain dapat versi diikat ke nama brand-nya sendiri, & kriteria
+  // (4) dilewati sama sekali kalau tidak ada daftar keyword yg relevan (bukan Pelangi).
+  const relevansiCriterion =
+    knowledgeSite === "pelangi"
+      ? "RELEVANSI dgn Pelangi Homestay/Bedugul - seberapa langsung ide ini berhubungan dgn properti/lokasinya."
+      : `RELEVANSI dgn brand "${brandName}" - seberapa langsung ide ini berhubungan dgn bisnis/niche brand ini.`;
+  const scoreCriteria = [
+    relevansiCriterion,
+    "POTENSI MENARIK calon audiens - seberapa besar kemungkinan ide ini bikin orang berhenti scroll & tertarik (kalau ada # PERFORMA KONTEN NYATA di bawah, PAKAI itu sbg sinyal nyata, bukan cuma tebakan).",
+    "VARIASI dari konten sebelumnya - lihat distribusi pilar/angle di atas, ide yg mengisi kekosongan dapat skor lebih tinggi drpd yg mengulang yg sudah banyak.",
+  ];
+  if (knowledgeSite === "pelangi") {
+    scoreCriteria.push("DUKUNGAN KEYWORD PRIORITAS - ide yg menargetkan keyword Level 1/2 yg masih under-served dapat skor lebih tinggi.");
+  }
+  const scoreCriteriaText = scoreCriteria.map((c, i) => `(${i + 1}) ${c}`).join(" ");
+
   const scoredSystem =
     system +
-    " SETIAP ide WAJIB diberi score 0-100 (integer) berdasarkan 4 kriteria PERSIS ini " +
-    "(pertimbangkan SEMUA, bukan cuma 1): (1) RELEVANSI dgn Pelangi Homestay/Bedugul - " +
-    "seberapa langsung ide ini berhubungan dgn properti/lokasinya. (2) POTENSI MENARIK " +
-    "calon tamu - seberapa besar kemungkinan ide ini bikin orang berhenti scroll & " +
-    "tertarik (kalau ada # PERFORMA KONTEN NYATA di bawah, PAKAI itu sbg sinyal nyata, " +
-    "bukan cuma tebakan). (3) VARIASI dari konten sebelumnya - lihat distribusi pilar/" +
-    "angle di atas, ide yg mengisi kekosongan dapat skor lebih tinggi drpd yg mengulang " +
-    "yg sudah banyak. (4) DUKUNGAN KEYWORD PRIORITAS - ide yg menargetkan keyword " +
-    "Level 1/2 yg masih under-served dapat skor lebih tinggi. Sertakan jg reasoning " +
+    ` SETIAP ide WAJIB diberi score 0-100 (integer) berdasarkan ${scoreCriteria.length} kriteria PERSIS ini ` +
+    `(pertimbangkan SEMUA, bukan cuma 1): ${scoreCriteriaText} Sertakan jg reasoning ` +
     "SINGKAT (1 kalimat, Bahasa Indonesia) kenapa skor itu diberikan - WAJIB jujur & " +
     "spesifik (mis. \"skor tinggi krn isi kekosongan pilar Kuliner Sekitar & keyword " +
     "Level 1 blm pernah dipakai\", atau \"pilar Wisata Sekitar terbukti performa tinggi " +

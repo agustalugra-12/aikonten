@@ -1,0 +1,1 @@
+ALTER TABLE `social_accounts` ADD `connected` integer DEFAULT true NOT NULL;

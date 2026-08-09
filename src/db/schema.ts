@@ -128,6 +128,17 @@ export const socialAccounts = sqliteTable("social_accounts", {
   // update real-time"). cachedMetricsAt null/lawas (>12 jam) -> baru fetch API asli.
   cachedMetrics: text("cached_metrics"),
   cachedMetricsAt: integer("cached_metrics_at", { mode: "timestamp" }),
+  // Soft-disconnect (2026-08-09, permintaan Agus - channel Facebook "laundry in bali"
+  // putus di sisi Buffer sendiri ["Channel not found" di tiap publish, dicek langsung
+  // ke Buffer API - channel-nya beneran hilang dari daftar channel org itu], bukan
+  // masalah kuota). connected=false (BUKAN row dihapus, pola sama persis dgn
+  // platformPolicies.enabled di atas) - publishProject() (orchestrate.ts) skip akun
+  // ini SEPENUHNYA (tidak masuk hitungan accounts.length), jadi IG/TikTok brand yg
+  // sama bisa selesai "published" bersih tanpa nyangkut nunggu FB yg memang belum bisa
+  // dicoba lagi sampai Agus reconnect manual di buffer.com. 49 publishLogs historis
+  // akun ini (termasuk publish sukses sebelum putus) TETAP disimpan, tidak ikut
+  // terhapus - riwayat audit tetap ada, cuma berhenti dijalankan.
+  connected: integer("connected", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -163,9 +174,12 @@ export const projects = sqliteTable("projects", {
   // ide/pilar berikutnya benar2 diarahkan ke yg jarang dipakai, bukan cuma "kelihatan
   // beda" dari sisi kalimat. Nullable - project lama (sblm fitur ini) tetap null, tidak
   // retroaktif diklasifikasi.
-  pillar: text("pillar", {
-    enum: ["Pelangi Homestay", "Wisata Sekitar", "Tips Liburan Bedugul", "Kuliner Sekitar", "Travel Tips"],
-  }),
+  // Enum literal DIHAPUS (2026-08-10, bug pilar hardcode - lihat catatan pillarsForSite
+  // di generateContent.ts) - daftar pillar yg valid sekarang beda per brand (Pelangi
+  // vs generik), jadi enum TS-level tetap ke 5 nilai lama sudah tidak akurat. Kolom DB
+  // sendiri TEXT polos, enum di sini SELALU cuma hint TypeScript (tidak pernah jadi
+  // constraint DB sungguhan) - melebarkan ke string bebas TIDAK butuh migrasi.
+  pillar: text("pillar"),
   angle: text("angle", {
     enum: ["harga", "lokasi", "fasilitas", "suasana", "target_tamu", "momen", "faq", "perbandingan"],
   }),

@@ -162,6 +162,13 @@
       "when": 1786182587609,
       "tag": "0022_fantastic_pet_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1786282944512,
+      "tag": "0023_jazzy_la_nuit",
+      "breakpoints": true
     }
   ]
 }

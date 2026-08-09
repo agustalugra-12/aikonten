@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { projects, brands, socialAccounts, mediaAssets, publishLogs } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { getPublisher } from "./index";
 import { sendTelegramNotification, formatPublishSummaryNotification } from "./telegram";
@@ -18,10 +18,14 @@ export async function publishProject(projectId: string): Promise<void> {
   if (!project) return;
 
   const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
+  // connected=false dikecualikan sepenuhnya (2026-08-09, lihat komentar schema.ts) -
+  // akun yg soft-disconnect (mis. channel putus di sisi Buffer) tidak lagi dihitung di
+  // accounts.length, jadi platform lain yg sehat bisa selesai "published" bersih tanpa
+  // nyangkut nunggu akun yang memang belum bisa dicoba lagi.
   const accounts = await db
     .select()
     .from(socialAccounts)
-    .where(eq(socialAccounts.brandId, project.brandId));
+    .where(and(eq(socialAccounts.brandId, project.brandId), eq(socialAccounts.connected, true)));
 
   const assets = await db.select().from(mediaAssets).where(eq(mediaAssets.projectId, projectId));
   const finalVideo = assets.find((a) => a.type === "final_video");

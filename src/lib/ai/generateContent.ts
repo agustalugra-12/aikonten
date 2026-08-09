@@ -31,17 +31,46 @@ function capHashtags(tags: string[], max: number = 5): string[] {
 // persis). "angle" - sudut pandang konten (harga/lokasi/fasilitas/dst) - dipakai
 // dailyContentPlanner.ts liat distribusi ASLI konten yg SUDAH dibuat (bukan cuma tebak
 // dari teks skrip mentah), supaya ide/pilar berikutnya diarahkan ke yg jarang dipakai.
-export const CONTENT_PILLARS = [
+//
+// pillarsForSite() (2026-08-10, bug nyata dilaporkan Agus - "AI konten di Animal Story
+// & Co bisa buat konten tentang homestay, harusnya buat konten berdasarkan akunnya") -
+// SEBELUM ini 5 pilar di bawah dipakai HARDCODE utk SEMUA brand tanpa pandang bulu
+// (sama root cause dgn bug knowledgeSite yg sudah diperbaiki 2026-08-06, kali ini di
+// sistem klasifikasi pilar bukan knowledge base) - brand non-hospitality (Animal Story
+// & Co, laundry in bali) tetap diklasifikasi/didorong ke arah pilar "Pelangi Homestay"
+// krn itu satu2nya pilihan yg ditawarkan ke model. Sekarang HANYA brand knowledgeSite
+// "pelangi" (satu2nya brand yg benar2 pakai 5 pilar ini) yg dapat daftar lama PERSIS
+// (zero behavior change) - brand lain dapat GENERIC_PILLARS, pilar universal yg masuk
+// akal utk bisnis apa pun.
+export const PELANGI_PILLARS = [
   "Pelangi Homestay", "Wisata Sekitar", "Tips Liburan Bedugul", "Kuliner Sekitar", "Travel Tips",
 ] as const;
+const PELANGI_PILLAR_TARGET_PERCENT: Record<string, number> = {
+  "Pelangi Homestay": 40, "Wisata Sekitar": 25, "Tips Liburan Bedugul": 15, "Kuliner Sekitar": 10, "Travel Tips": 10,
+};
+export const GENERIC_PILLARS = ["Edukasi", "Promosi", "Hiburan/Engagement", "Testimoni"] as const;
+
+export function pillarsForSite(knowledgeSite?: string | null): readonly string[] {
+  return knowledgeSite === "pelangi" ? PELANGI_PILLARS : GENERIC_PILLARS;
+}
+export function pillarTargetPercentForSite(knowledgeSite?: string | null): Record<string, number> {
+  if (knowledgeSite === "pelangi") return PELANGI_PILLAR_TARGET_PERCENT;
+  const pillars = GENERIC_PILLARS;
+  const equal = Math.round(100 / pillars.length);
+  return Object.fromEntries(pillars.map((p) => [p, equal]));
+}
+
 export const CONTENT_ANGLES = [
   "harga", "lokasi", "fasilitas", "suasana", "target_tamu", "momen", "faq", "perbandingan",
 ] as const;
-export type ContentPillar = (typeof CONTENT_PILLARS)[number];
 export type ContentAngle = (typeof CONTENT_ANGLES)[number];
 
-function normalizePillar(v: unknown): ContentPillar | null {
-  return (CONTENT_PILLARS as readonly string[]).includes(v as string) ? (v as ContentPillar) : null;
+// Pillar TIDAK LAGI divalidasi ke daftar tetap (2026-08-10) - daftar yg ditawarkan ke
+// model sekarang beda per brand (lihat pillarsForSite di atas), jadi validasi ketat ke
+// SATU daftar literal sudah tidak masuk akal - cukup terima string non-kosong apa pun
+// yg dibalas model (kolom DB sendiri TEXT polos, tidak ada constraint enum sungguhan).
+function normalizePillar(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim().slice(0, 60) : null;
 }
 function normalizeAngle(v: unknown): ContentAngle | null {
   return (CONTENT_ANGLES as readonly string[]).includes(v as string) ? (v as ContentAngle) : null;
@@ -55,19 +84,32 @@ function normalizeTargetKeyword(v: unknown): { targetKeyword: string | null; key
   return match ? { targetKeyword: match.keyword, keywordLevel: match.level } : { targetKeyword: null, keywordLevel: null };
 }
 
-const CLASSIFICATION_PROMPT_FRAGMENT =
-  ` Sertakan juga pillar (WAJIB SALAH SATU PERSIS): ${CONTENT_PILLARS.map((p) => `"${p}"`).join(", ")}, ` +
-  `dan angle (WAJIB SALAH SATU PERSIS): ${CONTENT_ANGLES.map((a) => `"${a}"`).join(", ")} - ` +
-  "klasifikasi ini dipakai sistem melacak variasi konten, JAWAB SEJUJURNYA sesuai isi konten ini, " +
-  "bukan asal pilih. Sertakan juga targetKeyword: SALAH SATU PERSIS dari daftar keyword " +
-  `prioritas ini kalau konten ini benar2 menargetkannya (${KEYWORD_PRIORITY_LIST.map((k) => `"${k.keyword}"`).join(", ")}), ` +
-  "atau null kalau konten ini tidak spesifik menargetkan salah satu keyword itu (JANGAN " +
-  "dipaksakan kalau memang tidak relevan).";
+// Jadi fungsi (2026-08-10, bug pilar hardcode - lihat catatan pillarsForSite di atas) -
+// daftar pillar & instruksi targetKeyword sekarang tergantung knowledgeSite brand ini
+// (targetKeyword daftar Level 1/2/3 itu SEO Bedugul-spesifik, tidak masuk akal disodorkan
+// ke brand yg sama sekali bukan properti Bedugul).
+function buildClassificationFragment(knowledgeSite?: string | null): string {
+  const pillars = pillarsForSite(knowledgeSite);
+  const keywordPart =
+    knowledgeSite === "pelangi"
+      ? " Sertakan juga targetKeyword: SALAH SATU PERSIS dari daftar keyword " +
+        `prioritas ini kalau konten ini benar2 menargetkannya (${KEYWORD_PRIORITY_LIST.map((k) => `"${k.keyword}"`).join(", ")}), ` +
+        "atau null kalau konten ini tidak spesifik menargetkan salah satu keyword itu (JANGAN " +
+        "dipaksakan kalau memang tidak relevan)."
+      : "";
+  return (
+    ` Sertakan juga pillar (WAJIB SALAH SATU PERSIS): ${pillars.map((p) => `"${p}"`).join(", ")}, ` +
+    `dan angle (WAJIB SALAH SATU PERSIS): ${CONTENT_ANGLES.map((a) => `"${a}"`).join(", ")} - ` +
+    "klasifikasi ini dipakai sistem melacak variasi konten, JAWAB SEJUJURNYA sesuai isi konten ini, " +
+    "bukan asal pilih." +
+    keywordPart
+  );
+}
 
 export type GeneratedContent = {
   caption: string;
   hashtags: string[];
-  pillar: ContentPillar | null;
+  pillar: string | null;
   angle: ContentAngle | null;
   targetKeyword: string | null;
   keywordLevel: number | null;
@@ -273,7 +315,7 @@ export async function generateCaptionAndHashtags(
     "Sertakan juga thumbnailText: teks hook SANGAT singkat (2-5 kata, Bahasa Indonesia, " +
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
-    CLASSIFICATION_PROMPT_FRAGMENT;
+    buildClassificationFragment(knowledgeSite);
   const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
@@ -328,7 +370,7 @@ export async function generateCaptionForImages(
     "(mis. \"Rp175.000\" atau \"Promo 20%\") di field promoText - ini akan ditempel " +
     "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
     "TIDAK menyebut harga/promo sama sekali, promoText HARUS null." +
-    CLASSIFICATION_PROMPT_FRAGMENT;
+    buildClassificationFragment(knowledgeSite);
   const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "...", "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
