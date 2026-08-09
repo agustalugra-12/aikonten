@@ -20,6 +20,14 @@ export type TranscriptSegment = {
   avgLogprob: number; // proxy kejelasan audio - makin dekat 0 makin jelas
 };
 
+// Word Timing (2026-08-10, fitur Subtitle Designer - permintaan Agus soal caption gaya
+// TikTok/YT Shorts modern) - level SEGMEN (di atas, beberapa detik/frasa) TIDAK cukup
+// utk efek "kata per kata" (pop-in + highlight kata yg SEDANG diucapkan) - butuh
+// timestamp PER KATA. Whisper API dukung ini langsung via timestamp_granularities:
+// ["word"] (dicek nyata ke API sebelum dipakai, bukan asumsi dokumentasi) - tidak perlu
+// heuristik/estimasi sendiri.
+export type WordTiming = { word: string; start: number; end: number };
+
 // Transkripsi footage mentah lewat Whisper - hasilnya dipakai DUA kali: (1) jadi dasar
 // pemilihan klip otomatis (clipSelect.ts), (2) jadi dasar subtitle final. fileUrl harus
 // URL publik (dari storage.ts) krn OpenAI ambil file itu sendiri lewat network.
@@ -109,30 +117,44 @@ export async function transcribeFootage(fileUrl: string): Promise<TranscriptSegm
 // endpoint dgn transcribeFootage di atas) - dapat timestamp ASLI dari audio yg
 // BENERAN diputar, bukan estimasi. Terima Buffer langsung (bukan fileUrl) krn audio
 // TTS ini murni in-memory, belum (&tidak perlu) diupload ke storage publik dulu.
-export async function transcribeAudioBuffer(buffer: Buffer, mimeType: string = "audio/mpeg"): Promise<TranscriptSegment[]> {
+// mimeType default "audio/wav" (2026-08-10, SEBELUMNYA "audio/mpeg" dari era OpenAI
+// tts-1/MP3 - voiceover sekarang dari Kokoro TTS/dubbing.ts, WAV asli, lihat catatan
+// sama di ffmpeg.ts/cloudinary.ts). Satu-satunya pemanggil (processProject.ts) tidak
+// pernah kirim mimeType eksplisit, jadi default ini WAJIB benar.
+export async function transcribeAudioBuffer(
+  buffer: Buffer,
+  mimeType: string = "audio/wav"
+): Promise<{ segments: TranscriptSegment[]; words: WordTiming[] }> {
   const client = getOpenAIClient();
-  const ext = mimeType.split("/")[1]?.split(";")[0] || "mp3";
+  const ext = mimeType.split("/")[1]?.split(";")[0] || "wav";
   const file = new File([new Uint8Array(buffer)], `voiceover.${ext}`, { type: mimeType });
 
+  // timestamp_granularities: ["word", "segment"] (2026-08-10, fitur Subtitle Designer) -
+  // SEBELUMNYA cuma "segment" (dites live: minta keduanya sekaligus TIDAK nambah biaya,
+  // 1 panggilan API yg sama, harga tetap per-menit audio bukan per-granularity).
   const result = await client.audio.transcriptions.create({
     file,
     model: "whisper-1",
     response_format: "verbose_json",
-    timestamp_granularities: ["segment"],
+    timestamp_granularities: ["word", "segment"],
   });
 
   const raw = result as unknown as {
     duration?: number;
     segments?: Array<{ start: number; end: number; text: string; avg_logprob: number }>;
+    words?: Array<{ word: string; start: number; end: number }>;
   };
   if (typeof raw.duration === "number") {
     await logNonTokenUsage("whisper-1", (raw.duration / 60) * WHISPER_PRICE_PER_MINUTE);
   }
 
-  return (raw.segments || []).map((s) => ({
-    start: s.start,
-    end: s.end,
-    text: s.text.trim(),
-    avgLogprob: s.avg_logprob,
-  }));
+  return {
+    segments: (raw.segments || []).map((s) => ({
+      start: s.start,
+      end: s.end,
+      text: s.text.trim(),
+      avgLogprob: s.avg_logprob,
+    })),
+    words: (raw.words || []).map((w) => ({ word: w.word, start: w.start, end: w.end })),
+  };
 }

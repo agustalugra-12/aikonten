@@ -513,9 +513,15 @@ export async function processProject(id: string): Promise<ProcessResult> {
     const totalDuration = currentTotalDuration();
     const voiceoverBuffer = await generateVoiceover(caption);
     let srt: string;
+    // wordTimings (2026-08-10, Subtitle Designer) - dari transkripsi yg SAMA (1
+    // panggilan Whisper, tidak ada biaya tambahan) - dipakai renderFinalVideo utk
+    // caption "kata per kata" gaya TikTok/YT Shorts. Kosong = fallback ke srt statis
+    // di bawah (ffmpeg.ts otomatis pakai jalur non-animasi kalau ini kosong).
+    let wordTimings: Awaited<ReturnType<typeof transcribeAudioBuffer>>["words"] = [];
     try {
-      const voiceoverSegments = await transcribeAudioBuffer(voiceoverBuffer);
-      srt = buildSrtFromTranscriptSegments(voiceoverSegments);
+      const transcription = await transcribeAudioBuffer(voiceoverBuffer);
+      srt = buildSrtFromTranscriptSegments(transcription.segments);
+      wordTimings = transcription.words;
     } catch (err) {
       console.error("[processProject] gagal transkripsi ulang audio TTS utk subtitle presisi, fallback ke estimasi rata:", err);
       srt = buildCaptionSrt(caption, totalDuration);
@@ -574,6 +580,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       brandId: project.brandId,
       segments: selected,
       srtContent: srt,
+      wordTimings,
       brollClips,
       // AI Dubbing - GANTI TOTAL suara asli (lihat memory proyek, keputusan eksplisit
       // Agus). Audio-nya SUDAH digenerate di atas (perlu ada LEBIH DULU drpd subtitle

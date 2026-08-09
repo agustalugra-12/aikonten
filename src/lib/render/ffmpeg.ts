@@ -4,8 +4,10 @@ import { writeFile, mkdtemp, rm, readFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import type { ScoredSegment } from "@/lib/ai/clipSelect";
+import type { WordTiming } from "@/lib/ai/transcribe";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/ai/logoOverlay";
+import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN } from "./subtitleDesign";
 
 const execFileAsync = promisify(execFile);
 
@@ -31,25 +33,14 @@ function getTargetDimensions(orientation: VideoOrientation): { width: number; he
   return orientation === "landscape" ? { width: 1920, height: 1080 } : { width: 1080, height: 1920 };
 }
 
-// Style subtitle (2026-08-05, permintaan Agus - "kecilkan 50%, posisi tengah-tengah
-// video, turunkan sedikit"). PENTING (bug nyata ditemukan lewat tes visual langsung -
-// bukan cuma baca dokumentasi): filter "subtitles=file.srt:force_style=..." TIDAK
-// predictable - MarginV/Fontsize di situ dihitung relatif ke resolusi INTERNAL kecil yg
-// diasumsikan libass utk SRT polos (bukan resolusi video asli), jadi angka wajar spt
-// MarginV=760 malah mendorong teks JAUH keluar frame sama sekali (invisible, bukan
-// error - makanya nyaris tidak ketahuan tanpa cek visual). Solusinya: bikin file .ass
-// EKSPLISIT dgn PlayResX/PlayResY = resolusi video SUNGGUHAN, style Alignment=2 (bottom-
-// center) + MarginV dihitung dari SITU - jadi predictable & dites benar2 pas di tengah-
-// bawah lewat rendering nyata sblm dipakai di pipeline.
-// 26px (permintaan awal "kecilkan 50%") ternyata KETERLALUAN kecil - direvisi
-// (2026-08-05, permintaan Agus "besarkan agar proporsional") ke 60px, standar umum
-// caption video vertikal 1080 lebar (mis. gaya CapCut/TikTok auto-caption, ~5.5% dari
-// lebar frame) - cukup besar utk terbaca di HP kecil, tapi tidak menutupi footage.
-// Diubah jadi RASIO (2026-08-05, sesi sama - dukung landscape juga) - font size relatif
-// ke LEBAR frame, margin relatif ke TINGGI frame, supaya visual tetap proporsional sama
-// persis di kedua orientasi, bukan angka piksel tetap yg cuma pas utk portrait 1080x1920.
-const SUBTITLE_FONT_SIZE_RATIO = 60 / 1080; // ~5.5% dari lebar frame
-const SUBTITLE_MARGIN_V_RATIO = 760 / 1920; // ~39.6% dari tinggi frame (dari tepi bawah)
+// Style subtitle - lihat subtitleDesign.ts (Subtitle Designer, 2026-08-10, permintaan
+// Agus - engine ASS word-highlight+pop gaya TikTok/YT Shorts). PENTING (bug nyata
+// ditemukan lewat tes visual langsung - bukan cuma baca dokumentasi, masih relevan):
+// filter "subtitles=file.srt:force_style=..." TIDAK predictable - MarginV/Fontsize di
+// situ dihitung relatif ke resolusi INTERNAL kecil yg diasumsikan libass utk SRT polos
+// (bukan resolusi video asli), jadi angka wajar spt MarginV=760 malah mendorong teks
+// JAUH keluar frame sama sekali (invisible, bukan error). Solusinya (tetap dipakai):
+// bikin file .ass EKSPLISIT dgn PlayResX/PlayResY = resolusi video SUNGGUHAN.
 
 async function run(cmd: string, args: string[]): Promise<void> {
   try {
@@ -104,28 +95,18 @@ function parseSrt(srt: string): Array<{ start: string; end: string; text: string
   return entries;
 }
 
-// Konversi SRT (format yg SUDAH dipakai buildCaptionSrt, lihat generateContent.ts) jadi
-// .ass EKSPLISIT dgn PlayResX/PlayResY = resolusi video sungguhan (lihat catatan
-// SUBTITLE_FONT_SIZE di atas kenapa ini WAJIB, bukan sekadar preferensi gaya).
-function buildAssContent(srtContent: string, width: number, height: number): string {
-  const entries = parseSrt(srtContent);
-  const fontSize = Math.round(width * SUBTITLE_FONT_SIZE_RATIO);
-  const marginV = Math.round(height * SUBTITLE_MARGIN_V_RATIO);
-  const header =
-    `[Script Info]\nPlayResX: ${width}\nPlayResY: ${height}\nScaledBorderAndShadow: yes\n\n` +
-    `[V4+ Styles]\n` +
-    `Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n` +
-    `Style: Default,Arial,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,${marginV},1\n\n` +
-    `[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
-  const events = entries.map((e) => `Dialogue: 0,${e.start},${e.end},Default,,0,0,0,,${e.text}`).join("\n");
-  return header + events + "\n";
-}
 
 export async function renderFinalVideo(opts: {
   projectId: string;
   brandId: string;
   segments: (ScoredSegment & { sourceUrl: string })[];
   srtContent: string;
+  // Subtitle Designer (2026-08-10) - kalau ADA (jalur normal, transkripsi ulang audio
+  // TTS berhasil), dipakai utk render caption gaya TikTok/YT Shorts "kata per kata"
+  // (highlight kata yg sedang diucapkan + pop). srtContent TETAP wajib dikirim sbg
+  // FALLBACK kalau ini kosong/undefined (mis. Whisper gagal, lihat processProject.ts) -
+  // subtitle tetap muncul (statis, tanpa animasi kata-per-kata) drpd video tanpa caption.
+  wordTimings?: WordTiming[];
   brollClips?: Array<{ videoUrl: string; durationSeconds: number }>;
   // Audio TTS SUDAH DIGENERATE sebelumnya (2026-08-06, permintaan Agus - "subtitle
   // presisi dgn dubbing") - caller (processProject.ts) generate TTS DULU, transkripsi
@@ -186,10 +167,17 @@ export async function renderFinalVideo(opts: {
     await run("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", concatListPath, "-c", "copy", concatenatedPath]);
     const videoDurationSeconds = await getDurationSeconds(concatenatedPath);
 
-    // 3) Subtitle -> .ass eksplisit (lihat buildAssContent - WAJIB, bukan subtitles=
-    // +force_style yg terbukti nyata tidak predictable posisi/ukurannya).
+    // 3) Subtitle -> .ass eksplisit (Subtitle Designer, lihat subtitleDesign.ts - WAJIB
+    // .ass eksplisit, bukan subtitles=+force_style yg terbukti nyata tidak predictable
+    // posisi/ukurannya). wordTimings ADA -> caption "kata per kata" gaya TikTok/YT
+    // Shorts, kosong -> fallback statis dari srtContent (tetap ikut Subtitle Designer
+    // utk font/warna/posisi, cuma tanpa animasi per-kata).
     const assPath = path.join(workDir, "subtitles.ass");
-    await writeFile(assPath, buildAssContent(opts.srtContent, TARGET_WIDTH, TARGET_HEIGHT));
+    const assContent =
+      opts.wordTimings && opts.wordTimings.length > 0
+        ? buildWordHighlightAss(opts.wordTimings, DEFAULT_SUBTITLE_DESIGN, TARGET_WIDTH, TARGET_HEIGHT)
+        : buildStaticAss(parseSrt(opts.srtContent), DEFAULT_SUBTITLE_DESIGN, TARGET_WIDTH, TARGET_HEIGHT);
+    await writeFile(assPath, assContent);
 
     // 4) Logo brand OPSIONAL (2026-08-05, permintaan Agus) - crop lingkaran +
     // ukuran proporsional (logoOverlay.ts, dipakai jg utk foto - konsisten), disiapkan
