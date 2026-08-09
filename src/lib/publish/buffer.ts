@@ -33,7 +33,7 @@ const CREATE_POST_MUTATION = `
 `;
 
 export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<PublishResult> => {
-  const { videoUrl, imageUrls, caption, bufferChannelId, platform, brandName } = input;
+  const { videoUrl, imageUrls, caption, bufferChannelId, platform, brandName, youtubeTitle, youtubeCategoryId } = input;
   // Token PER-AKUN (2026-08-06, permintaan Agus - brand "laundry in bali" punya akun
   // Buffer sendiri, terpisah dari akun Buffer Pelangi) - accessToken di sini datang dari
   // socialAccounts.accessToken (diisi saat channel disambungkan, lihat social-accounts/
@@ -75,12 +75,22 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
     // a type (post, story, or reel)". Sebelumnya cuma Instagram yang ditangani,
     // Facebook tidak pernah kirim metadata.type sama sekali -> selalu ditolak Buffer.
     // Pola sama: foto -> "post", video -> "reel".
+    // YouTube WAJIB metadata.youtube.title & categoryId (2026-08-10, ditemukan lewat
+    // INTROSPEKSI GraphQL Buffer - "Required on create", TANPA ini publish DITOLAK
+    // Buffer - beda dari Instagram/Facebook di atas [error pesan jelas "posts require a
+    // type"], field YouTube ini kalau kosong kemungkinan besar cuma ditolak generik
+    // tanpa pesan sejelas itu, jadi WAJIB dites langsung ke API sebelum dipakai, bukan
+    // diasumsikan dari skema saja - lihat catatan lengkap di youtubeEditorial.ts).
+    // isAiGenerated:true SELALU utk jalur ini - SEMUA konten YouTube Editorial Engine
+    // (skrip GPT + suara Kokoro TTS) memang AI-generated, disclosure jujur bukan opsional.
     const metadata =
       platform === "instagram"
         ? { instagram: { type: videoUrl ? "reel" : "post", shouldShareToFeed: true } }
         : platform === "facebook"
           ? { facebook: { type: videoUrl ? "reel" : "post" } }
-          : undefined;
+          : platform === "youtube"
+            ? { youtube: { title: (youtubeTitle || "Video").slice(0, 100), categoryId: youtubeCategoryId || "22", isAiGenerated: true } }
+            : undefined;
 
     const res = await fetch(BUFFER_API_URL, {
       method: "POST",

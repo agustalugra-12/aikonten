@@ -9,7 +9,7 @@ import {
   computeFootageBudgets,
   getDurationConfig,
 } from "@/lib/ai/clipSelect";
-import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt, buildSrtFromTranscriptSegments } from "@/lib/ai/generateContent";
+import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt, buildSrtFromTranscriptSegments, type ContentAngle } from "@/lib/ai/generateContent";
 import { generateVoiceover } from "@/lib/ai/dubbing";
 // Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
@@ -25,6 +25,8 @@ import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES }
 import { applyLogoToImage } from "@/lib/ai/logoOverlay";
 import { checkContentSimilarity } from "@/lib/ai/contentSimilarity";
 import { factCheckCaption } from "@/lib/ai/factCheck";
+import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
+import { distributeChapters, type YoutubeMetadata } from "@/lib/ai/youtubeEditorial";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { newId } from "@/lib/ids";
 
@@ -51,6 +53,19 @@ const STOCK_FOOTAGE_MAX_DURATION = 20; // detik - jaga video tetap gaya konten p
 
 function isStockFootageUrl(url: string): boolean {
   return STOCK_FOOTAGE_DOMAINS.some((domain) => url.includes(domain));
+}
+
+// YouTube caption (2026-08-10, YouTube Editorial Engine) - `caption` di project ini
+// dipakai LANGSUNG sbg text upload (orchestrate.ts) - format: judul di baris pertama
+// (KONVENSI yg SAMA dipakai publishToYoutube native, lihat youtube.ts `caption.split
+// ("\n")[0]` jadi title), baris kosong, lalu deskripsi SEO, lalu blok chapter (kalau
+// ADA - diisi belakangan setelah durasi render asli diketahui, lihat distributeChapters
+// di processProject.ts pemanggil). Hashtag TIDAK disisipkan di sini - orchestrate.ts
+// SUDAH menambahkan hashtag di akhir caption utk SEMUA platform (lihat baseCaption di
+// sana), menambahkannya di sini akan dobel.
+function buildYoutubeCaption(title: string, seoDescription: string, chapters: { time: string; label: string }[]): string {
+  const chapterBlock = chapters.length > 0 ? `\n\n${chapters.map((c) => `${c.time} ${c.label}`).join("\n")}` : "";
+  return `${title}\n\n${seoDescription}${chapterBlock}`;
 }
 
 // Pipeline Fase 1 (lihat memory proyek) - DIPAKAI BERSAMA oleh
@@ -333,14 +348,43 @@ export async function processProject(id: string): Promise<ProcessResult> {
       selected = hook ? [hook, ...rest] : rest;
       selectedText = selected.map((s) => s.text).join(" ");
     }
-    const { caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionAndHashtags(
-      brand?.name || "Brand",
-      project.script,
-      selectedText,
-      brand?.knowledgeSite,
-      brand?.manualKnowledge,
-      durationConfig.target
-    );
+    // YouTube Editorial Engine (2026-08-10) - project.youtubeMetadata SUDAH BERISI
+    // judul/deskripsi SEO/hashtag/tag LENGKAP (dibuat youtubeEditorial.ts sebelum
+    // project ini ada, lihat dailyContentPlanner.ts) - SKIP generateCaptionAndHashtags
+    // sepenuhnya utk project ini (fungsi itu MENULIS ULANG skrip jadi "caption" gaya
+    // Pelangi/hospitality, akan MERUSAK judul/SEO yang sudah dirancang khusus kalau
+    // dipanggil di sini) - bangun `caption` LANGSUNG dari youtubeMetadata, brollKeywords
+    // dari deriveBrollKeywordsFromScript (fungsi yg SAMA dipakai autoContent.ts utk
+    // brand tanpa knowledge base) krn channel YouTube TIDAK PUNYA knowledge base brand
+    // (fakta konten dokumenter itu pengetahuan umum, bukan data properti).
+    const youtubeMeta: YoutubeMetadata | null = project.youtubeMetadata ? JSON.parse(project.youtubeMetadata) : null;
+
+    let caption: string, hashtags: string[], brollKeywords: string | null, thumbnailText: string | null,
+      structureTemplate: string, pillar: string | null, angle: ContentAngle | null,
+      targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string;
+
+    if (youtubeMeta) {
+      const title = youtubeMeta.titles[youtubeMeta.selectedTitleIndex] || youtubeMeta.titles[0] || project.script.slice(0, 80);
+      caption = buildYoutubeCaption(title, youtubeMeta.seoDescription, []);
+      hashtags = youtubeMeta.hashtags;
+      brollKeywords = await deriveBrollKeywordsFromScript(project.script);
+      thumbnailText = youtubeMeta.thumbnailConcepts[0]?.text || null;
+      structureTemplate = youtubeMeta.parentVideoTitle ? "YoutubeShort-Repurposed" : project.contentFormat === "youtube_shorts" ? "YoutubeShort" : "YoutubeDocumentary";
+      pillar = null;
+      angle = null;
+      targetKeyword = null;
+      keywordLevel = null;
+      knowledgeUsed = "";
+    } else {
+      ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionAndHashtags(
+        brand?.name || "Brand",
+        project.script,
+        selectedText,
+        brand?.knowledgeSite,
+        brand?.manualKnowledge,
+        durationConfig.target
+      ));
+    }
 
     // Kombinasi footage asli + Pexels (2026-08-05, permintaan Agus - "jika ada
     // pembahasan wisata seperti danau beratan kebun raya bedugul dan lainnya gunakan
@@ -609,6 +653,24 @@ export async function processProject(id: string): Promise<ProcessResult> {
           `${durationConfig.min} detik yg diwajibkan (estimasi pre-render meleset - ` +
           `durasi nyata sumber footage beda dari metadata) - coba generate ulang.`
       );
+    }
+
+    // Chapter YouTube (2026-08-10) - BARU bisa dihitung SEKARANG, durasi render ASLI
+    // baru diketahui di titik ini (chapterLabels dari youtubeEditorial.ts TANPA
+    // timestamp - lihat distributeChapters kenapa estimasi SEBELUM render tidak
+    // dipakai, sama alasan persis dgn "Subtitle PRESISI" 2026-08-06: jangan estimasi
+    // kalau bisa pakai angka nyata). Update caption YANG SUDAH TERSIMPAN (di-set
+    // sebelum render di atas) supaya blok chapter ikut masuk sebelum publish.
+    if (youtubeMeta?.chapterLabels && youtubeMeta.chapterLabels.length > 0) {
+      const chapters = distributeChapters(youtubeMeta.chapterLabels, rendered.durationSeconds);
+      const title = youtubeMeta.titles[youtubeMeta.selectedTitleIndex] || youtubeMeta.titles[0] || project.script.slice(0, 80);
+      caption = buildYoutubeCaption(title, youtubeMeta.seoDescription, chapters);
+      const updatedMeta: YoutubeMetadata = { ...youtubeMeta, chapters };
+      delete updatedMeta.chapterLabels;
+      await db
+        .update(projects)
+        .set({ generatedCaption: caption, youtubeMetadata: JSON.stringify(updatedMeta), updatedAt: new Date() })
+        .where(eq(projects.id, id));
     }
 
     await db.insert(mediaAssets).values({

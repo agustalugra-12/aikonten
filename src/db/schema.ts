@@ -244,6 +244,22 @@ export const projects = sqliteTable("projects", {
   // similarityScore di atas.
   factCheckConfidence: integer("fact_check_confidence"), // 0-100, null = tidak dicek (brand tanpa KB)
   factCheckFlags: text("fact_check_flags"), // JSON string[] kutipan klaim tak-didukung, null/[] kalau tidak ada masalah
+  // YouTube Editorial Engine (2026-08-10, PRD Agus "YouTube Long Form Content Engine" +
+  // "YouTube Shorts Engine", dibuat REUSABLE - "siapa tau aku mau buat channel lain",
+  // bukan hardcode Animal Story & Co) - Nullable, HANYA diisi utk project yg lewat
+  // youtubeEditorial.ts (channel yg py channelProfiles dikonfigurasi, lihat
+  // dailyContentPlanner.ts) - project IG/TikTok/brand tanpa channel YouTube TIDAK
+  // PERNAH menyentuh 2 kolom ini, tetap null spt sekarang.
+  youtubeSeriesId: text("youtube_series_id").references(() => youtubeSeries.id),
+  // JSON: {titles: string[], selectedTitleIndex: number, thumbnailConcepts: [{subject,
+  // expression, text, background, trigger}], seoDescription: string, seoKeywords:
+  // {primary, secondary: string[], related: string[], longtail: string[]}, hashtags:
+  // string[], tags: string[], chapters: [{time: string, label: string}], parentProjectId
+  // (nullable, Shorts hasil repurpose dari long-form ini menunjuk balik ke induknya)}.
+  // 1 kolom JSON (bukan 10+ kolom baru) - konsisten dgn pola generatedHashtags/
+  // manualKnowledge/channelProfiles.contentPillars di app ini, field2 ini SEMUA cuma
+  // relevan utk video YouTube (bukan bagian universal projects spt pillar/angle).
+  youtubeMetadata: text("youtube_metadata"),
   errorMessage: text("error_message"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -402,6 +418,13 @@ export const dailyIdeas = sqliteTable("daily_ideas", {
   // dailyContentPlanner.ts getOrGenerateDailyIdeas), diteruskan ke projects.contentFormat
   // saat cron/auto-generate memproses ide ini jadi project sungguhan.
   contentFormat: text("content_format"),
+  // YouTube Editorial Engine (2026-08-10) - diisi HANYA kalau ide ini datang dari
+  // youtubeEditorial.ts (brand py channel YouTube dgn Editorial Policy dikonfigurasi,
+  // lihat dailyContentPlanner.ts) - diteruskan apa adanya ke projects.youtubeSeriesId/
+  // youtubeMetadata saat cron/auto-generate memproses ide ini jadi project sungguhan
+  // (pola SAMA PERSIS dgn contentFormat di atas).
+  youtubeSeriesId: text("youtube_series_id"),
+  youtubeMetadata: text("youtube_metadata"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -490,6 +513,40 @@ export const channelProfiles = sqliteTable("channel_profiles", {
   language: text("language"),
   targetCountry: text("target_country"),
   targetAudience: text("target_audience"),
+  // YouTube Category ID (2026-08-10, ditemukan lewat INTROSPEKSI GraphQL Buffer -
+  // metadata.youtube.categoryId "Required on create" - TANPA ini publish ke YouTube
+  // lewat Buffer akan DITOLAK. String bebas (bukan enum) - Buffer sendiri cuma terima
+  // ID numerik sbg string ("15"=Pets & Animals, "27"=Education, dst, daftar lengkap di
+  // ChannelProfileDialog.tsx) - nullable, fallback "22" (People & Blogs, default aman
+  // generik) di titik publish (lihat orchestrate.ts) kalau channel belum eksplisit pilih.
+  youtubeCategoryId: text("youtube_category_id"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+// YouTube Series (2026-08-10, PRD Agus "YouTube Long Form Content Engine" + "YouTube
+// Shorts Engine" - "jangan hanya memberi tahu Claude 'buat video YouTube'... buat dia
+// memiliki editorial policy dan YouTube growth strategy"). REUSABLE dari awal
+// (permintaan eksplisit Agus - "reusable aja siapa tau aku mau buat channel lain"),
+// BUKAN hardcode utk 1 channel/brand - jadi dikaitkan ke socialAccountId (sama pola
+// scoping dgn channelProfiles di atas, 1 baris = 1 channel YouTube, brand APAPUN yg
+// punya channel bisa punya seri sendiri-sendiri).
+//
+// Konsep "series" BARU sama sekali di app ini (beda dari CONTENT_PILLARS/keyword
+// priority di web-pelangi yang cuma label kategori longgar) - PRD minta video-video
+// terkait dikelompokkan sbg episode berurutan (mis. "Animal Mysteries Ep.1: Why Dogs
+// Tilt Their Heads", Ep.2, dst) supaya penonton yang selesai 1 episode terdorong lanjut
+// ke episode berikut (topical authority + session duration, alasan eksplisit dari PRD).
+// `topics` (JSON string[]) - daftar topik/judul episode YANG DIRENCANAKAN, diisi AI saat
+// series dibuat (lihat youtubeEditorial.ts) - progres "sudah sampai episode berapa"
+// DIHITUNG dari COUNT projects.youtubeSeriesId = seri ini (bukan kolom counter
+// terpisah yang bisa in bisa nyimpang dari kenyataan).
+export const youtubeSeries = sqliteTable("youtube_series", {
+  id: text("id").primaryKey(),
+  socialAccountId: text("social_account_id").notNull().references(() => socialAccounts.id),
+  name: text("name").notNull(),
+  format: text("format", { enum: ["long", "short"] }).notNull(),
+  topics: text("topics").notNull(), // JSON string[] - daftar topik episode yg direncanakan
+  status: text("status", { enum: ["active", "completed", "paused"] }).notNull().default("active"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

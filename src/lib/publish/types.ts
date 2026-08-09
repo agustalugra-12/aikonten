@@ -22,6 +22,13 @@ export type PublishInput = {
   // thumbnail terpisah dari videonya, lihat thumbnail.ts). Undefined kalau brand ini
   // tidak punya akun YouTube (tidak pernah di-generate, lihat process/route.ts).
   thumbnailUrl?: string;
+  // YouTube metadata WAJIB via Buffer (2026-08-10, ditemukan lewat INTROSPEKSI GraphQL
+  // Buffer - metadata.youtube.title & categoryId "Required on create", TANPA ini
+  // publish DITOLAK Buffer - beda dari youtube.ts native yang parse title dari baris
+  // pertama caption sendiri, Buffer butuh field terpisah eksplisit). Undefined kalau
+  // platform bukan youtube (lihat orchestrate.ts).
+  youtubeTitle?: string;
+  youtubeCategoryId?: string;
 };
 
 export type PublishResult = {

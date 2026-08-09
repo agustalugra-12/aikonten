@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConnectBufferDialog } from "@/components/dashboard/ConnectBufferDialog";
+import { ChannelProfileDialog } from "@/components/dashboard/ChannelProfileDialog";
 import type { SocialAccount } from "@/types";
 
 const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
@@ -41,11 +42,14 @@ export function SocialAccounts({ brandId }: { brandId: string }) {
         ) : (
           <ul className="space-y-2">
             {accounts.map((acc) => (
-              <li key={acc.id} className="flex items-center gap-2 text-sm">
+              <li key={acc.id} className="flex items-center gap-2 text-sm flex-wrap">
                 <Badge variant="outline">{PLATFORM_LABEL[acc.platform]}</Badge>
                 <span>@{acc.username}</span>
                 {acc.publishVia === "buffer" && (
                   <span className="text-xs text-muted-foreground">(via Buffer)</span>
+                )}
+                {acc.platform === "youtube" && (
+                  <ChannelProfileDialog socialAccountId={acc.id} username={acc.username} />
                 )}
               </li>
             ))}

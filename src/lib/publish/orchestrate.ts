@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { projects, brands, socialAccounts, mediaAssets, publishLogs } from "@/db/schema";
+import { projects, brands, socialAccounts, mediaAssets, publishLogs, channelProfiles } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { getPublisher } from "./index";
@@ -135,6 +135,22 @@ export async function publishProject(projectId: string): Promise<void> {
         ? `${baseCaption}\n\n#Shorts`
         : baseCaption;
 
+    // YouTube title/categoryId (2026-08-10, ditemukan lewat INTROSPEKSI GraphQL Buffer
+    // - metadata.youtube.title & categoryId "Required on create", lihat catatan lengkap
+    // di buffer.ts) - title diambil dari BARIS PERTAMA caption ASLI (bukan outCaption
+    // yg sudah ditambah hashtag/#Shorts) - konvensi SAMA dgn publishToYoutube native
+    // (youtube.ts `caption.split("\n")[0]`), dibangun buildYoutubeCaption() di
+    // processProject.ts jadi baris pertama SELALU judul. categoryId dari Editorial
+    // Policy channel ini (channelProfiles, lihat ChannelProfileDialog.tsx) - fallback
+    // "22" People & Blogs kalau channel belum eksplisit pilih.
+    let youtubeTitle: string | undefined;
+    let youtubeCategoryId: string | undefined;
+    if (account.platform === "youtube") {
+      youtubeTitle = caption.split("\n")[0]?.trim() || brandName;
+      const [profile] = await db.select().from(channelProfiles).where(eq(channelProfiles.socialAccountId, account.id));
+      youtubeCategoryId = profile?.youtubeCategoryId || "22";
+    }
+
     const result = await publisher({
       videoUrl: finalVideo?.fileUrl,
       imageUrls: finalImages.map((a) => a.fileUrl),
@@ -146,6 +162,8 @@ export async function publishProject(projectId: string): Promise<void> {
       platform: account.platform,
       brandName,
       thumbnailUrl: thumbnail?.fileUrl,
+      youtubeTitle,
+      youtubeCategoryId,
     });
 
     await db.insert(publishLogs).values({

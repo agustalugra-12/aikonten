@@ -1,8 +1,9 @@
 import { db } from "@/db";
-import { dailyIdeas, brands, projects, manualIdeas } from "@/db/schema";
+import { dailyIdeas, brands, projects, manualIdeas, socialAccounts } from "@/db/schema";
 import { and, eq, desc, asc, inArray } from "drizzle-orm";
 import { suggestScoredContentIdeas, todayDateKeyWita } from "./researchTopics";
 import { syncBrandPerformance } from "./performanceLearning";
+import { getChannelProfile, generateYoutubeDailyIdeas } from "./youtubeEditorial";
 import { newId } from "@/lib/ids";
 
 // AI Content Planner (2026-08-05, permintaan Agus, PRD "AI Content Brain" modul 10 -
@@ -30,6 +31,8 @@ export type DailyIdea = {
   reasoning: string | null;
   contentType: "video" | "foto" | "carousel" | null;
   contentFormat: string | null;
+  youtubeSeriesId: string | null;
+  youtubeMetadata: string | null;
 };
 
 export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {
@@ -41,7 +44,11 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     .where(and(eq(dailyIdeas.brandId, brandId), eq(dailyIdeas.date, today)));
   if (existing.length > 0) {
     return existing
-      .map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning, contentType: r.contentType, contentFormat: r.contentFormat }))
+      .map((r) => ({
+        id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning,
+        contentType: r.contentType, contentFormat: r.contentFormat,
+        youtubeSeriesId: r.youtubeSeriesId, youtubeMetadata: r.youtubeMetadata,
+      }))
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
 
@@ -69,6 +76,49 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     .orderBy(desc(projects.createdAt))
     .limit(30);
   const recentScripts = recentProjects.map((p) => p.script).filter((s): s is string => !!s);
+
+  // YouTube Editorial Engine (2026-08-10, PRD Agus "YouTube Long Form Content Engine" +
+  // "YouTube Shorts Engine", reusable per channel - "siapa tau aku mau buat channel
+  // lain") - HANYA aktif kalau brand ini py akun YouTube DAN akun itu sudah diisi
+  // Editorial Policy (channelProfiles, lihat ChannelProfileDialog.tsx). Brand TANPA
+  // channel YouTube atau YANG BELUM isi Editorial Policy-nya (Pelangi/Harmoni/laundry
+  // in bali - SEMUA brand yg ada sebelum fitur ini) jatuh ke jalur GENERIK lama di
+  // bawah, PERSIS PERILAKU SAMA spt sebelum fitur ini ada - zero regression.
+  const [youtubeAccount] = await db
+    .select()
+    .from(socialAccounts)
+    .where(and(eq(socialAccounts.brandId, brandId), eq(socialAccounts.platform, "youtube")));
+  const channelProfile = youtubeAccount ? await getChannelProfile(youtubeAccount.id) : null;
+
+  if (channelProfile) {
+    const longCount = brand.dailyVideoCount;
+    const shortCount = brand.dailyYoutubeShortsCount;
+    const ytIdeas = await generateYoutubeDailyIdeas(channelProfile, youtubeAccount!.id, longCount, shortCount, recentScripts);
+
+    const now = new Date();
+    const rows = ytIdeas.map((yi) => ({
+      id: newId("idea"),
+      brandId,
+      date: today,
+      idea: yi.idea,
+      used: false,
+      score: null,
+      reasoning: null,
+      contentType: yi.contentType,
+      contentFormat: yi.contentFormat,
+      youtubeSeriesId: yi.youtubeSeriesId,
+      youtubeMetadata: JSON.stringify(yi.youtubeMetadata),
+      createdAt: now,
+    }));
+    if (rows.length > 0) {
+      await db.insert(dailyIdeas).values(rows);
+    }
+    return rows.map((r) => ({
+      id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning,
+      contentType: r.contentType, contentFormat: r.contentFormat,
+      youtubeSeriesId: r.youtubeSeriesId, youtubeMetadata: r.youtubeMetadata,
+    }));
+  }
   // Duplicate Checker, Content Pillar, & Keyword Priority NYATA (2026-08-05) - kirim
   // klasifikasi ASLI (bukan cuma teks skrip mentah) supaya distribusi pilar/angle/
   // keyword SEBENARNYA dipertimbangkan, lihat buildDistributionBlock &
@@ -136,7 +186,11 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
   if (rows.length > 0) {
     await db.insert(dailyIdeas).values(rows);
   }
-  return rows.map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning, contentType: r.contentType, contentFormat: r.contentFormat }));
+  return rows.map((r) => ({
+    id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning,
+    contentType: r.contentType, contentFormat: r.contentFormat,
+    youtubeSeriesId: null, youtubeMetadata: null,
+  }));
 }
 
 export async function forceRegenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {

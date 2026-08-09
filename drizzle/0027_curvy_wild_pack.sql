@@ -1,0 +1,1 @@
+ALTER TABLE `channel_profiles` ADD `youtube_category_id` text;

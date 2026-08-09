@@ -45,7 +45,14 @@ export async function runAutoContent(
   // YT Shorts (2026-08-10, permintaan Agus) - dari daily_ideas.contentFormat kalau
   // dipanggil cron auto-generate, diteruskan apa adanya ke projects.contentFormat.
   // processProject.ts baca ini utk paksa portrait+<=60dtk apa pun setting brand.
-  contentFormat?: string | null
+  contentFormat?: string | null,
+  // YouTube Editorial Engine (2026-08-10) - dari daily_ideas.youtubeSeriesId/
+  // youtubeMetadata kalau ide ini datang dari youtubeEditorial.ts (lihat
+  // dailyContentPlanner.ts), diteruskan apa adanya ke projects. processProject.ts baca
+  // youtubeMetadata utk isi chapters (butuh durasi render asli) & pakai script APA
+  // ADANYA sbg naskah (skrip dokumenter lengkap, bukan brief singkat spt ide biasa).
+  youtubeSeriesId?: string | null,
+  youtubeMetadata?: string | null
 ): Promise<{ projectId: string; script: string; fromBroll: boolean } & ProcessResult> {
   let script = scriptOverride;
 
@@ -192,6 +199,8 @@ export async function runAutoContent(
     brandId,
     type,
     contentFormat: type === "video" ? contentFormat ?? null : null,
+    youtubeSeriesId: type === "video" ? youtubeSeriesId ?? null : null,
+    youtubeMetadata: type === "video" ? youtubeMetadata ?? null : null,
     status: "uploaded",
     script,
     transcript: null,
