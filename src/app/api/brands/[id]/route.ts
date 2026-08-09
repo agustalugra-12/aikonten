@@ -29,22 +29,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Volume harian 3 tipe (2026-08-05, revisi Agus - awalnya total WAJIB 10 [2 tipe],
   // sekarang total BEBAS sejumlah yg di-set ("4 foto, 4 vidio, 4 curasel artinya 12
   // konten") - validasi cuma masing2 integer >= 0 & totalnya >= 1 (bukan 0 semua).
-  if ("dailyVideoCount" in body || "dailySinglePhotoCount" in body || "dailyCarouselCount" in body) {
+  // dailyYoutubeShortsCount (2026-08-10, fitur YT Shorts) - digabung ke blok validasi
+  // yg sama krn sama-sama "volume harian per tipe", ikut jg aturan "total minimal 1" -
+  // brand BOLEH set 0 video/0 foto/0 carousel selama py YT Shorts (atau sebaliknya),
+  // yang tidak boleh cuma SEMUA 4 tipe 0 sekaligus (tidak ada konten sama sekali).
+  if ("dailyVideoCount" in body || "dailySinglePhotoCount" in body || "dailyCarouselCount" in body || "dailyYoutubeShortsCount" in body) {
     const videoCount = "dailyVideoCount" in body ? Number(body.dailyVideoCount) : existing.dailyVideoCount;
     const fotoCount = "dailySinglePhotoCount" in body ? Number(body.dailySinglePhotoCount) : existing.dailySinglePhotoCount;
     const carouselCount = "dailyCarouselCount" in body ? Number(body.dailyCarouselCount) : existing.dailyCarouselCount;
+    const ytShortsCount = "dailyYoutubeShortsCount" in body ? Number(body.dailyYoutubeShortsCount) : existing.dailyYoutubeShortsCount;
     if (
-      !Number.isInteger(videoCount) || !Number.isInteger(fotoCount) || !Number.isInteger(carouselCount) ||
-      videoCount < 0 || fotoCount < 0 || carouselCount < 0
+      !Number.isInteger(videoCount) || !Number.isInteger(fotoCount) || !Number.isInteger(carouselCount) || !Number.isInteger(ytShortsCount) ||
+      videoCount < 0 || fotoCount < 0 || carouselCount < 0 || ytShortsCount < 0
     ) {
-      return NextResponse.json({ error: "dailyVideoCount/dailySinglePhotoCount/dailyCarouselCount harus integer >= 0" }, { status: 400 });
+      return NextResponse.json({ error: "dailyVideoCount/dailySinglePhotoCount/dailyCarouselCount/dailyYoutubeShortsCount harus integer >= 0" }, { status: 400 });
     }
-    if (videoCount + fotoCount + carouselCount < 1) {
-      return NextResponse.json({ error: "Total video+foto+carousel harus minimal 1" }, { status: 400 });
+    if (videoCount + fotoCount + carouselCount + ytShortsCount < 1) {
+      return NextResponse.json({ error: "Total video+foto+carousel+YT Shorts harus minimal 1" }, { status: 400 });
     }
     update.dailyVideoCount = videoCount;
     update.dailySinglePhotoCount = fotoCount;
     update.dailyCarouselCount = carouselCount;
+    update.dailyYoutubeShortsCount = ytShortsCount;
   }
 
   // Durasi target video (2026-08-05, permintaan Agus - "video 30 detik 60 detik dan

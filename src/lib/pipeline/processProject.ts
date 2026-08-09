@@ -85,10 +85,15 @@ export async function processProject(id: string): Promise<ProcessResult> {
     const [rawFootage] = rawFootageAssets;
 
     const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
+    // YT Shorts (2026-08-10, permintaan Agus) - project dari bucket dailyYoutubeShorts
+    // Count SELALU dipaksa <=60dtk & portrait, TIDAK PEDULI videoOrientation/
+    // videoDurationTarget brand (brand itu bisa saja disetel landscape 5 menit utk video
+    // biasa - Shorts butuh format sendiri, lihat catatan schema.ts projects.contentFormat).
+    const isYoutubeShorts = project.contentFormat === "youtube_shorts";
     // Durasi target video (2026-08-05, permintaan Agus - "video 30 detik 60 detik dan
     // 1.30") - setting per-brand, dipakai SEMUA budget/klip di bawah (video-only, tidak
     // relevan utk cabang carousel/foto di atas).
-    const durationConfig = getDurationConfig(brand?.videoDurationTarget);
+    const durationConfig = getDurationConfig(isYoutubeShorts ? 60 : brand?.videoDurationTarget);
 
     if (project.type === "carousel") {
       const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
@@ -579,7 +584,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
       logoUrl: brand?.logoUrl,
       // Orientasi (2026-08-05, permintaan Agus - "landscape atau potrait ini utk
       // kebutuhan YT") - setting per-brand, default "portrait" kalau belum di-set.
-      orientation: brand?.videoOrientation,
+      // YT Shorts (2026-08-10) SELALU portrait, override setting brand - lihat
+      // isYoutubeShorts di atas.
+      orientation: isYoutubeShorts ? "portrait" : brand?.videoOrientation,
     });
 
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,

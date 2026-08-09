@@ -41,7 +41,11 @@ export async function runAutoContent(
   // tidak ada malah foto semua") - dari daily_ideas.contentType kalau dipanggil cron
   // auto-generate, opsional (manual "⚡ Konten Otomatis" tanpa ide pre-klasifikasi tetap
   // jalan spt sebelumnya, lihat pemakaiannya di bawah).
-  desiredType?: "video" | "foto" | "carousel"
+  desiredType?: "video" | "foto" | "carousel",
+  // YT Shorts (2026-08-10, permintaan Agus) - dari daily_ideas.contentFormat kalau
+  // dipanggil cron auto-generate, diteruskan apa adanya ke projects.contentFormat.
+  // processProject.ts baca ini utk paksa portrait+<=60dtk apa pun setting brand.
+  contentFormat?: string | null
 ): Promise<{ projectId: string; script: string; fromBroll: boolean } & ProcessResult> {
   let script = scriptOverride;
 
@@ -187,6 +191,7 @@ export async function runAutoContent(
     id: projectId,
     brandId,
     type,
+    contentFormat: type === "video" ? contentFormat ?? null : null,
     status: "uploaded",
     script,
     transcript: null,

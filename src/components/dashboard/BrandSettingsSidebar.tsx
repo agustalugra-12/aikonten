@@ -65,6 +65,7 @@ export function BrandSettingsSidebar({
   const [videoCount, setVideoCount] = useState(brand?.dailyVideoCount ?? 7);
   const [fotoCount, setFotoCount] = useState(brand?.dailySinglePhotoCount ?? 3);
   const [carouselCount, setCarouselCount] = useState(brand?.dailyCarouselCount ?? 0);
+  const [ytShortsCount, setYtShortsCount] = useState(brand?.dailyYoutubeShortsCount ?? 0);
   const [videoDuration, setVideoDuration] = useState(String(brand?.videoDurationTarget ?? 60));
   const [carouselPhotos, setCarouselPhotos] = useState(String(brand?.carouselPhotosPerPost ?? 5));
   const [orientation, setOrientation] = useState(brand?.videoOrientation ?? "portrait");
@@ -87,6 +88,7 @@ export function BrandSettingsSidebar({
     setVideoCount(brand?.dailyVideoCount ?? 7);
     setFotoCount(brand?.dailySinglePhotoCount ?? 3);
     setCarouselCount(brand?.dailyCarouselCount ?? 0);
+    setYtShortsCount(brand?.dailyYoutubeShortsCount ?? 0);
     setVideoDuration(String(brand?.videoDurationTarget ?? 60));
     setCarouselPhotos(String(brand?.carouselPhotosPerPost ?? 5));
     setOrientation(brand?.videoOrientation ?? "portrait");
@@ -162,7 +164,7 @@ export function BrandSettingsSidebar({
     }
   }
 
-  const automationTotal = videoCount + fotoCount + carouselCount;
+  const automationTotal = videoCount + fotoCount + carouselCount + ytShortsCount;
   const automationInvalid = automationTotal < 1;
   const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
   const autoPublishInvalid = publishMode === "auto" && (autoPublishTimes.length === 0 || !autoPublishTimes.every((t) => timeRe.test(t)));
@@ -194,7 +196,7 @@ export function BrandSettingsSidebar({
 
   async function handleSaveAutomation() {
     if (automationInvalid) {
-      toast.error("Total video + foto + carousel harus minimal 1");
+      toast.error("Total video + foto + carousel + YT Shorts harus minimal 1");
       return;
     }
     if (autoPublishInvalid) {
@@ -206,6 +208,7 @@ export function BrandSettingsSidebar({
       dailyVideoCount: videoCount,
       dailySinglePhotoCount: fotoCount,
       dailyCarouselCount: carouselCount,
+      dailyYoutubeShortsCount: ytShortsCount,
       videoDurationTarget: Number(videoDuration),
       carouselPhotosPerPost: Number(carouselPhotos),
       videoOrientation: orientation,
@@ -406,7 +409,20 @@ export function BrandSettingsSidebar({
                   <Input id="carouselCount" type="number" min={0} value={carouselCount}
                     onChange={(e) => setCarouselCount(Math.max(0, Number(e.target.value) || 0))} className="w-20" />
                 </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ytShortsCount" className="text-xs">🩳 YT Shorts</Label>
+                  <Input id="ytShortsCount" type="number" min={0} value={ytShortsCount}
+                    onChange={(e) => setYtShortsCount(Math.max(0, Number(e.target.value) || 0))} className="w-20" />
+                </div>
               </div>
+              {ytShortsCount > 0 && (
+                <p className="text-xs rounded-md border bg-muted/50 p-2">
+                  🩳 Video YT Shorts SELALU vertical (9:16) &amp; maksimal 60 detik, walau pengaturan Orientasi/Durasi di
+                  bawah disetel beda (mis. brand bisa sekaligus punya video landscape panjang utk YouTube reguler DAN
+                  video pendek utk YouTube Shorts). Butuh akun YouTube yang sudah terhubung (tab Akun Sosmed) supaya
+                  benar-benar terbit ke YouTube - kalau belum terhubung, video tetap dibuat tapi publish akan gagal.
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">Total: {automationTotal} konten/hari</p>
               {automationInvalid && <p className="text-xs text-destructive">Total harus minimal 1</p>}
             </div>

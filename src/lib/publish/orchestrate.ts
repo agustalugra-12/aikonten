@@ -123,10 +123,22 @@ export async function publishProject(projectId: string): Promise<void> {
       }
     }
 
+    const baseCaption = hashtags.length ? `${caption}\n\n${hashtags.map((h: string) => `#${h}`).join(" ")}` : caption;
+    // Sinyal #Shorts (2026-08-10, fitur YT Shorts) - YouTube SEBENARNYA auto-deteksi
+    // Shorts murni dari dimensi file (portrait/persegi) + durasi <=3 menit, video ini
+    // SUDAH dirender portrait+<=60dtk (lihat processProject.ts isYoutubeShorts) jadi
+    // otomatis kedeteksi TANPA tag ini juga - #Shorts di sini cuma sinyal TAMBAHAN yg
+    // umum dipakai kreator utk bantu algoritma/discovery Shorts, HANYA relevan utk akun
+    // YouTube (bukan platform lain yg dpt caption SAMA di loop ini).
+    const outCaption =
+      account.platform === "youtube" && project.contentFormat === "youtube_shorts" && !baseCaption.includes("#Shorts")
+        ? `${baseCaption}\n\n#Shorts`
+        : baseCaption;
+
     const result = await publisher({
       videoUrl: finalVideo?.fileUrl,
       imageUrls: finalImages.map((a) => a.fileUrl),
-      caption: hashtags.length ? `${caption}\n\n${hashtags.map((h: string) => `#${h}`).join(" ")}` : caption,
+      caption: outCaption,
       accessToken,
       platformAccountId: account.platformAccountId,
       accountUsername: account.username,

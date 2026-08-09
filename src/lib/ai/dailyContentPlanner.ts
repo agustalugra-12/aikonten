@@ -29,6 +29,7 @@ export type DailyIdea = {
   score: number | null;
   reasoning: string | null;
   contentType: "video" | "foto" | "carousel" | null;
+  contentFormat: string | null;
 };
 
 export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {
@@ -40,7 +41,7 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     .where(and(eq(dailyIdeas.brandId, brandId), eq(dailyIdeas.date, today)));
   if (existing.length > 0) {
     return existing
-      .map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning, contentType: r.contentType }))
+      .map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning, contentType: r.contentType, contentFormat: r.contentFormat }))
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
 
@@ -84,7 +85,17 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
   // ide BELUM DIPAKAI punya brand ini, FIFO (createdAt terlama dulu - ide yg diupload
   // duluan dipakai duluan), MAKSIMAL sejumlah target harian (sisanya biar AI generate
   // sendiri, lihat mustIncludeIdeas di suggestScoredContentIdeas).
-  const dailyTotal = brand.dailyVideoCount + brand.dailySinglePhotoCount + brand.dailyCarouselCount;
+  // YT Shorts (2026-08-10, permintaan Agus - "pengaturan untuk yt short di automation")
+  // - dilebur ke bucket "video" saat MINTA ide (LLM tidak perlu tahu konsep ini, cukup
+  // brainstorm ide video spt biasa - lihat catatan schema.ts) - videoCountForIdeas =
+  // video biasa + YT Shorts DIGABUNG, supaya jumlah ide video yg diminta tetap benar
+  // (bukan diam-diam mencuri slot dari dailyVideoCount). Ditandai contentFormat
+  // "youtube_shorts" SETELAH hasil balik, deterministik di kode (bukan diserahkan ke
+  // LLM) - N ide video TERAKHIR (skor terendah di antara video) jadi YT Shorts, sisanya
+  // video biasa - ide mana yg kebagian tidak penting krn semua ide "video" setara
+  // (belum ada framing konten YT Shorts vs video biasa yg berbeda di tahap ide).
+  const videoCountForIdeas = brand.dailyVideoCount + brand.dailyYoutubeShortsCount;
+  const dailyTotal = videoCountForIdeas + brand.dailySinglePhotoCount + brand.dailyCarouselCount;
   const manualPool = await db
     .select()
     .from(manualIdeas)
@@ -94,7 +105,7 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
 
   const scoredIdeas = await suggestScoredContentIdeas(
     brand.name, brand.description, recentScripts,
-    brand.dailyVideoCount, brand.dailySinglePhotoCount, brand.dailyCarouselCount,
+    videoCountForIdeas, brand.dailySinglePhotoCount, brand.dailyCarouselCount,
     recentClassifications, performanceClassifications, brand.knowledgeSite, brand.manualKnowledge,
     manualPool.map((m) => m.idea)
   );
@@ -103,8 +114,14 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     await db.update(manualIdeas).set({ used: true }).where(inArray(manualIdeas.id, manualPool.map((m) => m.id)));
   }
 
+  const videoIdeaIndices = scoredIdeas
+    .map((s, i) => ({ contentType: s.contentType, i }))
+    .filter((x) => x.contentType === "video")
+    .map((x) => x.i);
+  const shortsIndices = new Set(videoIdeaIndices.slice(-brand.dailyYoutubeShortsCount));
+
   const now = new Date();
-  const rows = scoredIdeas.map((s) => ({
+  const rows = scoredIdeas.map((s, i) => ({
     id: newId("idea"),
     brandId,
     date: today,
@@ -113,12 +130,13 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     score: s.score,
     reasoning: s.reasoning,
     contentType: s.contentType,
+    contentFormat: shortsIndices.has(i) ? "youtube_shorts" : null,
     createdAt: now,
   }));
   if (rows.length > 0) {
     await db.insert(dailyIdeas).values(rows);
   }
-  return rows.map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning, contentType: r.contentType }));
+  return rows.map((r) => ({ id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning, contentType: r.contentType, contentFormat: r.contentFormat }));
 }
 
 export async function forceRegenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {

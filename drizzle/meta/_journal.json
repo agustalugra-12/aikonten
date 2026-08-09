@@ -169,6 +169,13 @@
       "when": 1786282944512,
       "tag": "0023_jazzy_la_nuit",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1786311988680,
+      "tag": "0024_melted_secret_warriors",
+      "breakpoints": true
     }
   ]
 }

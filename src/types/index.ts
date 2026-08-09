@@ -7,6 +7,7 @@ export type Brand = {
   dailyVideoCount: number;
   dailySinglePhotoCount: number;
   dailyCarouselCount: number;
+  dailyYoutubeShortsCount: number;
   videoDurationTarget: number;
   carouselPhotosPerPost: number;
   videoOrientation: "portrait" | "landscape";

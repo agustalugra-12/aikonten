@@ -37,6 +37,16 @@ export const brands = sqliteTable("brands", {
   dailyVideoCount: integer("daily_video_count").notNull().default(7),
   dailySinglePhotoCount: integer("daily_single_photo_count").notNull().default(3),
   dailyCarouselCount: integer("daily_carousel_count").notNull().default(0),
+  // YT Shorts (2026-08-10, permintaan Agus - "aku mau ada pengaturan untuk yt short di
+  // automation sehingga bisa buat vidio pendek untuk yt") - bucket harian TERPISAH dari
+  // dailyVideoCount krn brand cuma py SATU videoOrientation/videoDurationTarget global
+  // (dipakai SEMUA video "biasa") - kalau Agus mau video landscape panjang utk YouTube
+  // reguler SEKALIGUS video vertical pendek utk YouTube Shorts di hari yg sama, itu 2
+  // FORMAT beda yg tidak bisa diwakili 1 setting orientasi/durasi brand. Video dari
+  // bucket ini SELALU dipaksa portrait + <=60dtk apa pun videoOrientation/
+  // videoDurationTarget brand (lihat processProject.ts) - override PER PROJECT
+  // (projects.contentFormat), bukan ubah setting global brand.
+  dailyYoutubeShortsCount: integer("daily_youtube_shorts_count").notNull().default(0),
   // Durasi target video (2026-08-05, permintaan Agus - "durasi konten video misal video
   // 30 detik 60 detik dan 1.30") - dipakai processProject.ts (TARGET_VIDEO_CLIP_COUNT dkk,
   // sebelumnya hardcode target 30-60 detik) utk turunkan jumlah klip yg dikumpulkan.
@@ -149,6 +159,12 @@ export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   brandId: text("brand_id").notNull().references(() => brands.id),
   type: text("type", { enum: ["video", "carousel"] }).notNull(),
+  // Format spesifik dalam tipe "video" (2026-08-10, fitur YT Shorts - lihat catatan
+  // brands.dailyYoutubeShortsCount) - null = video biasa (pakai orientasi/durasi brand
+  // apa adanya), "youtube_shorts" = processProject.ts PAKSA portrait + <=60dtk apa pun
+  // setting brand, & publish ke YouTube disertai tanda #Shorts. Nullable, khusus video -
+  // carousel/foto tidak relevan sama sekali dgn field ini.
+  contentFormat: text("content_format"),
   // "partial" (2026-08-07, permintaan Agus - "yang berhasil di uploud ke tiktok saja
   // sedangkan fb dan ig gagal agar nanti di uploud ulang") - SEBELUM ini status cuma
   // "published" (kalau ADA SATU akun sukses, walau akun lain gagal) atau "failed" -
@@ -381,6 +397,11 @@ export const dailyIdeas = sqliteTable("daily_ideas", {
   // keduanya). Baris lama (sblm migrasi) tetap valid - nilainya cuma "video"/"carousel",
   // tidak ada yg otomatis jadi "foto" tanpa sengaja.
   contentType: text("content_type", { enum: ["video", "foto", "carousel"] }),
+  // Nullable, khusus contentType="video" (2026-08-10, fitur YT Shorts) - "youtube_shorts"
+  // kalau ide ini dipilih dari bucket brands.dailyYoutubeShortsCount (lihat
+  // dailyContentPlanner.ts getOrGenerateDailyIdeas), diteruskan ke projects.contentFormat
+  // saat cron/auto-generate memproses ide ini jadi project sungguhan.
+  contentFormat: text("content_format"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
