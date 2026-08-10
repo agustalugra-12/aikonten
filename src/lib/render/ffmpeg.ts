@@ -198,10 +198,30 @@ export async function renderFinalVideo(opts: {
     // ekstensi utk input (`-i`), jadi ekstensi salah TIDAK PERNAH benar2 gagal decode,
     // ini murni supaya nama file jujur soal isinya, bukan perbaikan bug fungsional.
     let audioPath: string | null = null;
+    let audioDurationSeconds = 0;
     if (opts.voiceoverAudioBuffer) {
       audioPath = path.join(workDir, "voiceover.wav");
       await writeFile(audioPath, opts.voiceoverAudioBuffer);
+      audioDurationSeconds = await getDurationSeconds(audioPath);
     }
+    // Narasi lebih panjang dari footage yg berhasil terkumpul (2026-08-10, laporan
+    // Agus - "narasi sampai tengah sudah habis... long atau short vidio harus begitu"
+    // [narasi SEHARUSNYA sampai akhir, bukan berhenti di tengah]) - PALING SERING
+    // kejadian di channel TANPA Bank Footage sendiri (YouTube Editorial Engine, full
+    // B-roll stok) - Pexels/Pixabay bisa kehabisan klip BARU yg cocok utk query
+    // tertentu jauh SEBELUM footage mencapai target durasi brand, sementara skripnya
+    // sendiri ditulis utk durasi PENUH (lihat youtubeEditorial.ts). SEBELUM ini output
+    // SELALU dipotong ke videoDurationSeconds (`-t`, lihat komentar di bawah soal audio
+    // PENDEK) - kalau audio (narasi) JUSTRU LEBIH PANJANG dari video, narasi ikut
+    // terpotong di tengah kalimat, bukan cuma videonya. Deteksi di sini: kalau audio
+    // > video, video di-LOOP (`-stream_loop -1` pada input concatenatedPath, ffmpeg
+    // ulang dari awal secukupnya) supaya SELALU cukup panjang menutupi audio penuh -
+    // subtitle (word-timing asli dari audio) tetap akurat krn timing-nya sendiri
+    // memang berbasis audio, bukan video. Kasus SEBALIKNYA (audio lebih pendek -
+    // caption Pelangi singkat) TIDAK BERUBAH SAMA SEKALI (loop cuma aktif kalau
+    // audio>video, apad di bawah tetap jalan spt sebelumnya).
+    const needsVideoLoop = audioDurationSeconds > videoDurationSeconds;
+    const outputDurationSeconds = Math.max(videoDurationSeconds, audioDurationSeconds);
 
     // 6) Bakar subtitle + overlay logo + mux audio TTS. PENTING (bug nyata ditemukan
     // lewat tes - "-vf" simple-filter DIGABUNG dgn "-map" eksplisit bikin filter
@@ -210,7 +230,15 @@ export async function renderFinalVideo(opts: {
     // biasa. Urutan input: 0=video gabungan, lalu logo (kalau ada), lalu audio (kalau
     // ada) - index dilacak manual krn keduanya opsional & urutannya penting.
     const finalPath = path.join(workDir, "final.mp4");
-    const finalArgs = ["-y", "-i", concatenatedPath];
+    const finalArgs = ["-y"];
+    if (needsVideoLoop) {
+      // "-stream_loop -1" ulang input INI (concatenatedPath) dari awal terus-menerus -
+      // output tetap di-cap eksplisit ke outputDurationSeconds di bawah, jadi TIDAK
+      // pernah render tanpa batas, cuma memastikan videonya CUKUP panjang menutupi
+      // audio yg lebih panjang.
+      finalArgs.push("-stream_loop", "-1");
+    }
+    finalArgs.push("-i", concatenatedPath);
     let nextInputIdx = 1;
     let logoInputIdx: number | null = null;
     if (logoPath) {
@@ -233,15 +261,15 @@ export async function renderFinalVideo(opts: {
       filterStages.push(`[${logoInputIdx}:v]format=rgba[logofmt]`);
       filterStages.push(`[${curLabel}][logofmt]overlay=W-w-${logoMargin}:${logoMargin}[vout]`);
     }
-    // Video yg jadi patokan durasi, BUKAN audio (bug nyata ditemukan 2026-08-07: video
-    // Laundry In Bali yg sudah dibudget >=33dtk [lihat PRE_RENDER_TARGET_SECONDS,
-    // processProject.ts] tetap keluar cuma 23-28dtk). Akar masalah SEBENARNYA bukan
-    // estimasi footage meleset (spt diasumsikan gate di processProject.ts) - "-shortest"
-    // di sini bikin video ikut TERPOTONG kalau audio TTS dubbing (caption pendek -> baca
-    // cepat) lebih pendek dari total visual yg sudah dibudget pas/lebih. Sekarang: audio
-    // pendek diisi SILENCE (apad) sampai minimal sepanjang video, lalu output di-cap
-    // eksplisit ke videoDurationSeconds - video (yg sudah lolos gate minimum) tidak
-    // pernah lagi terpotong gara-gara narasi lebih pendek dari visualnya.
+    // Durasi output = MAX(video, audio), bukan cuma video (2026-08-07 fix, DIPERLUAS
+    // 2026-08-10 - lihat needsVideoLoop di atas). Kasus asli 2026-08-07: video Laundry
+    // In Bali yg sudah dibudget >=33dtk tetap keluar cuma 23-28dtk krn "-shortest" bikin
+    // video ikut TERPOTONG kalau audio TTS (caption pendek -> baca cepat) lebih pendek
+    // dari visual - fix-nya: audio pendek diisi SILENCE (apad) sampai minimal sepanjang
+    // video. Kasus BARU 2026-08-10 (laporan Agus - "narasi sampai tengah sudah habis"):
+    // kebalikannya - audio (narasi PANJANG, YouTube Editorial Engine) lebih panjang dari
+    // video (footage stok kehabisan sebelum capai target) - video di-LOOP (lihat
+    // needsVideoLoop) supaya narasi TIDAK PERNAH terpotong gara-gara footage kurang.
     if (audioInputIdx !== null) {
       filterStages.push(`[${audioInputIdx}:a]apad[aout]`);
       finalArgs.push("-filter_complex", filterStages.join(";"));
@@ -250,7 +278,7 @@ export async function renderFinalVideo(opts: {
       finalArgs.push("-filter_complex", filterStages.join(";"));
       finalArgs.push("-map", "[vout]");
     }
-    finalArgs.push("-t", String(videoDurationSeconds));
+    finalArgs.push("-t", String(outputDurationSeconds));
     finalArgs.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-pix_fmt", "yuv420p", finalPath);
     await run("ffmpeg", finalArgs);
 
