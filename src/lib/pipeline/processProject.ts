@@ -16,6 +16,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
+import { runVideoQualityChecks } from "@/lib/pipeline/qualityChecker";
 import { imageToVideoClip } from "@/lib/render/imageToClip";
 import { generatePosterCopy } from "@/lib/ai/posterCopy";
 import { applyPosterDesign } from "@/lib/ai/posterDesign";
@@ -778,6 +779,20 @@ export async function processProject(id: string): Promise<ProcessResult> {
           createdAt: new Date(),
         });
       }
+    }
+
+    // Quality Checker (2026-08-10, PRD "AI Content Editing Engine" - dibangun LANGSUNG
+    // stlh insiden nyata: 3 video lama dgn narasi rusak [163dtk sunyi] sempat ke-publish
+    // otomatis krn TIDAK ADA pemeriksaan yg menahannya sblm status "ready". Cek di sini
+    // JADI GERBANG WAJIB - gagal cek -> "failed" (BUKAN "ready"), tidak pernah tampil
+    // sbg draft yg terlihat siap padahal cacat, apalagi ke-auto-publish.
+    const qualityCheck = await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, durationConfig.min);
+    if (!qualityCheck.passed) {
+      await db
+        .update(projects)
+        .set({ status: "failed", errorMessage: `Quality Check gagal: ${qualityCheck.issues.join("; ")}`, updatedAt: new Date() })
+        .where(eq(projects.id, id));
+      throw new Error(`Quality Check gagal: ${qualityCheck.issues.join("; ")}`);
     }
 
     await db.update(projects).set({ status: "ready", updatedAt: new Date() }).where(eq(projects.id, id));
