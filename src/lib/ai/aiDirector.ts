@@ -24,6 +24,12 @@ export type DirectorDecision = {
   motions: MotionType[]; // 1 per klip
   transitions: TransitionType[]; // 1 per celah antar klip (N-1 utk N klip)
   musicMood: MusicMood; // "none" = sengaja tanpa musik (mis. narasi sangat padat/serius)
+  // Sticker/Emoji Overlay (2026-08-10, PRD "Overlay: Sticker, Emoji") - index klip
+  // PERTAMA berenergi "peak" (klimaks/fakta paling menarik), null kalau tidak ada beat
+  // "peak" sama sekali. SENGAJA cuma 1 (bukan tiap klip peak) - sticker di SETIAP momen
+  // seru akan jadi berlebihan/mengganggu, 1 flash yg tepat waktu lebih efektif drpd
+  // banyak yg monoton (sama prinsip dgn CTA generik 1x drpd variasi tak perlu).
+  stickerClipIndex: number | null;
 };
 
 const VALID_MOODS: MusicMood[] = ["calm", "mysterious", "upbeat", "dramatic", "neutral", "none"];
@@ -44,6 +50,7 @@ function fallbackDecision(clipCount: number): DirectorDecision {
     motions,
     transitions: Array.from({ length: Math.max(0, clipCount - 1) }, (_, i) => ALL_TRANSITION_TYPES[i % ALL_TRANSITION_TYPES.length]),
     musicMood: "neutral",
+    stickerClipIndex: null, // fallback round-robin tidak py info energi - tanpa sticker drpd nebak
   };
 }
 
@@ -119,7 +126,14 @@ export async function planEdit(script: string, clipCount: number, brandId: strin
     transitions.push(mapEnergyToTransition(energyLevels[i], energyLevels[i + 1]));
   }
 
-  return { motions, transitions, musicMood };
+  const peakIdx = energyLevels.indexOf("peak");
+  // Klip 0 dikecualikan (2026-08-10) - klip 0 SUDAH dapat motion "zoom-in" kuat dari Hook
+  // Optimization di atas, sticker fire.png BARENGAN di klip pertama akan menumpuk 2 efek
+  // sekaligus di detik pertama (berlebihan) - kalau klip "peak" pertama justru klip 0,
+  // cari klip peak BERIKUTNYA saja.
+  const stickerClipIndex = peakIdx > 0 ? peakIdx : energyLevels.indexOf("peak", 1);
+
+  return { motions, transitions, musicMood, stickerClipIndex: stickerClipIndex >= 0 ? stickerClipIndex : null };
 }
 
 // Konvensi editing umum (bukan acak) - klimaks dapat gerakan lebih "hidup" (zoom-in

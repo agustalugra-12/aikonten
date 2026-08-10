@@ -22,15 +22,19 @@ const MIN_CLIP_DURATION_FOR_TRANSITION = 1.5;
 export function buildXfadeFilterComplex(
   clipDurations: number[],
   transitions: TransitionType[]
-): { filterComplex: string; outputLabel: string; totalDurationSeconds: number } {
+): { filterComplex: string; outputLabel: string; totalDurationSeconds: number; clipStartOffsets: number[] } {
   if (clipDurations.length === 0) throw new Error("Tidak ada klip utk disambung");
   if (clipDurations.length === 1) {
-    return { filterComplex: "", outputLabel: "0:v", totalDurationSeconds: clipDurations[0] };
+    return { filterComplex: "", outputLabel: "0:v", totalDurationSeconds: clipDurations[0], clipStartOffsets: [0] };
   }
 
   let filterParts: string[] = [];
   let prevLabel = "0:v";
   let runningDuration = clipDurations[0];
+  // Titik mulai TIAP klip di timeline FINAL (2026-08-10, dipakai Sticker/Emoji Overlay
+  // di bawah utk tahu KAPAN klip ke-i mulai tampil, supaya sticker muncul TEPAT di
+  // awal klip yg dipilih, bukan di timestamp sembarang) - klip 0 SELALU mulai di 0.
+  const clipStartOffsets: number[] = [0];
 
   for (let i = 1; i < clipDurations.length; i++) {
     const clipDuration = clipDurations[i];
@@ -43,15 +47,17 @@ export function buildXfadeFilterComplex(
       filterParts.push(
         `[${prevLabel}][${i}:v]xfade=transition=${transitionType}:duration=${TRANSITION_DURATION_SECONDS}:offset=${offset.toFixed(3)}[${outLabel}]`
       );
+      clipStartOffsets.push(offset);
       runningDuration = runningDuration + clipDuration - TRANSITION_DURATION_SECONDS;
     } else {
       // Klip terlalu pendek utk transisi mulus - concat biasa (tanpa overlap) drpd
       // hasil aneh/error, durasi gabungan cuma dijumlah apa adanya.
       filterParts.push(`[${prevLabel}][${i}:v]concat=n=2:v=1:a=0[${outLabel}]`);
+      clipStartOffsets.push(runningDuration);
       runningDuration = runningDuration + clipDuration;
     }
     prevLabel = outLabel;
   }
 
-  return { filterComplex: filterParts.join(";\n"), outputLabel: prevLabel, totalDurationSeconds: runningDuration };
+  return { filterComplex: filterParts.join(";\n"), outputLabel: prevLabel, totalDurationSeconds: runningDuration, clipStartOffsets };
 }

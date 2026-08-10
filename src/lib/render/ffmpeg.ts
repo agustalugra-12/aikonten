@@ -11,6 +11,7 @@ import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN } from "
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
 import { buildXfadeFilterComplex, type TransitionType } from "./transitions";
 import { buildProgressBarFilter, buildCtaTextFilter } from "./overlayEngine";
+import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay";
 
 const execFileAsync = promisify(execFile);
 
@@ -167,6 +168,11 @@ export async function renderFinalVideo(opts: {
   // teks CTA sama sekali kalau kosong/undefined.
   showProgressBar?: boolean;
   ctaText?: string;
+  // Sticker/Emoji Overlay (2026-08-10, PRD "Overlay: Sticker, Emoji" - lihat
+  // stickerOverlay.ts) - index klip (di `allClips`, urutan sama dgn `motions`) yg
+  // dapat flash sticker 🔥 singkat di awalnya. null/undefined = tidak ada sticker sama
+  // sekali (mis. tidak ada beat "peak" terdeteksi, AI Director fallback, dst).
+  stickerClipIndex?: number | null;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -218,7 +224,7 @@ export async function renderFinalVideo(opts: {
     // BUKAN lagi concat demuxer polos "-c copy". WAJIB re-encode di sini (xfade tidak
     // bisa stream-copy), lebih lambat drpd demuxer tapi hasilnya ada transisi
     // sungguhan, bukan cuma hard-cut).
-    const { filterComplex, outputLabel, totalDurationSeconds: estimatedDuration } = buildXfadeFilterComplex(
+    const { filterComplex, outputLabel, totalDurationSeconds: estimatedDuration, clipStartOffsets } = buildXfadeFilterComplex(
       normalizedDurations,
       opts.transitions || []
     );
@@ -338,6 +344,18 @@ export async function renderFinalVideo(opts: {
       finalArgs.push("-loop", "1", "-i", logoPath);
       logoInputIdx = nextInputIdx++;
     }
+    // Sticker (2026-08-10, lihat stickerOverlay.ts) - HANYA di-input kalau AI Director
+    // pilih 1 klip "peak" DAN index-nya valid (dalam rentang clipStartOffsets - jaga2
+    // kalau clipCount berubah/mismatch). Sama "-loop 1" WAJIB spt logo di atas.
+    let stickerInputIdx: number | null = null;
+    const stickerStartSeconds =
+      opts.stickerClipIndex != null && opts.stickerClipIndex >= 0 && opts.stickerClipIndex < clipStartOffsets.length
+        ? clipStartOffsets[opts.stickerClipIndex]
+        : null;
+    if (stickerStartSeconds !== null) {
+      finalArgs.push("-loop", "1", "-i", getStickerAssetPath());
+      stickerInputIdx = nextInputIdx++;
+    }
     let audioInputIdx: number | null = null;
     if (audioPath) {
       finalArgs.push("-i", audioPath);
@@ -375,6 +393,10 @@ export async function renderFinalVideo(opts: {
       filterStages.push(`[${logoInputIdx}:v]format=rgba,fade=t=in:st=0:d=0.5:alpha=1[logofmt]`);
       filterStages.push(`[${curLabel}][logofmt]overlay=W-w-${logoMargin}:${logoMargin}[logoed]`);
       curLabel = "logoed";
+    }
+    if (stickerInputIdx !== null && stickerStartSeconds !== null) {
+      filterStages.push(...buildStickerFilterStages(stickerInputIdx, stickerStartSeconds, TARGET_WIDTH, curLabel, "stickered"));
+      curLabel = "stickered";
     }
     if (opts.showProgressBar) {
       filterStages.push(`[${curLabel}]${buildProgressBarFilter(TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds)}[barred]`);
