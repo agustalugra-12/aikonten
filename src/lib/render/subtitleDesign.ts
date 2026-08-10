@@ -83,14 +83,25 @@ function alignmentFor(position: SubtitleDesign["position"]): number {
   return 2; // "bottom-center"
 }
 
-function marginVFor(position: SubtitleDesign["position"], frameHeight: number): number {
+function marginVFor(position: SubtitleDesign["position"], frameWidth: number, frameHeight: number): number {
   // Alignment tengah (5) posisinya SELALU di tengah frame apa pun MarginV-nya (spec
-  // ASS) - margin cuma relevan utk atas/bawah. Rasio SAMA dgn SUBTITLE_MARGIN_V_RATIO
-  // lama (760/1920 ~ 39.6% dari tepi bawah) utk posisi bawah - posisi atas pakai margin
-  // lebih kecil (dekat tepi atas, bukan menjorok jauh ke tengah).
-  if (position === "top-center") return Math.round(frameHeight * (120 / 1920));
+  // ASS) - margin cuma relevan utk atas/bawah.
   if (position === "middle-center") return 0;
-  return Math.round(frameHeight * (760 / 1920));
+
+  // Landscape vs portrait DIBEDAKAN (2026-08-10, bug nyata dilaporkan Agus - subtitle
+  // video YouTube landscape [Animal Story & Co, 1920x1080] kelihatan tidak "di bagian
+  // bawah" spt yg diminta). Rasio 760/1920 (~39.6% margin dari tepi bawah) SENGAJA
+  // dipertahankan utk PORTRAIT - itu bukan angka sembarang, permintaan eksplisit Agus
+  // 2026-08-05 "posisi tengah-tengah video, turunkan sedikit" (Reels/Shorts py area
+  // aman platform di dekat tepi bawah [username/caption/tombol like-share IG/TikTok] -
+  // margin besar itu SENGAJA menghindarinya). YouTube landscape TIDAK PUNYA overlay UI
+  // spt itu - "di bagian bawah" di sana artinya BENERAN dekat tepi bawah (gaya caption
+  // dokumenter/film biasa), margin jauh lebih kecil (~5.5% dari tinggi frame).
+  const isLandscape = frameWidth > frameHeight;
+  if (position === "top-center") {
+    return Math.round(frameHeight * (isLandscape ? 40 / 1080 : 120 / 1920));
+  }
+  return Math.round(frameHeight * (isLandscape ? 60 / 1080 : 760 / 1920));
 }
 
 // Grouping kata mentah (flat, 1 per kata dari Whisper) jadi "burst" - kelompok kata yg
@@ -173,7 +184,7 @@ export function buildWordHighlightAss(
 ): string {
   const fontSize = toFrameRatio(design.size, frameWidth);
   const outlineWidth = toFrameRatio(design.outlineWidth, frameWidth);
-  const marginV = marginVFor(design.position, frameHeight);
+  const marginV = marginVFor(design.position, frameWidth, frameHeight);
   const alignment = alignmentFor(design.position);
   const shadowDepth = design.shadow ? Math.max(1, Math.round(outlineWidth / 2)) : 0;
 
@@ -231,7 +242,7 @@ export function buildStaticAss(
 ): string {
   const fontSize = toFrameRatio(design.size, frameWidth);
   const outlineWidth = toFrameRatio(design.outlineWidth, frameWidth);
-  const marginV = marginVFor(design.position, frameHeight);
+  const marginV = marginVFor(design.position, frameWidth, frameHeight);
   const alignment = alignmentFor(design.position);
   const shadowDepth = design.shadow ? Math.max(1, Math.round(outlineWidth / 2)) : 0;
 

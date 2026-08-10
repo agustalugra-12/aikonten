@@ -103,8 +103,16 @@ export async function publishProject(projectId: string): Promise<void> {
     // YouTube access token cuma berlaku ~1 jam - krn publish full otomatis (tidak ada
     // langkah manual sblm ini), refresh dulu pakai refresh_token kalau perlu, JANGAN
     // asumsi accessToken yg tersimpan masih hidup (lihat youtubeAuth.ts).
+    //
+    // Bug NYATA ditemukan 2026-08-10 (laporan Agus - publish Animal Story & Co gagal
+    // "belum pernah di-connect lewat OAuth" padahal akunnya SUDAH tersambung via
+    // Buffer) - blok ini SEBELUMNYA cuma cek `account.platform === "youtube"`, TIDAK
+    // peduli publishVia - jadi akun YouTube APAPUN (native ATAU Buffer) dipaksa lewat
+    // refresh token OAuth NATIVE, yang jelas gagal utk akun yang sama sekali tidak
+    // pernah connect via jalur native (cuma py bufferChannelId). WAJIB cek publishVia
+    // juga - refresh token cuma relevan/perlu utk jalur native.
     let accessToken = account.accessToken;
-    if (account.platform === "youtube") {
+    if (account.platform === "youtube" && account.publishVia === "native") {
       try {
         accessToken = await ensureFreshYoutubeAccessToken(account);
       } catch (err) {
