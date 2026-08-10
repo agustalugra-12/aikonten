@@ -82,7 +82,7 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
     // tanpa pesan sejelas itu, jadi WAJIB dites langsung ke API sebelum dipakai, bukan
     // diasumsikan dari skema saja - lihat catatan lengkap di youtubeEditorial.ts).
     // isAiGenerated:true SELALU utk jalur ini - SEMUA konten YouTube Editorial Engine
-    // (skrip GPT + suara Kokoro TTS) memang AI-generated, disclosure jujur bukan opsional.
+    // (skrip GPT + suara GPT TTS) memang AI-generated, disclosure jujur bukan opsional.
     const metadata =
       platform === "instagram"
         ? { instagram: { type: videoUrl ? "reel" : "post", shouldShareToFeed: true } }

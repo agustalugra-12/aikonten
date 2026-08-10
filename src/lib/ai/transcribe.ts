@@ -117,13 +117,15 @@ export async function transcribeFootage(fileUrl: string): Promise<TranscriptSegm
 // endpoint dgn transcribeFootage di atas) - dapat timestamp ASLI dari audio yg
 // BENERAN diputar, bukan estimasi. Terima Buffer langsung (bukan fileUrl) krn audio
 // TTS ini murni in-memory, belum (&tidak perlu) diupload ke storage publik dulu.
-// mimeType default "audio/wav" (2026-08-10, SEBELUMNYA "audio/mpeg" dari era OpenAI
-// tts-1/MP3 - voiceover sekarang dari Kokoro TTS/dubbing.ts, WAV asli, lihat catatan
-// sama di ffmpeg.ts/cloudinary.ts). Satu-satunya pemanggil (processProject.ts) tidak
-// pernah kirim mimeType eksplisit, jadi default ini WAJIB benar.
+// mimeType default "audio/mpeg" (2026-08-10, dubbing.ts balik ke OpenAI gpt-4o-mini-tts
+// yg balikin MP3, sempat "audio/wav" singkat pas pakai Kokoro - lihat catatan sama di
+// ffmpeg.ts/cloudinary.ts). Whisper PERCAYA ekstensi filename yg diturunkan dari mimeType
+// ini utk parse format audio - salah label bisa gagal/salah transkrip diam-diam. Satu-
+// satunya pemanggil (processProject.ts) tidak pernah kirim mimeType eksplisit, jadi
+// default ini WAJIB benar.
 export async function transcribeAudioBuffer(
   buffer: Buffer,
-  mimeType: string = "audio/wav"
+  mimeType: string = "audio/mpeg"
 ): Promise<{ segments: TranscriptSegment[]; words: WordTiming[] }> {
   const client = getOpenAIClient();
   const ext = mimeType.split("/")[1]?.split(";")[0] || "wav";
