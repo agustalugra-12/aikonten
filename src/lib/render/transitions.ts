@@ -5,9 +5,33 @@
 // matematika blending sendiri. Konsekuensi: xfade WAJIB re-encode (bukan stream-copy
 // lagi), sedikit lebih lambat drpd concat demuxer lama - trade-off yg sepadan utk hasil
 // yg terlihat "diedit", bukan cuma ditempel.
-export type TransitionType = "fade" | "slideleft" | "slideright" | "zoomin" | "circleopen";
+// "fadewhite"/"hblur"/"coverleft" ditambahkan 2026-08-10 (PRD minta Flash/Blur/Push -
+// dicek dulu LANGSUNG ke build ffmpeg server ini via `ffmpeg -h filter=xfade` sblm
+// dipakai, bukan diasumsikan dari dokumentasi: nama preset xfade TIDAK PERSIS sama dgn
+// istilah umum, "fadewhite" = flash-ke-putih [padanan terdekat "Flash" editorial],
+// "hblur" = blur transisi horizontal, "coverleft" = klip baru "mendorong" klip lama
+// keluar dari kanan [padanan terdekat "Push"] - ketiganya dikonfirmasi ADA di preset
+// xfade bawaan ffmpeg, bukan nama karangan sendiri).
+export type TransitionType =
+  | "fade"
+  | "slideleft"
+  | "slideright"
+  | "zoomin"
+  | "circleopen"
+  | "fadewhite"
+  | "hblur"
+  | "coverleft";
 
-export const ALL_TRANSITION_TYPES: TransitionType[] = ["fade", "slideleft", "slideright", "zoomin", "circleopen"];
+export const ALL_TRANSITION_TYPES: TransitionType[] = [
+  "fade",
+  "slideleft",
+  "slideright",
+  "zoomin",
+  "circleopen",
+  "fadewhite",
+  "hblur",
+  "coverleft",
+];
 
 // 0.5dtk - cukup terasa TANPA bikin video terasa lambat/ngambang (PRD: "transisi halus
 // dan tidak berlebihan"). Klip WAJIB >= 1.5dtk (sama floor dgn camera motion) supaya

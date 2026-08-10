@@ -123,7 +123,7 @@ export async function planEdit(script: string, clipCount: number, brandId: strin
   if (motions.length > 0) motions[0] = HOOK_MOTION; // Hook Optimization - lihat catatan di atas fallbackDecision
   const transitions: TransitionType[] = [];
   for (let i = 0; i < energyLevels.length - 1; i++) {
-    transitions.push(mapEnergyToTransition(energyLevels[i], energyLevels[i + 1]));
+    transitions.push(mapEnergyToTransition(energyLevels[i], energyLevels[i + 1], i));
   }
 
   const peakIdx = energyLevels.indexOf("peak");
@@ -156,13 +156,21 @@ function mapEnergyToMotion(energy: string, i: number): MotionType {
 }
 
 // Transisi antar 2 segmen energi - lonjakan energi (mis. calm->peak) dapat transisi
-// lebih tegas (zoomin/circleopen, "menghentak"), transisi antar energi SAMA/turun dapat
-// fade yg lebih halus (tidak mengganggu penurunan tensi).
-function mapEnergyToTransition(fromEnergy: string, toEnergy: string): TransitionType {
+// lebih tegas ("menghentak"), transisi antar energi SAMA/turun dapat yg lebih halus
+// (tidak mengganggu penurunan tensi). "fadewhite"/"hblur"/"coverleft" (2026-08-10,
+// PRD Flash/Blur/Push - lihat transitions.ts) dipakai sbg VARIASI kedua di tiap
+// kelas (i%2, pola sama dgn mapEnergyToMotion di atas) - BUKAN pengganti pilihan lama
+// yg sudah terverifikasi (zoomin utk lonjakan-ke-peak, slideleft utk lonjakan biasa,
+// fade utk turun/sama), cuma menambah tekstur supaya video panjang dgn banyak transisi
+// SEJENIS (mis. semua "build->peak") tidak terasa 100% identik berulang-ulang.
+function mapEnergyToTransition(fromEnergy: string, toEnergy: string, i: number): TransitionType {
   const rank: Record<string, number> = { calm: 0, build: 1, peak: 2, resolve: 0 };
   const rising = (rank[toEnergy] ?? 0) > (rank[fromEnergy] ?? 0);
-  if (rising) return toEnergy === "peak" ? "zoomin" : "slideleft";
-  return "fade";
+  if (rising) {
+    if (toEnergy === "peak") return i % 2 === 0 ? "zoomin" : "fadewhite";
+    return i % 2 === 0 ? "slideleft" : "hblur";
+  }
+  return i % 2 === 0 ? "fade" : "coverleft";
 }
 
 // Pilih 1 track dari Music Bank brand ini sesuai mood - RANDOM di antara kandidat mood
