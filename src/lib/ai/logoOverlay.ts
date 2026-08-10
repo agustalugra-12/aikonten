@@ -4,9 +4,11 @@ import sharp from "sharp";
 // final kalau brand punya logoUrl (lihat brands.logoUrl, nullable - brand tanpa logo
 // dilewati begitu saja, bukan wajib). Dua permintaan spesifik: (1) frame LINGKARAN,
 // bukan kotak, (2) ukuran PROPORSIONAL - jangan sampai nutupin konten foto/video
-// terlalu banyak. 16% dari sisi pendek konten + margin 4% - cukup kebaca sbg watermark
-// brand tapi tidak mendominasi frame (standar umum watermark logo media sosial).
-export const LOGO_SIZE_RATIO = 0.16;
+// terlalu banyak. Diturunkan dari 16% ke 8% dari sisi pendek konten (2026-08-10,
+// laporan Agus - "logo terlalu besar" di video hasil render) - tetap kebaca sbg
+// watermark brand, tapi lebih dekat ukuran standar watermark media sosial (biasanya
+// 5-10%, versi lama 16% kegedean).
+export const LOGO_SIZE_RATIO = 0.08;
 export const LOGO_MARGIN_RATIO = 0.04;
 
 async function fetchBuffer(url: string): Promise<Buffer> {
