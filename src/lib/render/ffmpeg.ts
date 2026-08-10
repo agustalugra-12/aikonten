@@ -12,6 +12,7 @@ import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./ca
 import { buildXfadeFilterComplex, type TransitionType } from "./transitions";
 import { buildProgressBarFilter, buildCtaTextFilter } from "./overlayEngine";
 import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay";
+import { nearestBeat } from "@/lib/ai/beatDetect";
 
 const execFileAsync = promisify(execFile);
 
@@ -159,6 +160,15 @@ export async function renderFinalVideo(opts: {
   // Diabaikan kalau tidak ada voiceoverAudioBuffer (musik tanpa narasi belum didukung -
   // proporsional utk sekarang, semua konten app ini SELALU py narasi TTS).
   musicUrl?: string | null;
+  // Music Beat Sync (2026-08-10, PRD Roadmap V3 - lihat beatDetect.ts) - timestamp beat
+  // (detik) dari FILE MUSIK ASLI (belum di-trim), dihitung SEKALI di processProject.ts.
+  // Dipakai di 2 tempat di sini: (1) trim musik mulai dari beat PERTAMA (bukan detik 0
+  // mentah - hindari intro musik yg "flat" sebelum hantaman pertama pas video mulai),
+  // (2) snap momen sticker ke beat terdekat stlh di-shift ke jam POST-TRIM (lihat
+  // komentar di titik pemakaian). Array kosong/undefined = tidak ada beat terdeteksi,
+  // SEMUA logic beat sync di bawah di-skip diam2 (video tetap render normal apa
+  // adanya, sama persis perilaku sblm Beat Sync ada - additive, bukan syarat wajib).
+  musicBeatTimestamps?: number[];
   // Batas keras durasi output (2026-08-10, permintaan Agus "jangan buat short diatas 1
   // menit") - lihat catatan lengkap di dekat outputDurationSeconds di bawah.
   maxDurationSeconds?: number;
@@ -368,10 +378,35 @@ export async function renderFinalVideo(opts: {
     // panjang dari video cuma looping tidak pernah kepakai krn output di-cap `-t` di
     // akhir apa pun keadaannya).
     let musicInputIdx: number | null = null;
+    // Music Beat Sync (2026-08-10) - trim musik mulai dari beat PERTAMA (bukan detik 0
+    // mentah) via "-ss" SEBELUM "-i", spy hantaman pertama musik jatuh TEPAT di awal
+    // video (selaras Hook Optimization - klip 0 SUDAH zoom-in kuat, sekarang musiknya
+    // juga "berbunyi" di detik yg sama, bukan di tengah intro musik yg flat). Clamp
+    // maks 8dtk (2026-08-10) - kalau beat pertama terdeteksi jauh di dlm file (mis.
+    // intro musik panjang), JANGAN buang terlalu banyak bagian track, drpd trim
+    // agresif yg berpotensi kehabisan materi musik lebih cepat saat di-loop.
+    const rawFirstBeat = opts.musicBeatTimestamps && opts.musicBeatTimestamps.length > 0 ? opts.musicBeatTimestamps[0] : 0;
+    const musicTrimSeconds = Math.min(8, Math.max(0, rawFirstBeat));
     if (opts.musicUrl && audioInputIdx !== null) {
-      finalArgs.push("-stream_loop", "-1", "-i", opts.musicUrl);
+      const musicArgs = musicTrimSeconds > 0 ? ["-ss", musicTrimSeconds.toFixed(2)] : [];
+      finalArgs.push("-stream_loop", "-1", ...musicArgs, "-i", opts.musicUrl);
       musicInputIdx = nextInputIdx++;
     }
+    // Beat POST-TRIM (2026-08-10) - stlh musik dipotong mulai dari musicTrimSeconds,
+    // jam musik yg didengar penonton bergeser: beat yg tadinya di t=X (file asli)
+    // sekarang terdengar di t=(X-musicTrimSeconds). Cuma ambil beat SETELAH titik trim
+    // (beat sebelum itu sudah "terpotong", tidak relevan) - dipakai snap sticker di
+    // bawah, BUKAN timestamp asli lagi.
+    const postTrimBeats = (opts.musicBeatTimestamps || [])
+      .filter((t) => t >= musicTrimSeconds)
+      .map((t) => t - musicTrimSeconds);
+    // Snap sticker ke beat terdekat (2026-08-10, Music Beat Sync) - toleransi 0.4dtk
+    // (sama nilai default yg masuk akal dipakai nearestBeat lain). Tidak ketemu beat
+    // dekat (atau tidak ada musik sama sekali, postTrimBeats kosong) -> fallback ke
+    // stickerStartSeconds APA ADANYA (posisi awal klip "peak", perilaku SEBELUM Beat
+    // Sync ada - tetap benar, cuma tidak "on-beat").
+    const snappedStickerStartSeconds =
+      stickerStartSeconds !== null ? nearestBeat(postTrimBeats, stickerStartSeconds, 0.4) ?? stickerStartSeconds : null;
 
     const logoMargin = Math.round(TARGET_WIDTH * LOGO_MARGIN_RATIO);
     const filterStages: string[] = [];
@@ -394,8 +429,8 @@ export async function renderFinalVideo(opts: {
       filterStages.push(`[${curLabel}][logofmt]overlay=W-w-${logoMargin}:${logoMargin}[logoed]`);
       curLabel = "logoed";
     }
-    if (stickerInputIdx !== null && stickerStartSeconds !== null) {
-      filterStages.push(...buildStickerFilterStages(stickerInputIdx, stickerStartSeconds, TARGET_WIDTH, curLabel, "stickered"));
+    if (stickerInputIdx !== null && snappedStickerStartSeconds !== null) {
+      filterStages.push(...buildStickerFilterStages(stickerInputIdx, snappedStickerStartSeconds, TARGET_WIDTH, curLabel, "stickered"));
       curLabel = "stickered";
     }
     if (opts.showProgressBar) {

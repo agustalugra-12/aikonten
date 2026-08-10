@@ -16,6 +16,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
+import { detectBeats } from "@/lib/ai/beatDetect";
 import { pickCtaText, type CtaContext } from "@/lib/ai/ctaEngine";
 import { runVideoQualityChecks } from "@/lib/pipeline/qualityChecker";
 import { imageToVideoClip } from "@/lib/render/imageToClip";
@@ -666,6 +667,18 @@ export async function processProject(id: string): Promise<ProcessResult> {
       console.error("[processProject] gagal ambil track Music Bank, lanjut tanpa musik:", err);
       return null;
     });
+    // Music Beat Sync (2026-08-10, PRD Roadmap V3) - deteksi beat SEKALI di sini
+    // (bukan di ffmpeg.ts) krn musicUrl baru diketahui di titik ini, & biar sejalan dgn
+    // pola motions/transitions/musicUrl lain yg semua dihitung di processProject.ts
+    // lalu diteruskan apa adanya ke renderFinalVideo. Gagal deteksi (audio corrupt/
+    // format aneh) TIDAK BOLEH gagalkan render - render lanjut TANPA beat sync (video
+    // tetap py musik, cuma cut/sticker tidak "on-beat"), bukan menahan seluruh video.
+    const musicBeats = musicUrl
+      ? await detectBeats(musicUrl, 180).catch((err) => {
+          console.error("[processProject] gagal deteksi beat musik, lanjut tanpa beat sync:", err);
+          return { beatTimestamps: [] as number[], firstBeatSeconds: null };
+        })
+      : { beatTimestamps: [] as number[], firstBeatSeconds: null };
     // CTA dinamis (2026-08-10, lihat ctaEngine.ts) - konteks dari sinyal yg SUDAH ada
     // (youtubeMeta/isYoutubeShorts, dihitung di atas), bukan field baru.
     const ctaContext: CtaContext = youtubeMeta ? (isYoutubeShorts ? "youtube_shorts" : "youtube_longform") : "generic";
@@ -684,6 +697,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       motions: directorDecision.motions,
       transitions: directorDecision.transitions,
       musicUrl,
+      musicBeatTimestamps: musicBeats.beatTimestamps,
       stickerClipIndex: directorDecision.stickerClipIndex,
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
       // cabang carousel di atas, sama alasannya.
