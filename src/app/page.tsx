@@ -16,6 +16,7 @@ import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { DailyContentPlanner } from "@/components/dashboard/DailyContentPlanner";
 import { StoryboardDialog } from "@/components/dashboard/StoryboardDialog";
 import { FootageBankDialog } from "@/components/dashboard/FootageBankDialog";
+import { MusicBankDialog } from "@/components/dashboard/MusicBankDialog";
 import { BrandSettingsSidebar } from "@/components/dashboard/BrandSettingsSidebar";
 import { AutoContentButton } from "@/components/dashboard/AutoContentButton";
 import { toast } from "sonner";
@@ -136,6 +137,7 @@ function DashboardContent() {
               {selectedBrandId && <ContentIdeas brandId={selectedBrandId} onPickIdea={setPrefillScript} />}
               {selectedBrandId && <StoryboardDialog brandId={selectedBrandId} />}
               {selectedBrandId && <FootageBankDialog brandId={selectedBrandId} />}
+              {selectedBrandId && <MusicBankDialog brandId={selectedBrandId} />}
               {selectedBrandId && (
                 <BrandSettingsSidebar
                   brandId={selectedBrandId}

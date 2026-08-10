@@ -314,7 +314,15 @@ export async function renderFinalVideo(opts: {
     let nextInputIdx = 1;
     let logoInputIdx: number | null = null;
     if (logoPath) {
-      finalArgs.push("-i", logoPath);
+      // "-loop 1" WAJIB (bug nyata ditemukan lewat tes render sungguhan, bukan cuma
+      // baca kode - lihat catatan fade di bawah): tanpa ini, gambar statis cuma jadi
+      // stream SATU frame di t=0 (durasi ~1/25dtk default). Filter fade=t=in:st=0:d=0.5
+      // ngevaluasi alpha frame SATU2NYA itu tepat di t=0 -> alpha=0 (transparan penuh),
+      // lalu overlay MEMBEKUKAN frame transparan itu utk sisa durasi video - logo
+      // hilang total, bukan cuma soal timing. "-loop 1" bikin gambar jadi stream
+      // frame berulang tanpa henti spy fade bisa benar2 beranimasi lewat waktu; output
+      // akhir tetap dibatasi "-t" di bawah spt pola loop musik/video lain di file ini.
+      finalArgs.push("-loop", "1", "-i", logoPath);
       logoInputIdx = nextInputIdx++;
     }
     let audioInputIdx: number | null = null;
@@ -344,7 +352,14 @@ export async function renderFinalVideo(opts: {
     filterStages.push(`[${curLabel}]ass=${escapeFilterPath(assPath)}[subbed]`);
     curLabel = "subbed";
     if (logoInputIdx !== null) {
-      filterStages.push(`[${logoInputIdx}:v]format=rgba[logofmt]`);
+      // Fade-in 0.5dtk (2026-08-10, Motion Engine - PRD "AI Content Editing Engine"
+      // section 19/20) - logo sebelumnya muncul INSTAN dari frame pertama, elemen
+      // overlay lain (subtitle pop-in, CTA fade-in) sudah py animasi masuk, ini yg
+      // terakhir masih polos. `fade` filter FFmpeg native support alpha fade langsung
+      // (bukan cuma warna) - diterapkan ke STREAM logo SEBELUM di-composite, simpel
+      // drpd ekspresi alpha manual spt di CTA (logo statis, tidak butuh kompleksitas
+      // scale/posisi berubah - cukup opacity naik).
+      filterStages.push(`[${logoInputIdx}:v]format=rgba,fade=t=in:st=0:d=0.5:alpha=1[logofmt]`);
       filterStages.push(`[${curLabel}][logofmt]overlay=W-w-${logoMargin}:${logoMargin}[logoed]`);
       curLabel = "logoed";
     }
