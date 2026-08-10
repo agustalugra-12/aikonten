@@ -69,6 +69,7 @@ export function BrandSettingsSidebar({
   const [videoDuration, setVideoDuration] = useState(String(brand?.videoDurationTarget ?? 60));
   const [carouselPhotos, setCarouselPhotos] = useState(String(brand?.carouselPhotosPerPost ?? 5));
   const [orientation, setOrientation] = useState(brand?.videoOrientation ?? "portrait");
+  const [stylePreset, setStylePreset] = useState(brand?.stylePreset ?? "energetic");
   const [publishMode, setPublishMode] = useState(brand?.publishMode ?? "draft");
   const [autoPublishTimes, setAutoPublishTimes] = useState<string[]>(parseAutoPublishTimes(brand?.autoPublishTimes));
   const [savingAutomation, setSavingAutomation] = useState(false);
@@ -92,6 +93,7 @@ export function BrandSettingsSidebar({
     setVideoDuration(String(brand?.videoDurationTarget ?? 60));
     setCarouselPhotos(String(brand?.carouselPhotosPerPost ?? 5));
     setOrientation(brand?.videoOrientation ?? "portrait");
+    setStylePreset(brand?.stylePreset ?? "energetic");
     setPublishMode(brand?.publishMode ?? "draft");
     setAutoPublishTimes(parseAutoPublishTimes(brand?.autoPublishTimes));
     fetch(`/api/brands/${brandId}/manual-ideas`)
@@ -212,6 +214,7 @@ export function BrandSettingsSidebar({
       videoDurationTarget: Number(videoDuration),
       carouselPhotosPerPost: Number(carouselPhotos),
       videoOrientation: orientation,
+      stylePreset,
       publishMode,
       autoPublishTimes: publishMode === "auto" ? autoPublishTimes : null,
     });
@@ -477,6 +480,25 @@ export function BrandSettingsSidebar({
                   <SelectItem value="portrait">Portrait (9:16 - IG/TikTok)</SelectItem>
                   <SelectItem value="landscape">Landscape (16:9 - YouTube)</SelectItem>
                   <SelectItem value="square">Square (1:1 - Feed IG/FB)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="stylePreset" className="text-xs">🎬 Gaya editing</Label>
+              <p className="text-xs text-muted-foreground">
+                Energetic: motion cepat, transisi tegas, progress bar+sticker aktif - cocok Shorts/TikTok cepat.
+                Documentary: motion halus, transisi fade saja, tanpa progress bar/sticker - cocok konten
+                edukasi/dokumenter. Minimal: nyaris statis, transisi fade polos saja, paling bersih/premium.
+              </p>
+              <Select value={stylePreset} onValueChange={(v) => setStylePreset(v as "energetic" | "documentary" | "minimal")}>
+                <SelectTrigger id="stylePreset" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="energetic">Energetic (cepat & tegas)</SelectItem>
+                  <SelectItem value="documentary">Documentary (halus & tenang)</SelectItem>
+                  <SelectItem value="minimal">Minimal (bersih & premium)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -75,11 +75,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   // Orientasi video (2026-08-05, permintaan Agus - "landscape atau potrait utk YT").
+  // "square" (2026-08-10, PRD Layout) - BUG NYATA ditemukan sambil nambah stylePreset
+  // di bawah: UI (BrandSettingsSidebar) sudah tawarkan opsi "square" tapi validasi di
+  // sini ketinggalan, PATCH bakal balikin 400 kalau brand pilih Square - baru ketahuan
+  // krn dicek ulang, bukan lewat laporan Agus.
   if ("videoOrientation" in body) {
-    if (body.videoOrientation !== "portrait" && body.videoOrientation !== "landscape") {
-      return NextResponse.json({ error: "videoOrientation harus 'portrait' atau 'landscape'" }, { status: 400 });
+    if (!["portrait", "landscape", "square"].includes(body.videoOrientation)) {
+      return NextResponse.json({ error: "videoOrientation harus 'portrait', 'landscape', atau 'square'" }, { status: 400 });
     }
     update.videoOrientation = body.videoOrientation;
+  }
+
+  // Style Preset (2026-08-10, PRD Roadmap V3 "AI Style Preset" - lihat stylePreset.ts).
+  if ("stylePreset" in body) {
+    if (!["energetic", "documentary", "minimal"].includes(body.stylePreset)) {
+      return NextResponse.json({ error: "stylePreset harus 'energetic', 'documentary', atau 'minimal'" }, { status: 400 });
+    }
+    update.stylePreset = body.stylePreset;
   }
 
   // Knowledge Base manual (2026-08-05, permintaan Agus - "setiap brand bisa mengisi

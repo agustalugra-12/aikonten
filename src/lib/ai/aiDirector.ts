@@ -4,6 +4,7 @@ import { musicBank } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { ALL_MOTION_TYPES, type MotionType } from "@/lib/render/cameraMotion";
 import { ALL_TRANSITION_TYPES, type TransitionType } from "@/lib/render/transitions";
+import { getStylePresetConfig, type StylePresetConfig } from "./stylePreset";
 
 // AI Director (2026-08-10, PRD "AI Content Editing Engine" - fitur INTI/pembeda utama,
 // permintaan Agus eksplisit "AI Director dulu" saat ditanya prioritas). Sebelum modul
@@ -30,6 +31,12 @@ export type DirectorDecision = {
   // seru akan jadi berlebihan/mengganggu, 1 flash yg tepat waktu lebih efektif drpd
   // banyak yg monoton (sama prinsip dgn CTA generik 1x drpd variasi tak perlu).
   stickerClipIndex: number | null;
+  // Style Preset (2026-08-10, PRD Roadmap V3 "AI Style Preset" - lihat stylePreset.ts) -
+  // preset "documentary"/"minimal" menonaktifkan progress bar & sticker sama sekali
+  // (elemen dekoratif gaya Shorts tidak cocok nuansa tenang/premium) - dikembalikan di
+  // sini spy processProject.ts TIDAK hardcode showProgressBar:true lagi, ikut preset.
+  showProgressBar: boolean;
+  allowSticker: boolean;
 };
 
 const VALID_MOODS: MusicMood[] = ["calm", "mysterious", "upbeat", "dramatic", "neutral", "none"];
@@ -43,7 +50,12 @@ const VALID_MOODS: MusicMood[] = ["calm", "mysterious", "upbeat", "dramatic", "n
 // video, lihat ffmpeg.ts) - HANYA motion yg butuh override eksplisit di sini.
 const HOOK_MOTION: MotionType = "zoom-in";
 
-function fallbackDecision(clipCount: number): DirectorDecision {
+function fallbackDecision(clipCount: number, config: StylePresetConfig): DirectorDecision {
+  // Fallback round-robin TETAP pakai ALL_MOTION_TYPES/ALL_TRANSITION_TYPES generik
+  // (bukan config.motionsByEnergy - fallback tidak py info energi utk dipetakan,
+  // round-robin memang modus darurat), TAPI showProgressBar/allowSticker TETAP ikut
+  // preset brand - brand "documentary" yg kebetulan GPT call-nya gagal 1x TIDAK BOLEH
+  // tiba2 dapat progress bar/sticker cuma krn fallback, itu nuansa brand yg disengaja.
   const motions = Array.from({ length: clipCount }, (_, i) => ALL_MOTION_TYPES[i % ALL_MOTION_TYPES.length]);
   if (motions.length > 0) motions[0] = HOOK_MOTION;
   return {
@@ -51,6 +63,8 @@ function fallbackDecision(clipCount: number): DirectorDecision {
     transitions: Array.from({ length: Math.max(0, clipCount - 1) }, (_, i) => ALL_TRANSITION_TYPES[i % ALL_TRANSITION_TYPES.length]),
     musicMood: "neutral",
     stickerClipIndex: null, // fallback round-robin tidak py info energi - tanpa sticker drpd nebak
+    showProgressBar: config.showProgressBar,
+    allowSticker: config.allowSticker,
   };
 }
 
@@ -72,8 +86,14 @@ function fallbackDecision(clipCount: number): DirectorDecision {
 // scr matematis di kode (mapScenesToClips) - reliable utk video pendek MAUPUN panjang.
 const MAX_SCENES = 8;
 
-export async function planEdit(script: string, clipCount: number, brandId: string): Promise<DirectorDecision> {
-  if (clipCount === 0) return fallbackDecision(0);
+export async function planEdit(
+  script: string,
+  clipCount: number,
+  brandId: string,
+  stylePreset?: string | null
+): Promise<DirectorDecision> {
+  const presetConfig = getStylePresetConfig(stylePreset);
+  if (clipCount === 0) return fallbackDecision(0, presetConfig);
   const sceneCount = Math.max(3, Math.min(MAX_SCENES, clipCount));
 
   let sceneEnergies: string[];
@@ -108,7 +128,7 @@ export async function planEdit(script: string, clipCount: number, brandId: strin
     if (sceneEnergies.length === 0) throw new Error("Director: jumlah scene tidak cocok, fallback");
   } catch (err) {
     console.error("[aiDirector] gagal dapat rencana edit dari GPT, fallback round-robin:", err);
-    return fallbackDecision(clipCount);
+    return fallbackDecision(clipCount, presetConfig);
   }
 
   // Proporsikan sceneEnergies (SEDIKIT) ke clipCount (BISA BANYAK) - klip ke-i ambil
@@ -119,11 +139,11 @@ export async function planEdit(script: string, clipCount: number, brandId: strin
     return sceneEnergies[sceneIdx];
   });
 
-  const motions = energyLevels.map((energy, i) => mapEnergyToMotion(energy, i));
+  const motions = energyLevels.map((energy, i) => mapEnergyToMotion(energy, i, presetConfig));
   if (motions.length > 0) motions[0] = HOOK_MOTION; // Hook Optimization - lihat catatan di atas fallbackDecision
   const transitions: TransitionType[] = [];
   for (let i = 0; i < energyLevels.length - 1; i++) {
-    transitions.push(mapEnergyToTransition(energyLevels[i], energyLevels[i + 1], i));
+    transitions.push(mapEnergyToTransition(energyLevels[i], energyLevels[i + 1], i, presetConfig));
   }
 
   const peakIdx = energyLevels.indexOf("peak");
@@ -131,46 +151,46 @@ export async function planEdit(script: string, clipCount: number, brandId: strin
   // Optimization di atas, sticker fire.png BARENGAN di klip pertama akan menumpuk 2 efek
   // sekaligus di detik pertama (berlebihan) - kalau klip "peak" pertama justru klip 0,
   // cari klip peak BERIKUTNYA saja.
-  const stickerClipIndex = peakIdx > 0 ? peakIdx : energyLevels.indexOf("peak", 1);
+  const peakIdxFrom1 = energyLevels.indexOf("peak", 1);
+  const stickerClipIndex = presetConfig.allowSticker ? (peakIdx > 0 ? peakIdx : peakIdxFrom1) : -1;
 
-  return { motions, transitions, musicMood, stickerClipIndex: stickerClipIndex >= 0 ? stickerClipIndex : null };
+  return {
+    motions,
+    transitions,
+    musicMood,
+    stickerClipIndex: stickerClipIndex >= 0 ? stickerClipIndex : null,
+    showProgressBar: presetConfig.showProgressBar,
+    allowSticker: presetConfig.allowSticker,
+  };
 }
 
-// Konvensi editing umum (bukan acak) - klimaks dapat gerakan lebih "hidup" (zoom-in
-// mendekat/pan cepat terasa lebih intens), segmen tenang dapat gerakan lambat/statis,
-// wind-down dapat zoom-out (kesan "menjauh"/menutup). i%2 dipakai HANYA utk variasi
-// dalam 1 kelas energi yg sama (mis. 3 klip "calm" berturut-turut tidak semuanya
-// persis static) - bukan sumber keputusan utama.
-function mapEnergyToMotion(energy: string, i: number): MotionType {
-  switch (energy) {
-    case "peak":
-      return i % 2 === 0 ? "zoom-in" : "pan-left";
-    case "build":
-      return i % 2 === 0 ? "pan-right" : "pan-left";
-    case "resolve":
-      return "zoom-out";
-    case "calm":
-    default:
-      return i % 2 === 0 ? "static" : "zoom-in";
-  }
+// Konvensi editing umum (bukan acak) - klimaks dapat gerakan lebih "hidup", segmen
+// tenang dapat gerakan lambat/statis, wind-down dapat zoom-out (kesan "menjauh"/
+// menutup). i%2 dipakai HANYA utk variasi dalam 1 kelas energi yg sama - bukan sumber
+// keputusan utama. Pilihan KONKRET (bukan lagi hardcode di sini) datang dari
+// `config.motionsByEnergy` (2026-08-10, Style Preset - lihat stylePreset.ts) - preset
+// "energetic" berisi PERSIS pilihan lama sebelum preset ada, jadi perilaku default
+// TIDAK berubah, cuma sekarang bisa di-override per-brand.
+function mapEnergyToMotion(energy: string, i: number, config: StylePresetConfig): MotionType {
+  const pair = config.motionsByEnergy[energy] || config.motionsByEnergy.calm;
+  return pair[i % 2];
 }
 
 // Transisi antar 2 segmen energi - lonjakan energi (mis. calm->peak) dapat transisi
 // lebih tegas ("menghentak"), transisi antar energi SAMA/turun dapat yg lebih halus
-// (tidak mengganggu penurunan tensi). "fadewhite"/"hblur"/"coverleft" (2026-08-10,
-// PRD Flash/Blur/Push - lihat transitions.ts) dipakai sbg VARIASI kedua di tiap
-// kelas (i%2, pola sama dgn mapEnergyToMotion di atas) - BUKAN pengganti pilihan lama
-// yg sudah terverifikasi (zoomin utk lonjakan-ke-peak, slideleft utk lonjakan biasa,
-// fade utk turun/sama), cuma menambah tekstur supaya video panjang dgn banyak transisi
-// SEJENIS (mis. semua "build->peak") tidak terasa 100% identik berulang-ulang.
-function mapEnergyToTransition(fromEnergy: string, toEnergy: string, i: number): TransitionType {
+// (tidak mengganggu penurunan tensi). Pilihan KONKRET dari `config.transitionsRising*`
+// (2026-08-10, Style Preset) - preset "energetic" = pilihan lama persis (zoomin/
+// fadewhite utk lonjakan-ke-peak, slideleft/hblur lonjakan biasa, fade/coverleft
+// turun-sama), preset lain (documentary/minimal) sengaja HANYA fade-family (lihat
+// stylePreset.ts kenapa).
+function mapEnergyToTransition(fromEnergy: string, toEnergy: string, i: number, config: StylePresetConfig): TransitionType {
   const rank: Record<string, number> = { calm: 0, build: 1, peak: 2, resolve: 0 };
   const rising = (rank[toEnergy] ?? 0) > (rank[fromEnergy] ?? 0);
   if (rising) {
-    if (toEnergy === "peak") return i % 2 === 0 ? "zoomin" : "fadewhite";
-    return i % 2 === 0 ? "slideleft" : "hblur";
+    if (toEnergy === "peak") return config.transitionsRisingToPeak[i % 2];
+    return config.transitionsRising[i % 2];
   }
-  return i % 2 === 0 ? "fade" : "coverleft";
+  return config.transitionsFalling[i % 2];
 }
 
 // Pilih 1 track dari Music Bank brand ini sesuai mood - RANDOM di antara kandidat mood

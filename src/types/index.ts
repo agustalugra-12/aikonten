@@ -11,6 +11,7 @@ export type Brand = {
   videoDurationTarget: number;
   carouselPhotosPerPost: number;
   videoOrientation: "portrait" | "landscape" | "square";
+  stylePreset: "energetic" | "documentary" | "minimal";
   manualKnowledge: string | null;
   knowledgeSite: string | null;
   publishMode: "draft" | "auto";

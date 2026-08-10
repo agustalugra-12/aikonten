@@ -661,7 +661,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // aiDirector.ts). Gagal TIDAK BOLEH menggagalkan render (peningkatan kualitas,
     // bukan syarat wajib) - planEdit sendiri sudah try/catch internal & balik fallback.
     const clipCount = selected.length + brollClips.length;
-    const directorDecision = await planEdit(narrationText, clipCount, project.brandId);
+    const directorDecision = await planEdit(narrationText, clipCount, project.brandId, brand?.stylePreset);
     const musicUrl = await pickMusicTrack(project.brandId, directorDecision.musicMood).catch((err) => {
       console.error("[processProject] gagal ambil track Music Bank, lanjut tanpa musik:", err);
       return null;
@@ -698,12 +698,13 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // durationConfig.target=60 di atas yg cuma target lunak saat pemilihan klip).
       maxDurationSeconds: isYoutubeShorts ? 60 : undefined,
       // Overlay Engine (2026-08-10, PRD "AI Content Editing Engine") - progress bar
-      // SELALU aktif (murni kosmetik ringan, aman utk semua brand/tipe konten). CTA
-      // dinamis per konteks platform (2026-08-10, DIREVISI dari 1 teks generik hardcode
-      // - lihat ctaEngine.ts kenapa TETAP bukan GPT-generated per-video, cuma rotasi
-      // deterministik dari pool kecil sesuai konvensi platform: Subscribe utk YouTube,
-      // Follow utk Reels/TikTok/Shorts non-YouTube).
-      showProgressBar: true,
+      // ikut Style Preset (2026-08-10, DIREVISI dari hardcode true - lihat
+      // stylePreset.ts, preset documentary/minimal mematikannya). CTA dinamis per
+      // konteks platform (2026-08-10 - lihat ctaEngine.ts kenapa TETAP bukan
+      // GPT-generated per-video, cuma rotasi deterministik dari pool kecil sesuai
+      // konvensi platform: Subscribe utk YouTube, Follow utk Reels/TikTok/Shorts
+      // non-YouTube).
+      showProgressBar: directorDecision.showProgressBar,
       ctaText: pickCtaText(id, ctaContext),
     });
 

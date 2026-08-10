@@ -64,6 +64,13 @@ export const brands = sqliteTable("brands", {
   // Vertical/Square) - utk feed IG/FB non-Reels yg masih umum pakai rasio 1:1, beda dari
   // portrait (Reels/Shorts/TikTok 9:16) & landscape (YouTube 16:9).
   videoOrientation: text("video_orientation", { enum: ["portrait", "landscape", "square"] }).notNull().default("portrait"),
+  // Style Preset (2026-08-10, PRD "AI Content Editing Engine" Roadmap V3 - "AI Style
+  // Preset") - SEBELUM ini cuma ADA SATU gaya editing (motion/transisi/overlay dipilih
+  // AI Director TAPI selalu dari pool "energetic" yg sama, lihat stylePreset.ts) - brand
+  // dgn niche beda (mis. dokumenter/edukasi vs Shorts cepat) butuh nuansa beda, bukan
+  // 1 rasa utk semua. "energetic" = default (perilaku LAMA, brand yg sudah ada TIDAK
+  // berubah tampilannya kalau tidak eksplisit ganti).
+  stylePreset: text("style_preset", { enum: ["energetic", "documentary", "minimal"] }).notNull().default("energetic"),
   // Knowledge Base manual (2026-08-05, permintaan Agus - "setiap brand bisa mengisi
   // pengetahuan secara manual") - MELENGKAPI (bukan menggantikan) fakta otomatis dari
   // PMS/website (lihat knowledgeSite/pelangiKnowledge.ts) - utk hal yg tidak ada
