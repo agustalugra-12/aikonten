@@ -36,6 +36,17 @@ function getTargetDimensions(orientation: VideoOrientation): { width: number; he
   return orientation === "landscape" ? { width: 1920, height: 1080 } : { width: 1080, height: 1920 };
 }
 
+// Loudness normalization (2026-08-10, PRD "AI Content Editing Engine" - "Normalize
+// Volume") - SEBELUM ini, volume final murni hasil ducking (sidechaincompress
+// menurunkan musik, TIDAK menormalkan level ABSOLUT narasi/track sendiri) - video dari
+// brand/TTS-run beda bisa kedengaran beda kencang. loudnorm 1-pass ke target -16 LUFS
+// (standar umum platform streaming/sosial, sedikit di bawah -14 broadcast spy masih
+// ada headroom sblm YouTube/TikTok ikut normalisasi sendiri saat playback) - TP=-1.5dB
+// true-peak cegah clipping, LRA=11 batas rentang dinamis wajar (bukan terlalu flat).
+// 1-pass (bukan 2-pass measure-then-apply) - cukup akurat utk video pendek/sedang,
+// hindari ffmpeg run ganda yg 2x biaya waktu render per video.
+const LOUDNORM_FILTER = "loudnorm=I=-16:TP=-1.5:LRA=11";
+
 // Style subtitle - lihat subtitleDesign.ts (Subtitle Designer, 2026-08-10, permintaan
 // Agus - engine ASS word-highlight+pop gaya TikTok/YT Shorts). PENTING (bug nyata
 // ditemukan lewat tes visual langsung - bukan cuma baca dokumentasi, masih relevan):
@@ -398,11 +409,13 @@ export async function renderFinalVideo(opts: {
         `[music_pre][${audioInputIdx}:a]sidechaincompress=threshold=0.05:ratio=8:attack=5:release=300[music_ducked]`
       );
       filterStages.push(`[${audioInputIdx}:a]apad[voice_padded]`);
-      filterStages.push(`[voice_padded][music_ducked]amix=inputs=2:duration=longest:weights=1.4 1[aout]`);
+      filterStages.push(`[voice_padded][music_ducked]amix=inputs=2:duration=longest:weights=1.4 1[mixed]`);
+      filterStages.push(`[mixed]${LOUDNORM_FILTER}[aout]`);
       finalArgs.push("-filter_complex", filterStages.join(";"));
       finalArgs.push("-map", "[vout]", "-map", "[aout]");
     } else if (audioInputIdx !== null) {
-      filterStages.push(`[${audioInputIdx}:a]apad[aout]`);
+      filterStages.push(`[${audioInputIdx}:a]apad[voice_padded]`);
+      filterStages.push(`[voice_padded]${LOUDNORM_FILTER}[aout]`);
       finalArgs.push("-filter_complex", filterStages.join(";"));
       finalArgs.push("-map", "[vout]", "-map", "[aout]");
     } else {
