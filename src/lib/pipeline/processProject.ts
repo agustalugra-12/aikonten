@@ -687,6 +687,10 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // YT Shorts (2026-08-10) SELALU portrait, override setting brand - lihat
       // isYoutubeShorts di atas.
       orientation: isYoutubeShorts ? "portrait" : brand?.videoOrientation,
+      // Batas keras 60dtk (2026-08-10, permintaan Agus - "jangan buat short diatas 1
+      // menit ini aturannya") - jaring pengaman TERAKHIR di render (bukan gantikan
+      // durationConfig.target=60 di atas yg cuma target lunak saat pemilihan klip).
+      maxDurationSeconds: isYoutubeShorts ? 60 : undefined,
     });
 
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,

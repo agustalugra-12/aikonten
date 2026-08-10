@@ -144,6 +144,9 @@ export async function renderFinalVideo(opts: {
   // Diabaikan kalau tidak ada voiceoverAudioBuffer (musik tanpa narasi belum didukung -
   // proporsional utk sekarang, semua konten app ini SELALU py narasi TTS).
   musicUrl?: string | null;
+  // Batas keras durasi output (2026-08-10, permintaan Agus "jangan buat short diatas 1
+  // menit") - lihat catatan lengkap di dekat outputDurationSeconds di bawah.
+  maxDurationSeconds?: number;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -273,7 +276,17 @@ export async function renderFinalVideo(opts: {
     // caption Pelangi singkat) TIDAK BERUBAH SAMA SEKALI (loop cuma aktif kalau
     // audio>video, apad di bawah tetap jalan spt sebelumnya).
     const needsVideoLoop = audioDurationSeconds > videoDurationSeconds;
-    const outputDurationSeconds = Math.max(videoDurationSeconds, audioDurationSeconds);
+    // maxDurationSeconds (2026-08-10, permintaan Agus - "jangan buat short diatas 1
+    // menit ini aturannya") - PENGAMAN KERAS, beda dari durationConfig.target (60,
+    // lihat processProject.ts) yg cuma target LUNAK saat pemilihan klip/estimasi audio
+    // - target lunak BISA overshoot (mis. narasi TTS sedikit lebih panjang dari estimasi
+    // kata/detik, atau footage nge-loop lebih dari perkiraan) tanpa APAPUN yg secara
+    // eksplisit MEMOTONG hasil akhirnya. Cap ini di titik PALING AKHIR (`-t` render),
+    // jadi output MP4 Shorts TIDAK PERNAH melebihi batas ini apa pun yg terjadi di
+    // langkah-langkah sebelumnya - jaring pengaman terakhir, bukan gantikan target lunak.
+    const outputDurationSeconds = opts.maxDurationSeconds
+      ? Math.min(Math.max(videoDurationSeconds, audioDurationSeconds), opts.maxDurationSeconds)
+      : Math.max(videoDurationSeconds, audioDurationSeconds);
 
     // 6) Bakar subtitle + overlay logo + mux audio TTS. PENTING (bug nyata ditemukan
     // lewat tes - "-vf" simple-filter DIGABUNG dgn "-map" eksplisit bikin filter
