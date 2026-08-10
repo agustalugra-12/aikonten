@@ -299,7 +299,7 @@ export const mediaAssets = sqliteTable("media_assets", {
   // menelusuri dari mana & lisensi apa suatu klip berasal. Nullable - SEMUA aset lama
   // (raw_footage/final_video/dst, dan broll_used sebelum kolom ini ada) tetap null,
   // tidak retroaktif. Cuma diisi utk broll_used ke depannya (lihat broll.ts).
-  source: text("source", { enum: ["pexels", "pixabay", "mixkit"] }),
+  source: text("source", { enum: ["pexels", "pixabay"] }),
   sourceCreator: text("source_creator"), // nama fotografer/kreator asli dari API sumber
   sourceUrl: text("source_url"), // link halaman asal video di situs sumber (bukan CDN file url)
   sourceQuery: text("source_query"), // keyword pencarian yg menghasilkan aset ini - jejak audit
