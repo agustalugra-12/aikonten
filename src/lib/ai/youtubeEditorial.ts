@@ -244,8 +244,17 @@ export async function generateLongFormScript(
     `${recentScripts.length ? recentScripts.map((s) => `- ${s.slice(0, 150)}...`).join("\n") : "(none yet)"}\n\n` +
     "Write the full narration script now, as continuous prose (no section headers, no timestamps) ready to be read aloud by a voiceover artist.";
 
+  // gpt-4.1-mini (2026-08-10, permintaan Agus - biaya gpt-4.1 tinggi di 3 titik penulis
+  // naskah ini). BUKAN gpt-5-mini - dicek dulu histori 2 project lain di akun ini: AI
+  // Blog SUDAH coba gpt-5-mini lalu di-revert krn model reasoning ini py token
+  // "thinking" tersembunyi, output-nya malah 25% LEBIH MAHAL drpd gpt-4.1-mini ($2.00
+  // vs $1.60/1M) + sempat jadi model termahal di stack; AI Chat Bot jg revert (latency).
+  // Naskah di sini OUTPUT-HEAVY (ratusan kata narasi) - skema harga gpt-5-mini yg
+  // outputnya lebih mahal justru beresiko biaya NAIK bukan turun utk tipe panggilan ini.
+  // gpt-4.1-mini sudah terbukti reliable di KontenPilot ini sendiri (150x panggilan
+  // lain) & tetap potong biaya ~80% ($2.00/$8.00 -> $0.40/$1.60 per 1M token).
   const completion = await client.chat.completions.create({
-    model: "gpt-4.1",
+    model: "gpt-4.1-mini",
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -464,8 +473,10 @@ export async function generateShortScript(
     `${recentScripts.length ? recentScripts.map((s) => `- ${s.slice(0, 120)}...`).join("\n") : "(none yet)"}\n\n` +
     "Write the full narration script now, as continuous prose ready to be read aloud.";
 
+  // gpt-4.1-mini (2026-08-10, penghematan biaya - lihat catatan lengkap di
+  // generateLongFormScript di atas kenapa BUKAN gpt-5-mini).
   const completion = await client.chat.completions.create({
-    model: "gpt-4.1",
+    model: "gpt-4.1-mini",
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -596,8 +607,10 @@ export async function generateShortsFromLongForm(
       "End with a CTA that specifically invites viewers to watch the FULL video on the channel for more (not a generic subscribe CTA). " +
       `Target ~35 seconds (${Math.round(35 * SHORTS_WORDS_PER_SECOND)} words). Write entirely in ${lang}.`;
     const user = `Specific moment/fact to build this Short around:\n"${hook}"`;
+    // gpt-4.1-mini (2026-08-10, penghematan biaya - lihat catatan lengkap di
+    // generateLongFormScript kenapa BUKAN gpt-5-mini).
     const completion = await client.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-4.1-mini",
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
