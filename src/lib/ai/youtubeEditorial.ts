@@ -86,6 +86,13 @@ function stripFence(raw: string): string {
 // nyangkut di kategori yang sama). Kalau contentPillars kosong (channel belum isi
 // Editorial Policy sama sekali), fallback "General" - engine tetap jalan, cuma tanpa
 // rotasi kategori bermakna.
+// `newSeriesCreatedInBatch` (2026-08-10, sama root cause dgn batchClaims di
+// pickNextTopic) - kalau >1 seri baru terpaksa dibuat DALAM 1 batch yg sama (dailyVideo
+// Count besar & seri lama abis di tengah batch), query `allSeries.length` di bawah
+// TIDAK melihat seri yg BARU SAJA dibuat pemanggilan sebelumnya dalam batch yg sama
+// (insert-nya sudah commit ke DB, jadi SEBENARNYA query ini akan lihatnya - beda dgn
+// pickNextTopic yg nunggu projects yg belum ada - TAPI tetap dijaga eksplisit di sini
+// sbg pengaman tambahan, murah & tidak ada downside).
 async function pickNextCategory(channelProfile: ChannelProfile, socialAccountId: string): Promise<string> {
   const pillars = channelProfile.contentPillars.length > 0 ? channelProfile.contentPillars : ["General"];
   const allSeries = await db.select({ id: youtubeSeries.id }).from(youtubeSeries).where(eq(youtubeSeries.socialAccountId, socialAccountId));
@@ -100,10 +107,27 @@ async function pickNextCategory(channelProfile: ChannelProfile, socialAccountId:
 // kenyataan) - kalau ada, lanjut episode berikutnya. Kalau tidak ada/semua abis, BIKIN
 // seri baru otomatis (kategori dirotasi, topik episode digenerate GPT sekali per seri,
 // bukan sekali per video - biaya diamortisasi ~5-8 video).
+//
+// `batchClaims` (2026-08-10, bug NYATA ditemukan dari batch produksi sungguhan - 6
+// video pertama Animal Story & Co SEMUA jadi topik episode 0 yg SAMA ["migratory bird
+// navigation"], 4 topik lain di seri yg SAMA ["bioluminescence", "dolphin language",
+// "vanishing frogs", "tardigrades"] tidak tersentuh sama sekali). Root cause: dalam 1
+// batch (generateYoutubeDailyIdeas memanggil ini berkali-kali BERURUTAN utk N video
+// sekaligus), `usedCount` di atas dihitung dari `projects` yg BELUM ADA SAMA SEKALI
+// saat batch masih di tahap ide (project baru dibuat belakangan, satu per satu, oleh
+// cron/auto-generate) - jadi tiap panggilan dalam batch yg sama SELALU melihat DB yg
+// sama persis (0 project baru), balik ke episode 0 terus-menerus. Fix: `batchClaims`
+// (Map seriesId->jumlah yg SUDAH DIKLAIM dalam batch INI, di memori, BELUM tersimpan ke
+// DB) - ditambahkan ke usedCount dari DB, dan SETIAP topik yg dikembalikan LANGSUNG
+// diklaim di Map ini (mutate in-place) SEBELUM function return, supaya panggilan
+// BERIKUTNYA dalam batch yg sama tahu topik itu sudah "dipesan". Default Map kosong -
+// pemanggilan TUNGGAL (di luar batch, mis. tes manual) tetap berperilaku sama seperti
+// sebelumnya.
 export async function pickNextTopic(
   channelProfile: ChannelProfile,
   socialAccountId: string,
-  format: "long" | "short"
+  format: "long" | "short",
+  batchClaims: Map<string, number> = new Map()
 ): Promise<{ seriesId: string; seriesName: string; topic: string; episodeIndex: number }> {
   const activeSeriesRows = await db
     .select()
@@ -113,11 +137,22 @@ export async function pickNextTopic(
 
   for (const series of activeSeriesRows) {
     const topics: string[] = JSON.parse(series.topics);
-    const usedCount = (await db.select({ id: projects.id }).from(projects).where(eq(projects.youtubeSeriesId, series.id))).length;
+    const dbUsedCount = (await db.select({ id: projects.id }).from(projects).where(eq(projects.youtubeSeriesId, series.id))).length;
+    const claimedInBatch = batchClaims.get(series.id) || 0;
+    const usedCount = dbUsedCount + claimedInBatch;
     if (usedCount < topics.length) {
+      batchClaims.set(series.id, claimedInBatch + 1);
       return { seriesId: series.id, seriesName: series.name, topic: topics[usedCount], episodeIndex: usedCount };
     }
-    await db.update(youtubeSeries).set({ status: "completed" }).where(eq(youtubeSeries.id, series.id));
+    if (claimedInBatch === 0) {
+      // Cuma tandai "completed" kalau BENAR2 abis di DB (bukan cuma abis krn diklaim
+      // batch ini) - series yg baru habis DALAM batch ini masih boleh ditandai completed
+      // di iterasi berikutnya setelah project-nya benar2 tersimpan, tidak masalah
+      // ditunda - yang WAJIB dihindari adalah menandai completed PADAHAL DB-nya sendiri
+      // masih ada slot (akan salah permanen kalau brand ini py 2 seri format sama yg
+      // kebetulan diproses berurutan dalam batch yg sama).
+      await db.update(youtubeSeries).set({ status: "completed" }).where(eq(youtubeSeries.id, series.id));
+    }
   }
 
   const category = await pickNextCategory(channelProfile, socialAccountId);
@@ -126,6 +161,7 @@ export async function pickNextTopic(
   await db.insert(youtubeSeries).values({
     id: seriesId, socialAccountId, name, format, topics: JSON.stringify(topics), status: "active", createdAt: new Date(),
   });
+  batchClaims.set(seriesId, 1); // klaim episode 0 SEKARANG - lihat catatan batchClaims di atas
   return { seriesId, seriesName: name, topic: topics[0], episodeIndex: 0 };
 }
 
@@ -360,9 +396,10 @@ export async function reviewScriptFactualRisk(script: string): Promise<string[]>
 export async function generateLongFormPackage(
   channelProfile: ChannelProfile,
   socialAccountId: string,
-  recentScripts: string[]
+  recentScripts: string[],
+  batchClaims: Map<string, number> = new Map()
 ): Promise<{ script: string; youtubeSeriesId: string; youtubeMetadata: YoutubeMetadata }> {
-  const { seriesId, topic } = await pickNextTopic(channelProfile, socialAccountId, "long");
+  const { seriesId, topic } = await pickNextTopic(channelProfile, socialAccountId, "long", batchClaims);
   const script = await generateLongFormScript(channelProfile, topic, recentScripts);
   const metadata = await generateLongFormMetadata(channelProfile, topic, script);
   const factCheckFlags = await reviewScriptFactualRisk(script);
@@ -493,9 +530,10 @@ export async function generateShortMetadata(
 export async function generateShortPackage(
   channelProfile: ChannelProfile,
   socialAccountId: string,
-  recentScripts: string[]
+  recentScripts: string[],
+  batchClaims: Map<string, number> = new Map()
 ): Promise<{ script: string; youtubeSeriesId: string; youtubeMetadata: YoutubeMetadata }> {
-  const { seriesId, topic } = await pickNextTopic(channelProfile, socialAccountId, "short");
+  const { seriesId, topic } = await pickNextTopic(channelProfile, socialAccountId, "short", batchClaims);
   const script = await generateShortScript(channelProfile, topic, recentScripts);
   const metadata = await generateShortMetadata(channelProfile, topic, script);
 
@@ -616,10 +654,15 @@ export async function generateYoutubeDailyIdeas(
 ): Promise<YoutubeDailyIdea[]> {
   const results: YoutubeDailyIdea[] = [];
   const usedScripts = [...recentScripts];
+  // batchClaims (2026-08-10, bug nyata - lihat catatan lengkap di pickNextTopic) - SATU
+  // Map dibagi bersama SELURUH batch ini (long-form maupun Shorts standalone) supaya
+  // tiap panggilan pickNextTopic tahu topik yg SUDAH "dipesan" pemanggilan sebelumnya
+  // dalam batch yg sama, sebelum project-nya benar2 tersimpan ke DB.
+  const batchClaims = new Map<string, number>();
 
   const longPackages: Array<{ script: string; title: string }> = [];
   for (let i = 0; i < longCount; i++) {
-    const pkg = await generateLongFormPackage(channelProfile, socialAccountId, usedScripts);
+    const pkg = await generateLongFormPackage(channelProfile, socialAccountId, usedScripts, batchClaims);
     usedScripts.push(pkg.script);
     const title = pkg.youtubeMetadata.titles[pkg.youtubeMetadata.selectedTitleIndex] || pkg.youtubeMetadata.titles[0] || "";
     longPackages.push({ script: pkg.script, title });
@@ -650,7 +693,7 @@ export async function generateYoutubeDailyIdeas(
     }
   }
   while (shortsRemaining > 0) {
-    const pkg = await generateShortPackage(channelProfile, socialAccountId, usedScripts);
+    const pkg = await generateShortPackage(channelProfile, socialAccountId, usedScripts, batchClaims);
     usedScripts.push(pkg.script);
     results.push({
       idea: pkg.script,
