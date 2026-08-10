@@ -193,14 +193,15 @@ export async function renderFinalVideo(opts: {
     // 5) AI Dubbing - GANTI TOTAL audio asli dgn TTS baca caption (lihat memory
     // proyek, keputusan eksplisit Agus). Audio-nya SUDAH DIGENERATE oleh caller
     // (lihat catatan voiceoverAudioBuffer di atas) - di sini cuma tulis ke file lokal.
-    // Nama file ".wav" (2026-08-10, sebelumnya ".mp3" dari era OpenAI tts-1 - Kokoro
-    // TTS/dubbing.ts sekarang balikin WAV asli) - ffmpeg sendiri probe isi FILE bukan
-    // ekstensi utk input (`-i`), jadi ekstensi salah TIDAK PERNAH benar2 gagal decode,
-    // ini murni supaya nama file jujur soal isinya, bukan perbaikan bug fungsional.
+    // Nama file ".mp3" (2026-08-10, dubbing.ts balik ke OpenAI TTS/gpt-4o-mini-tts yg
+    // balikin MP3, sempat ".wav" singkat pas pakai Kokoro) - ffmpeg sendiri probe isi
+    // FILE bukan ekstensi utk input (`-i`), jadi ekstensi salah TIDAK PERNAH benar2
+    // gagal decode, ini murni supaya nama file jujur soal isinya, bukan perbaikan bug
+    // fungsional.
     let audioPath: string | null = null;
     let audioDurationSeconds = 0;
     if (opts.voiceoverAudioBuffer) {
-      audioPath = path.join(workDir, "voiceover.wav");
+      audioPath = path.join(workDir, "voiceover.mp3");
       await writeFile(audioPath, opts.voiceoverAudioBuffer);
       audioDurationSeconds = await getDurationSeconds(audioPath);
     }

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { projects, mediaAssets, brands, footageBank } from "@/db/schema";
+import { projects, mediaAssets, brands, footageBank, socialAccounts } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { suggestContentIdeas } from "@/lib/ai/researchTopics";
 import { matchFootageForScript, pickAnyRealPhoto } from "@/lib/ai/matchFootageBank";
@@ -9,7 +9,9 @@ import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { getFootageUsageRecency, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, selectBalancedRealFootage } from "@/lib/ai/footageVariety";
 import { getDurationConfig } from "@/lib/ai/clipSelect";
-import { eq, desc } from "drizzle-orm";
+import { getChannelProfile } from "@/lib/ai/youtubeEditorial";
+import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyContentPlanner";
+import { eq, desc, and } from "drizzle-orm";
 
 // Diekstrak (2026-08-06) dari /api/brands/[id]/auto-content/route.ts SUPAYA dipakai
 // BARENG oleh endpoint HTTP itu (klik manual "⚡ Konten Otomatis") DAN
@@ -62,18 +64,56 @@ export async function runAutoContent(
   }
 
   if (!script) {
-    const recentProjects = await db
-      .select({ script: projects.script })
-      .from(projects)
-      .where(eq(projects.brandId, brandId))
-      .orderBy(desc(projects.createdAt))
-      .limit(15);
-    const recentScripts = recentProjects.map((p) => p.script).filter((s): s is string => !!s);
-    const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts, 4, [], brand.knowledgeSite, brand.manualKnowledge);
-    if (ideas.length === 0) {
-      throw new AutoContentError("AI tidak berhasil kasih ide konten");
+    // Cek dulu apakah brand ini brand YouTube Editorial (ada channel profile) SEBELUM
+    // jatuh ke suggestContentIdeas (2026-08-10, bug nyata - trigger manual "⚡ Konten
+    // Otomatis" tanpa scriptOverride/youtubeMetadata utk Animal Story & Co [brand
+    // YouTube berbahasa Inggris] jatuh ke suggestContentIdeas, yg Indonesia-oriented &
+    // brand-hospitality-oriented [ide default "behind the scenes"] - hasilnya video
+    // Indonesia salah total nyasar masuk channel dokumenter Inggris. Jalur cron
+    // auto-generate TIDAK kena bug ini krn dia SELALU resolve ide via
+    // getOrGenerateDailyIdeas dulu baru panggil fungsi ini dgn script+youtubeMetadata
+    // eksplisit - tapi trigger manual (tombol dashboard / panggilan tanpa parameter)
+    // bisa lewat sini apa adanya. Fix: brand ber-channel-profile WAJIB ambil ide dari
+    // getOrGenerateDailyIdeas juga (bahasa+format ikut channel), TIDAK BOLEH fallback
+    // ke ide generik sama sekali - kalau semua ide hari ini sudah kepakai, GAGAL JELAS
+    // drpd diam2 generate konten yg salah bahasa/brand.
+    const [ytAccount] = await db
+      .select()
+      .from(socialAccounts)
+      .where(and(eq(socialAccounts.brandId, brandId), eq(socialAccounts.platform, "youtube")));
+    const channelProfile = ytAccount ? await getChannelProfile(ytAccount.id) : null;
+
+    if (channelProfile) {
+      const todaysIdeas = await getOrGenerateDailyIdeas(brandId);
+      const unused = todaysIdeas.find((i) => !i.used);
+      if (!unused) {
+        throw new AutoContentError(
+          "Semua ide konten YouTube hari ini sudah dipakai - channel ini pakai Editorial " +
+            "Engine (bukan ide bebas), tidak ada fallback generik supaya bahasa/brand tidak " +
+            "salah. Coba lagi besok, atau generate ide baru manual dulu.",
+          400
+        );
+      }
+      script = unused.idea;
+      desiredType = unused.contentType || undefined;
+      contentFormat = unused.contentFormat;
+      youtubeSeriesId = unused.youtubeSeriesId;
+      youtubeMetadata = unused.youtubeMetadata;
+      await markDailyIdeaUsed(unused.id);
+    } else {
+      const recentProjects = await db
+        .select({ script: projects.script })
+        .from(projects)
+        .where(eq(projects.brandId, brandId))
+        .orderBy(desc(projects.createdAt))
+        .limit(15);
+      const recentScripts = recentProjects.map((p) => p.script).filter((s): s is string => !!s);
+      const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts, 4, [], brand.knowledgeSite, brand.manualKnowledge);
+      if (ideas.length === 0) {
+        throw new AutoContentError("AI tidak berhasil kasih ide konten");
+      }
+      script = ideas[0];
     }
-    script = ideas[0];
   }
 
   const matchedUrls = await matchFootageForScript(brandId, script);
