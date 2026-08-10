@@ -22,12 +22,20 @@ const CTA_POOLS: Record<CtaContext, string[]> = {
   // YouTube long-form - konvensi platform: "Subscribe", BUKAN "Follow".
   youtube_longform: [
     "Subscribe for more!",
-    "Hit subscribe so you don't miss the next one!",
+    "Hit subscribe to catch the next one!",
     "Subscribe & like if you enjoyed this!",
   ],
   // YouTube Shorts - budaya CTA lebih dekat ke Shorts/Reels tapi tetap "Subscribe"
   // (aksi native YouTube, bukan "Follow" yg istilah Instagram/TikTok).
-  youtube_shorts: ["Subscribe for more!", "Tap subscribe for daily shorts!", "Subscribe so you don't miss out!"],
+  // BUG NYATA (2026-08-10, ditemukan lewat render sungguhan Animal Story & Co, bukan
+  // review kode) - "Subscribe so you don't miss out!" (apostrof di "don't") merusak
+  // parsing "-filter_complex" drawtext: escaping di overlayEngine.ts (`\\'`) TIDAK
+  // cukup di konteks filter_complex bertingkat sebanyak ini (banyak filter di-chain
+  // via ";"), ffmpeg salah baca sisa string sbg nama filter baru ("No such filter:
+  // '39.51)'"), render GAGAL TOTAL. Fix: hindari apostrof SAMA SEKALI di pool CTA
+  // (bukan perbaiki escaping-nya - lebih aman & permanen drpd berharap escaping
+  // sempurna di semua kedalaman filter_complex kombinasi manapun).
+  youtube_shorts: ["Subscribe for more!", "Tap subscribe for daily shorts!", "Subscribe to never miss out!"],
   // Konten non-YouTube (IG/TikTok/FB Reels via Buffer) - konvensi platform: "Follow".
   generic: ["Follow for more!", "Like & follow for more!", "Save this & follow for more!"],
 };
