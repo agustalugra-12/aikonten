@@ -178,6 +178,15 @@ export const projects = sqliteTable("projects", {
   })
     .notNull()
     .default("uploaded"),
+  // skipAutoPublish (2026-08-10, permintaan Agus - "regenerasi 5 video yang gagal,
+  // diamkan di draft, jangan auto upload... untuk video yang di-generate nanti
+  // biarkan lolos auto upload") - project INI TETAP status "ready" (tetap tampil di
+  // Draft Review buat direview manual, publish MANUAL via tombol tetap jalan normal)
+  // tapi DIKECUALIKAN dari seleksi cron/auto-publish.ts (lihat filter di situ) -
+  // brand.publishMode="auto" TETAP jalan apa adanya utk project BARU lain (flag ini
+  // per-project, bukan ubah setting brand yg akan mempengaruhi SEMUA project).
+  // Dipakai scripts/regen-narration.ts utk tandai video hasil regenerasi batch lama.
+  skipAutoPublish: integer("skip_auto_publish", { mode: "boolean" }).notNull().default(false),
   script: text("script"),
   transcript: text("transcript"), // JSON: Whisper segments [{start,end,text}]
   clipSelection: text("clip_selection"), // JSON: chosen segments + heuristic scores
@@ -382,6 +391,25 @@ export const footageBank = sqliteTable("footage_bank", {
   // ganti preload="none" (video BENERAN cuma di-load kalau user klik play). NULL utk
   // foto (tidak relevan) & video lama sblm fix ini (backfill terpisah).
   posterUrl: text("poster_url"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+// "Music Bank" (2026-08-10, PRD "AI Content Editing Engine" - permintaan Agus) - musik
+// latar utk AI Director. Pexels/Pixabay TIDAK PUNYA API musik sama sekali (dicek
+// langsung ke docs resmi keduanya sebelum desain ini - cuma API foto/video), jadi BEDA
+// dari footageBank yg diisi otomatis dari search API eksternal - Music Bank ini SELALU
+// upload manual Agus (mirip pola lama footage lokal sebelum ada footage-bank search).
+// mood BUKAN AI-generated (beda dari description/tags footageBank via vision) - Agus
+// pilih sendiri saat upload (dropdown terbatas, lihat MusicMood di aiDirector.ts),
+// krn mood musik itu penilaian subjektif/selera, bukan sesuatu yg bisa diturunkan
+// akurat dari analisis audio otomatis dgn biaya proporsional utk skala app ini.
+export const musicBank = sqliteTable("music_bank", {
+  id: text("id").primaryKey(),
+  brandId: text("brand_id").notNull().references(() => brands.id),
+  fileUrl: text("file_url").notNull(),
+  title: text("title").notNull(),
+  mood: text("mood", { enum: ["calm", "mysterious", "upbeat", "dramatic", "neutral"] }).notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

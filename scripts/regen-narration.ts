@@ -8,18 +8,26 @@ import { transcribeAudioBuffer } from "../src/lib/ai/transcribe";
 import { buildSrtFromTranscriptSegments, buildCaptionSrt } from "../src/lib/ai/generateContent";
 import { renderFinalVideo } from "../src/lib/render/ffmpeg";
 import { distributeChapters, type YoutubeMetadata } from "../src/lib/ai/youtubeEditorial";
+import { planEdit, pickMusicTrack } from "../src/lib/ai/aiDirector";
 
-// Regenerasi TARGET (2026-08-10) - perbaiki 6 video Animal Story & Co yg dirender
+// Regenerasi TARGET (2026-08-10) - perbaiki 5 video Animal Story & Co yg dirender
 // SEBELUM fix bug voiceover (caption SEO dipakai sbg narasi, bukan project.script -
 // lihat commit 32b8d7a). HANYA regenerasi audio+subtitle+render ULANG (reuse
 // clip_selection & broll_used YANG SUDAH ADA di DB, TIDAK re-search footage/re-generate
 // caption/hashtag/judul SEO - itu semua SUDAH BENAR, cuma audio-nya yg salah) - hemat
 // biaya GPT+footage-search, cuma bayar TTS (perlu, wajib benar) + Whisper (murah) +
-// render (CPU server, gratis).
+// render (CPU server, gratis). Skrng SEKALIAN pakai AI Director (motion/transisi/musik)
+// - belum ada saat batch pertama dijalankan. proj_cAKPmbYp3bZF DIKELUARKAN dari daftar
+// (sudah diregenerasi terpisah sbg tes verifikasi Director & SUDAH published via
+// native YouTube - bukan lagi "gagal di draft").
+//
+// skipAutoPublish=true (2026-08-10, permintaan Agus - "diamkan di draft, jangan auto
+// upload") - video HASIL REGENERASI BATCH LAMA ini sengaja ditahan, publish MANUAL
+// tetap bisa (tombol Draft Review), otomasi normal (brand publishMode="auto") TETAP
+// jalan apa adanya utk konten BARU yg di-generate cron ke depannya - lihat schema.ts.
 const PROJECT_IDS = [
   "proj_Nq9-4_f9QoAI",
   "proj_xOVnqf_6tZ3t",
-  "proj_cAKPmbYp3bZF",
   "proj_tA4VstbYxmaj",
   "proj_loIJvNLf7wZ7",
   "proj_F4D-9AzC6F5H",
@@ -66,6 +74,11 @@ async function regenOne(projectId: string) {
     srt = buildCaptionSrt(project.script!, roughDuration);
   }
 
+  console.log("AI Director (motion/transisi/musik)...");
+  const clipCount = clipSelection.length + brollClips.length;
+  const directorDecision = await planEdit(project.script!, clipCount, project.brandId);
+  const musicUrl = await pickMusicTrack(project.brandId, directorDecision.musicMood).catch(() => null);
+
   console.log("render ulang video...");
   const rendered = await renderFinalVideo({
     projectId,
@@ -74,6 +87,9 @@ async function regenOne(projectId: string) {
     srtContent: srt,
     wordTimings,
     brollClips,
+    motions: directorDecision.motions,
+    transitions: directorDecision.transitions,
+    musicUrl,
     voiceoverAudioBuffer: voiceoverBuffer,
     logoUrl: brand?.logoUrl,
     orientation: brand?.videoOrientation,
@@ -127,10 +143,10 @@ async function regenOne(projectId: string) {
 
   await db
     .update(projects)
-    .set({ status: "ready", errorMessage: null, updatedAt: new Date() })
+    .set({ status: "ready", errorMessage: null, skipAutoPublish: true, updatedAt: new Date() })
     .where(eq(projects.id, projectId));
 
-  console.log(`✅ ${projectId} selesai diregenerasi, status='ready'`);
+  console.log(`✅ ${projectId} selesai diregenerasi, status='ready', skipAutoPublish=true (diamkan di draft)`);
 }
 
 async function main() {

@@ -122,10 +122,21 @@ export async function POST(req: NextRequest) {
     ).length > 0;
     if (alreadyPublishedThisSlot) continue;
 
+    // skipAutoPublish dikecualikan (2026-08-10, lihat catatan lengkap di schema.ts) -
+    // project hasil regenerasi manual/batch lama yg SENGAJA diminta Agus "diamkan di
+    // draft" - tetap kelihatan di Draft Review, publish MANUAL tetap jalan, cuma tidak
+    // pernah kepilih otomatis di sini.
     const [toPublish] = await db
       .select()
       .from(projects)
-      .where(and(eq(projects.brandId, brand.id), eq(projects.status, "ready"), gte(projects.createdAt, startOfTodayWita)))
+      .where(
+        and(
+          eq(projects.brandId, brand.id),
+          eq(projects.status, "ready"),
+          eq(projects.skipAutoPublish, false),
+          gte(projects.createdAt, startOfTodayWita)
+        )
+      )
       .orderBy(projects.createdAt)
       .limit(1);
 
