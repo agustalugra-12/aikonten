@@ -562,8 +562,23 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // BENERAN diputar, baru bangun SRT dari situ - presisi krn sumbernya audio asli,
     // bukan estimasi. Fallback ke cara lama HANYA kalau Whisper gagal (mis. API down
     // sesaat) - subtitle kurang presisi tetap lebih baik drpd video gagal total.
+    // narrationText (2026-08-10, bug nyata ditemukan - verifikasi langsung ke file
+    // video: silencedetect nunjukkan 163 detik SUNYI dari total 243 detik). Akar
+    // masalah: `caption` utk cabang youtube-editorial SENGAJA dibangun dari
+    // youtubeMetadata (judul+deskripsi SEO, lihat komentar di atas dekat `if
+    // (youtubeMeta)`) - BUKAN skrip dokumenter, supaya SEO/judul yg sudah dirancang
+    // khusus tidak "diperbaiki ulang" jadi caption gaya Pelangi. Tapi
+    // generateVoiceover(caption) di bawah ini TERTINGGAL dari desain lama (Pelangi/
+    // Laundry, dari SEBELUM YouTube Editorial ada) yg asumsi `caption` == narasi -
+    // akibatnya voiceover Animal Story & Co membacakan deskripsi SEO pendek (~80dtk)
+    // bukan skrip dokumenter asli (project.script, ratusan detik), sisa durasi video
+    // (dari target footage) jadi SUNYI TOTAL. Utk cabang generic (Pelangi/Laundry)
+    // `caption` TETAP dipakai apa adanya (desain lama itu sudah benar & terverifikasi
+    // - caption di sana MEMANG ditulis dari project.script sbg prosa natural yg cocok
+    // dibacakan, lihat generateCaptionAndHashtags).
+    const narrationText = youtubeMeta ? project.script! : caption;
     const totalDuration = currentTotalDuration();
-    const voiceoverBuffer = await generateVoiceover(caption);
+    const voiceoverBuffer = await generateVoiceover(narrationText);
     let srt: string;
     // wordTimings (2026-08-10, Subtitle Designer) - dari transkripsi yg SAMA (1
     // panggilan Whisper, tidak ada biaya tambahan) - dipakai renderFinalVideo utk
@@ -576,7 +591,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       wordTimings = transcription.words;
     } catch (err) {
       console.error("[processProject] gagal transkripsi ulang audio TTS utk subtitle presisi, fallback ke estimasi rata:", err);
-      srt = buildCaptionSrt(caption, totalDuration);
+      srt = buildCaptionSrt(narrationText, totalDuration);
     }
 
     // Duplicate/Repetition Detector (2026-08-08, PRD Section 9-10) - sama pola dgn
