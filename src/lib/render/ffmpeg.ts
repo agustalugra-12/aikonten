@@ -8,6 +8,8 @@ import type { WordTiming } from "@/lib/ai/transcribe";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/ai/logoOverlay";
 import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN } from "./subtitleDesign";
+import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
+import { buildXfadeFilterComplex, type TransitionType } from "./transitions";
 
 const execFileAsync = promisify(execFile);
 
@@ -122,6 +124,26 @@ export async function renderFinalVideo(opts: {
   // Orientasi (2026-08-05, permintaan Agus) - default "portrait" (perilaku lama, tidak
   // berubah kalau caller tidak kirim apa-apa).
   orientation?: VideoOrientation;
+  // Camera Motion / Ken Burns (2026-08-10, AI Director) - 1 motion per klip di
+  // `allClips` (urutan: segments dulu, baru brollClips - SAMA urutan penggabungan di
+  // bawah). Kalau TIDAK dikirim (caller lama/belum pakai Director) atau array lebih
+  // pendek dari jumlah klip, sisanya dapat rotasi ALL_MOTION_TYPES round-robin -
+  // fungsi ini TETAP menghasilkan video bergerak (bukan diam) walau tanpa keputusan
+  // Director eksplisit, bukan cuma jalan kalau Director ada.
+  motions?: MotionType[];
+  // Transisi antar klip (2026-08-10, AI Director) - transitions[i] = transisi ANTARA
+  // klip ke-i dan klip ke-(i+1) (jadi panjangnya N-1 utk N klip, BEDA dari `motions`
+  // yg 1:1 per klip). Sama pola fallback dgn motions - kosong/kurang -> rotasi
+  // ALL_TRANSITION_TYPES round-robin (lihat transitions.ts).
+  transitions?: TransitionType[];
+  // Musik latar OPSIONAL (2026-08-10, AI Director - Music Bank) - URL file musik dari
+  // musicBank (lihat schema.ts). Di-loop otomatis kalau lebih pendek dari video, fade
+  // in/out di awal/akhir, & DUCK otomatis (sidechaincompress - volume musik turun
+  // sendiri saat ada narasi, naik lagi saat narasi jeda) - BUKAN cuma volume statis
+  // rendah sepanjang video, biar narasi tetap jelas terdengar tanpa musik "menutupi".
+  // Diabaikan kalau tidak ada voiceoverAudioBuffer (musik tanpa narasi belum didukung -
+  // proporsional utk sekarang, semua konten app ini SELALU py narasi TTS).
+  musicUrl?: string | null;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -141,15 +163,21 @@ export async function renderFinalVideo(opts: {
     ];
 
     const normalizedPaths: string[] = [];
+    const normalizedDurations: number[] = [];
     for (const [i, clip] of allClips.entries()) {
       const duration = Math.max(0.2, clip.end - clip.start);
       const outPath = path.join(workDir, `clip_${i}.mp4`);
+      // Motion dari Director kalau ada, else rotasi round-robin (lihat catatan `motions`
+      // di atas) - klip PENDEK (<1.5dtk) dipaksa "static" krn zoom/pan kerasa "loncat"/
+      // gerak-terlalu-cepat kalau durasinya terlalu singkat utk gerakan halus.
+      const motion: MotionType =
+        duration < 1.5 ? "static" : opts.motions?.[i] || ALL_MOTION_TYPES[i % ALL_MOTION_TYPES.length];
       await run("ffmpeg", [
         "-y",
         "-ss", String(clip.start),
         "-i", clip.url,
         "-t", String(duration),
-        "-vf", `scale=${TARGET_WIDTH}:${TARGET_HEIGHT}:force_original_aspect_ratio=increase,crop=${TARGET_WIDTH}:${TARGET_HEIGHT},setsar=1,fps=30`,
+        "-vf", buildCameraMotionFilter(motion, TARGET_WIDTH, TARGET_HEIGHT, duration),
         "-an",
         "-c:v", "libx264",
         "-preset", "veryfast",
@@ -157,14 +185,37 @@ export async function renderFinalVideo(opts: {
         outPath,
       ]);
       normalizedPaths.push(outPath);
+      // Durasi AKTUAL hasil encode (bukan asumsi `duration` yg diminta) - frame
+      // rounding di fps=30 bisa geser sepersekian detik, xfade offset WAJIB akurat
+      // (lihat transitions.ts) drpd ikut menyimpang sedikit demi sedikit tiap klip.
+      normalizedDurations.push(await getDurationSeconds(outPath));
     }
 
-    // 2) Concat (semua input SUDAH seragam codec/resolusi/fps - concat DEMUXER cukup,
-    // stream-copy tanpa re-encode ulang, jauh lebih cepat drpd filter concat).
-    const concatListPath = path.join(workDir, "concat.txt");
-    await writeFile(concatListPath, normalizedPaths.map((p) => `file '${escapeFilterPath(p)}'`).join("\n"));
+    // 2) Sambung klip PAKAI TRANSISI (xfade, 2026-08-10 - lihat transitions.ts kenapa
+    // BUKAN lagi concat demuxer polos "-c copy". WAJIB re-encode di sini (xfade tidak
+    // bisa stream-copy), lebih lambat drpd demuxer tapi hasilnya ada transisi
+    // sungguhan, bukan cuma hard-cut).
+    const { filterComplex, outputLabel, totalDurationSeconds: estimatedDuration } = buildXfadeFilterComplex(
+      normalizedDurations,
+      opts.transitions || []
+    );
     const concatenatedPath = path.join(workDir, "concatenated.mp4");
-    await run("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", concatListPath, "-c", "copy", concatenatedPath]);
+    if (normalizedPaths.length === 1) {
+      await run("ffmpeg", ["-y", "-i", normalizedPaths[0], "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", concatenatedPath]);
+    } else {
+      const inputArgs = normalizedPaths.flatMap((p) => ["-i", p]);
+      await run("ffmpeg", [
+        "-y",
+        ...inputArgs,
+        "-filter_complex", filterComplex,
+        "-map", `[${outputLabel}]`,
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "23",
+        concatenatedPath,
+      ]);
+    }
+    void estimatedDuration; // dihitung ulang dari file ASLI di bawah (lebih akurat drpd estimasi filter chain)
     const videoDurationSeconds = await getDurationSeconds(concatenatedPath);
 
     // 3) Subtitle -> .ass eksplisit (Subtitle Designer, lihat subtitleDesign.ts - WAJIB
@@ -251,6 +302,17 @@ export async function renderFinalVideo(opts: {
       finalArgs.push("-i", audioPath);
       audioInputIdx = nextInputIdx++;
     }
+    // Musik latar (2026-08-10, AI Director/Music Bank) - "-stream_loop -1" SELALU
+    // dipasang kalau ada musik (sama teknik dgn needsVideoLoop di atas) drpd ffprobe
+    // durasi track dulu utk tahu perlu loop atau tidak - lebih simpel & SELALU aman
+    // (musik pendek KE panjang otomatis ke-cover, musik yg KEBETULAN sudah lebih
+    // panjang dari video cuma looping tidak pernah kepakai krn output di-cap `-t` di
+    // akhir apa pun keadaannya).
+    let musicInputIdx: number | null = null;
+    if (opts.musicUrl && audioInputIdx !== null) {
+      finalArgs.push("-stream_loop", "-1", "-i", opts.musicUrl);
+      musicInputIdx = nextInputIdx++;
+    }
 
     const logoMargin = Math.round(TARGET_WIDTH * LOGO_MARGIN_RATIO);
     const filterStages: string[] = [];
@@ -271,7 +333,25 @@ export async function renderFinalVideo(opts: {
     // kebalikannya - audio (narasi PANJANG, YouTube Editorial Engine) lebih panjang dari
     // video (footage stok kehabisan sebelum capai target) - video di-LOOP (lihat
     // needsVideoLoop) supaya narasi TIDAK PERNAH terpotong gara-gara footage kurang.
-    if (audioInputIdx !== null) {
+    if (audioInputIdx !== null && musicInputIdx !== null) {
+      // Duck otomatis (sidechaincompress) - volume musik TURUN sendiri saat sidechain
+      // [narasi] py suara, NAIK lagi saat narasi jeda - bukan cuma volume statis rendah
+      // sepanjang video (musik akan kedengaran "mati" total di bagian tanpa narasi kalau
+      // volumenya statis rendah). Fade in/out 1.5dtk di awal/akhir + volume dasar 0.5
+      // (sebelum duck) biar musik tetap jadi "latar", bukan menyaingi narasi bahkan saat
+      // paling kencang.
+      const fadeOutStart = Math.max(0, outputDurationSeconds - 1.5);
+      filterStages.push(
+        `[${musicInputIdx}:a]afade=t=in:st=0:d=1.5,afade=t=out:st=${fadeOutStart.toFixed(2)}:d=1.5,volume=0.5[music_pre]`
+      );
+      filterStages.push(
+        `[music_pre][${audioInputIdx}:a]sidechaincompress=threshold=0.05:ratio=8:attack=5:release=300[music_ducked]`
+      );
+      filterStages.push(`[${audioInputIdx}:a]apad[voice_padded]`);
+      filterStages.push(`[voice_padded][music_ducked]amix=inputs=2:duration=longest:weights=1.4 1[aout]`);
+      finalArgs.push("-filter_complex", filterStages.join(";"));
+      finalArgs.push("-map", "[vout]", "-map", "[aout]");
+    } else if (audioInputIdx !== null) {
       filterStages.push(`[${audioInputIdx}:a]apad[aout]`);
       finalArgs.push("-filter_complex", filterStages.join(";"));
       finalArgs.push("-map", "[vout]", "-map", "[aout]");
@@ -280,6 +360,18 @@ export async function renderFinalVideo(opts: {
       finalArgs.push("-map", "[vout]");
     }
     finalArgs.push("-t", String(outputDurationSeconds));
+    // -movflags +faststart (2026-08-10, bug nyata ditemukan - laporan Agus publish
+    // ditolak "Video must be no longer than 3 minutes for YouTube Shorts" utk video
+    // LANDSCAPE 438dtk, jelas bukan Shorts asli). Root cause dikonfirmasi langsung:
+    // moov atom (metadata durasi/dimensi MP4) DEFAULT ditulis ffmpeg di AKHIR file
+    // (setelah mdat/data video, bisa ratusan MB) - dicek langsung: byte "moov" TIDAK
+    // ada di 64KB pertama file hasil render. Layanan luar (Buffer/YouTube) yg probe
+    // metadata via partial/range fetch (praktik umum utk file besar, drpd download
+    // semua) GAGAL nemu moov, kemungkinan besar fallback ke asumsi salah (termasuk
+    // klasifikasi Shorts). Fix: pindah moov ke AWAL file ("web-optimized"/"fast
+    // start", praktik standar video utk streaming) - metadata kebaca instan tanpa
+    // perlu file lengkap.
+    finalArgs.push("-movflags", "+faststart");
     finalArgs.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-pix_fmt", "yuv420p", finalPath);
     await run("ffmpeg", finalArgs);
 
