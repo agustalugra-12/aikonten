@@ -694,6 +694,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       label: s.label,
       value: s.value,
       clipIndex: Math.min(clipCount - 1, Math.max(0, Math.floor(s.positionFraction * clipCount))),
+      iconCategory: s.iconCategory,
     }));
 
     const rendered = await renderFinalVideo({

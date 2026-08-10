@@ -14,7 +14,9 @@ import { buildProgressBarFilter, buildCtaTextFilter } from "./overlayEngine";
 import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay";
 import { nearestBeat } from "@/lib/ai/beatDetect";
 import { buildColorGradeFilter, type ColorGradeConfig } from "./colorGrade";
-import { buildStatOverlayFilter } from "./statOverlay";
+import { buildStatOverlayFilterStages } from "./statOverlay";
+import { getStatIconPath } from "./statIcons";
+import type { StatIconCategory } from "@/lib/ai/statExtractor";
 
 const execFileAsync = promisify(execFile);
 
@@ -194,7 +196,7 @@ export async function renderFinalVideo(opts: {
   // Graphic Overlay - Stat Card (2026-08-10, lihat statOverlay.ts) - clipIndex SAMA
   // urutan dgn `motions` (allClips: segments dulu, baru brollClips). Di luar rentang
   // clipStartOffsets = di-skip diam2 (jaga2 clipCount berubah), sama pola dgn sticker.
-  statOverlays?: { label: string; value: string; clipIndex: number }[];
+  statOverlays?: { label: string; value: string; clipIndex: number; iconCategory: StatIconCategory }[];
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -378,6 +380,18 @@ export async function renderFinalVideo(opts: {
       finalArgs.push("-loop", "1", "-i", getStickerAssetPath());
       stickerInputIdx = nextInputIdx++;
     }
+    // Ikon Stat Card (2026-08-10, "Overlay System PRD" Category A - lihat
+    // statIcons.ts) - 1 input PNG per stat yg VALID (clipIndex dalam rentang), sama
+    // "-loop 1" WAJIB spt logo/sticker di atas. Disimpan berpasangan dgn statOverlays
+    // aslinya (bukan array index terpisah) spy urutan tidak pernah salah pasang.
+    const validStatOverlays = (opts.statOverlays || []).filter(
+      (s) => s.clipIndex >= 0 && s.clipIndex < clipStartOffsets.length
+    );
+    const statIconInputIdx: number[] = [];
+    for (const stat of validStatOverlays) {
+      finalArgs.push("-loop", "1", "-i", getStatIconPath(stat.iconCategory));
+      statIconInputIdx.push(nextInputIdx++);
+    }
     let audioInputIdx: number | null = null;
     if (audioPath) {
       finalArgs.push("-i", audioPath);
@@ -453,16 +467,26 @@ export async function renderFinalVideo(opts: {
       filterStages.push(...buildStickerFilterStages(stickerInputIdx, snappedStickerStartSeconds, TARGET_WIDTH, curLabel, "stickered"));
       curLabel = "stickered";
     }
-    // Graphic Overlay - Stat Card (2026-08-10) - tiap stat dapat 1 STAGE berurutan
-    // (bukan 1 input tambahan spt sticker - drawbox/drawtext murni beroperasi di
-    // stream video, tidak butuh compositing 2-input). Timing pakai clipStartOffsets
-    // MENTAH (posisi awal klip, TIDAK di-snap ke beat spt sticker - stat card soal
-    // KAPAN faktanya disebut di narasi, bukan soal irama musik).
-    (opts.statOverlays || []).forEach((stat, idx) => {
-      if (stat.clipIndex < 0 || stat.clipIndex >= clipStartOffsets.length) return;
+    // Graphic Overlay - Stat Card (2026-08-10, DGN IKON - lihat statOverlay.ts) - tiap
+    // stat dapat beberapa STAGE berurutan (box+ikon+teks, per statIconInputIdx yg
+    // SUDAH di-input di atas, urutan array SAMA persis dgn validStatOverlays). Timing
+    // pakai clipStartOffsets MENTAH (posisi awal klip, TIDAK di-snap ke beat spt
+    // sticker - stat card soal KAPAN faktanya disebut di narasi, bukan irama musik).
+    validStatOverlays.forEach((stat, idx) => {
       const startSeconds = clipStartOffsets[stat.clipIndex];
       const outLabel = `statted${idx}`;
-      filterStages.push(`[${curLabel}]${buildStatOverlayFilter(stat.label, stat.value, startSeconds, TARGET_WIDTH, TARGET_HEIGHT)}[${outLabel}]`);
+      filterStages.push(
+        ...buildStatOverlayFilterStages(
+          statIconInputIdx[idx],
+          stat.label,
+          stat.value,
+          startSeconds,
+          TARGET_WIDTH,
+          TARGET_HEIGHT,
+          curLabel,
+          outLabel
+        )
+      );
       curLabel = outLabel;
     });
     if (opts.showProgressBar) {
