@@ -16,6 +16,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
+import { pickCtaText, type CtaContext } from "@/lib/ai/ctaEngine";
 import { runVideoQualityChecks } from "@/lib/pipeline/qualityChecker";
 import { imageToVideoClip } from "@/lib/render/imageToClip";
 import { generatePosterCopy } from "@/lib/ai/posterCopy";
@@ -665,6 +666,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
       console.error("[processProject] gagal ambil track Music Bank, lanjut tanpa musik:", err);
       return null;
     });
+    // CTA dinamis (2026-08-10, lihat ctaEngine.ts) - konteks dari sinyal yg SUDAH ada
+    // (youtubeMeta/isYoutubeShorts, dihitung di atas), bukan field baru.
+    const ctaContext: CtaContext = youtubeMeta ? (isYoutubeShorts ? "youtube_shorts" : "youtube_longform") : "generic";
 
     const rendered = await renderFinalVideo({
       projectId: id,
@@ -695,11 +699,12 @@ export async function processProject(id: string): Promise<ProcessResult> {
       maxDurationSeconds: isYoutubeShorts ? 60 : undefined,
       // Overlay Engine (2026-08-10, PRD "AI Content Editing Engine") - progress bar
       // SELALU aktif (murni kosmetik ringan, aman utk semua brand/tipe konten). CTA
-      // teks generik ("Follow for more!") - BUKAN AI-generated per-video (proporsional,
-      // sama alasan dgn dokumentasi overlayEngine.ts: konsisten lintas video lebih
-      // baik utk branding drpd variasi yg tidak perlu).
+      // dinamis per konteks platform (2026-08-10, DIREVISI dari 1 teks generik hardcode
+      // - lihat ctaEngine.ts kenapa TETAP bukan GPT-generated per-video, cuma rotasi
+      // deterministik dari pool kecil sesuai konvensi platform: Subscribe utk YouTube,
+      // Follow utk Reels/TikTok/Shorts non-YouTube).
       showProgressBar: true,
-      ctaText: "Follow for more!",
+      ctaText: pickCtaText(id, ctaContext),
     });
 
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,
