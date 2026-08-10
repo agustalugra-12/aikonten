@@ -191,10 +191,16 @@ export async function processProject(id: string): Promise<ProcessResult> {
         console.error("[processProject] gagal fact-check caption, dilewati:", err);
       }
 
+      // Status TETAP "processing" di sini (BUKAN "ready" lagi, 2026-08-10 - bug nyata
+      // ditemukan: cron/auto-publish men-scan status="ready" tiap 10-15 menit, kalau
+      // status di-flip DI SINI [sebelum final_image benar2 ke-insert di bawah] ada
+      // jendela balapan singkat di mana cron bisa nemu project ini "ready" tapi asetnya
+      // belum ada, langsung ditandai "failed" (lihat orchestrate.ts pesan "Belum ada
+      // aset final") walau generate-nya sendiri SUKSES - status baru di-flip ke "ready"
+      // SETELAH loop insert final_image di bawah selesai.
       await db
         .update(projects)
         .set({
-          status: "ready",
           generatedCaption: caption,
           generatedHashtags: JSON.stringify(hashtags),
           pillar,
@@ -226,6 +232,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
           createdAt: new Date(),
         });
       }
+
+      await db.update(projects).set({ status: "ready", updatedAt: new Date() }).where(eq(projects.id, id));
 
       return { caption, hashtags, promoText, photoCount: brandedImageUrls.length };
     }
@@ -589,10 +597,18 @@ export async function processProject(id: string): Promise<ProcessResult> {
       console.error("[processProject] gagal fact-check caption, dilewati:", err);
     }
 
+    // Status TETAP "processing" di sini (BUKAN "ready" lagi, 2026-08-10 - bug nyata:
+    // renderFinalVideo() di bawah bisa makan waktu MENIT [footage panjang/looping], dan
+    // cron/auto-publish men-scan status="ready" tiap 10-15 menit. Kalau status di-flip
+    // DI SINI, ada jendela balapan senyata itu di mana cron bisa nemu project "ready"
+    // tapi final_video BELUM ke-insert [masih di tengah render], langsung ditandai
+    // "failed" [orchestrate.ts, "Belum ada aset final"] walau generate-nya SUKSES -
+    // insiden nyata: proj_Nq9-4_f9QoAI, render final_video selesai 15 menit SETELAH
+    // status ini sempat "ready" duluan. Status baru di-flip ke "ready" SETELAH
+    // final_video benar2 ke-insert di bawah (lihat dekat akhir fungsi ini).
     await db
       .update(projects)
       .set({
-        status: "ready",
         transcript: JSON.stringify(segments),
         clipSelection: JSON.stringify(selected),
         generatedCaption: caption,
@@ -726,6 +742,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
         });
       }
     }
+
+    await db.update(projects).set({ status: "ready", updatedAt: new Date() }).where(eq(projects.id, id));
 
     return { caption, hashtags, clipCount: selected.length, structureTemplate };
   } catch (err) {
