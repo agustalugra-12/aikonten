@@ -17,6 +17,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { detectBeats } from "@/lib/ai/beatDetect";
+import { extractStatOverlays } from "@/lib/ai/statExtractor";
 import { pickCtaText, type CtaContext } from "@/lib/ai/ctaEngine";
 import { runVideoQualityChecks } from "@/lib/pipeline/qualityChecker";
 import { imageToVideoClip } from "@/lib/render/imageToClip";
@@ -682,6 +683,18 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // CTA dinamis (2026-08-10, lihat ctaEngine.ts) - konteks dari sinyal yg SUDAH ada
     // (youtubeMeta/isYoutubeShorts, dihitung di atas), bukan field baru.
     const ctaContext: CtaContext = youtubeMeta ? (isYoutubeShorts ? "youtube_shorts" : "youtube_longform") : "generic";
+    // Graphic Overlay - Stat Card (2026-08-10, preset editing Animal Story & Co - lihat
+    // statExtractor.ts) - HANYA jalan kalau preset ini benar2 minta grading/motion
+    // subtle (documentary) - "energetic"/"minimal" TIDAK diberi stat card (belum
+    // diminta utk preset itu, proporsional - jangan tambah elemen visual ke brand yg
+    // tidak minta). positionFraction (0-1 dari GPT) dipetakan ke clipIndex SAMA
+    // teknik proporsional dgn energyLevels di aiDirector.ts.
+    const rawStats = brand?.stylePreset === "documentary" ? await extractStatOverlays(narrationText) : [];
+    const statOverlays = rawStats.map((s) => ({
+      label: s.label,
+      value: s.value,
+      clipIndex: Math.min(clipCount - 1, Math.max(0, Math.floor(s.positionFraction * clipCount))),
+    }));
 
     const rendered = await renderFinalVideo({
       projectId: id,
@@ -701,6 +714,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       stickerClipIndex: directorDecision.stickerClipIndex,
       motionIntensity: directorDecision.motionIntensity,
       colorGrade: directorDecision.colorGrade,
+      statOverlays,
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
       // cabang carousel di atas, sama alasannya.
       logoUrl: brand?.logoUrl,

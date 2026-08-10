@@ -14,6 +14,7 @@ import { buildProgressBarFilter, buildCtaTextFilter } from "./overlayEngine";
 import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay";
 import { nearestBeat } from "@/lib/ai/beatDetect";
 import { buildColorGradeFilter, type ColorGradeConfig } from "./colorGrade";
+import { buildStatOverlayFilter } from "./statOverlay";
 
 const execFileAsync = promisify(execFile);
 
@@ -190,6 +191,10 @@ export async function renderFinalVideo(opts: {
   // grading (perilaku lama, footage apa adanya).
   motionIntensity?: number;
   colorGrade?: ColorGradeConfig | null;
+  // Graphic Overlay - Stat Card (2026-08-10, lihat statOverlay.ts) - clipIndex SAMA
+  // urutan dgn `motions` (allClips: segments dulu, baru brollClips). Di luar rentang
+  // clipStartOffsets = di-skip diam2 (jaga2 clipCount berubah), sama pola dgn sticker.
+  statOverlays?: { label: string; value: string; clipIndex: number }[];
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -448,6 +453,18 @@ export async function renderFinalVideo(opts: {
       filterStages.push(...buildStickerFilterStages(stickerInputIdx, snappedStickerStartSeconds, TARGET_WIDTH, curLabel, "stickered"));
       curLabel = "stickered";
     }
+    // Graphic Overlay - Stat Card (2026-08-10) - tiap stat dapat 1 STAGE berurutan
+    // (bukan 1 input tambahan spt sticker - drawbox/drawtext murni beroperasi di
+    // stream video, tidak butuh compositing 2-input). Timing pakai clipStartOffsets
+    // MENTAH (posisi awal klip, TIDAK di-snap ke beat spt sticker - stat card soal
+    // KAPAN faktanya disebut di narasi, bukan soal irama musik).
+    (opts.statOverlays || []).forEach((stat, idx) => {
+      if (stat.clipIndex < 0 || stat.clipIndex >= clipStartOffsets.length) return;
+      const startSeconds = clipStartOffsets[stat.clipIndex];
+      const outLabel = `statted${idx}`;
+      filterStages.push(`[${curLabel}]${buildStatOverlayFilter(stat.label, stat.value, startSeconds, TARGET_WIDTH, TARGET_HEIGHT)}[${outLabel}]`);
+      curLabel = outLabel;
+    });
     if (opts.showProgressBar) {
       filterStages.push(`[${curLabel}]${buildProgressBarFilter(TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds)}[barred]`);
       curLabel = "barred";
