@@ -32,6 +32,14 @@ export type Project = {
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+  // YouTube Editorial Engine (2026-08-10, laporan Agus - "apa judulnya tidak ada di
+  // draft?") - field INI SUDAH ADA di DB/API sejak awal (route GET /api/projects/[id]
+  // spread seluruh row), cuma tidak pernah dideklarasikan di type frontend jadi
+  // DraftReview.tsx tidak bisa baca judulnya sama sekali (nunjukkin project.script yg
+  // isinya skrip 5-8 menit PENUH, bukan judul). Cukup titles[selectedTitleIndex] yg
+  // dibutuhkan di UI - typed longgar drpd duplikat seluruh shape YoutubeMetadata dari
+  // lib/ai/youtubeEditorial.ts di sini.
+  youtubeMetadata: string | null;
 };
 
 export type MediaAsset = {

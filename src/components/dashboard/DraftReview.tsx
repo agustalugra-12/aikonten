@@ -108,6 +108,19 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
   const finalVideo = detail?.assets.find((a) => a.type === "final_video");
   const finalImages = detail?.assets.filter((a) => a.type === "final_image") || [];
   const hashtags = project.generatedHashtags ? (JSON.parse(project.generatedHashtags) as string[]) : [];
+  // Judul (2026-08-10, laporan Agus - lihat catatan lengkap di types/index.ts) - HANYA
+  // ada utk project YouTube Editorial Engine (youtubeMetadata terisi); brand generik
+  // (Pelangi/Laundry) tidak py konsep "judul" terpisah dari caption, script-nya sendiri
+  // sudah pendek jadi ditampilkan apa adanya spt sebelumnya.
+  let youtubeTitle: string | null = null;
+  if (project.youtubeMetadata) {
+    try {
+      const meta = JSON.parse(project.youtubeMetadata) as { titles?: string[]; selectedTitleIndex?: number };
+      youtubeTitle = meta.titles?.[meta.selectedTitleIndex ?? 0] || meta.titles?.[0] || null;
+    } catch {
+      youtubeTitle = null;
+    }
+  }
 
   return (
     <div className="border rounded-lg p-4 space-y-3">
@@ -116,7 +129,11 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
           <Badge variant="outline" className="capitalize mb-1">
             {project.type}
           </Badge>
-          <p className="text-sm text-muted-foreground max-w-xl">{project.script}</p>
+          {youtubeTitle ? (
+            <p className="text-sm font-semibold max-w-xl">{youtubeTitle}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground max-w-xl">{project.script}</p>
+          )}
         </div>
         <span className="text-xs text-muted-foreground shrink-0">
           {new Date(project.createdAt).toLocaleString("id-ID")}
