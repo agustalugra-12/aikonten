@@ -1,4 +1,8 @@
 import sharp from "sharp";
+import { createHash } from "crypto";
+import { mkdir, readFile, writeFile } from "fs/promises";
+import path from "path";
+import { tmpdir } from "os";
 
 // Watermark logo brand (2026-08-05, permintaan Agus) - ditempel di SETIAP foto & video
 // final kalau brand punya logoUrl (lihat brands.logoUrl, nullable - brand tanpa logo
@@ -17,22 +21,55 @@ async function fetchBuffer(url: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
+// Asset Cache utk logo (2026-08-10, PRD "AI Content Editing Engine" - "Asset Cache...
+// agar render ulang tidak perlu mengunduh ulang") - logoUrl brand SAMA dipakai di
+// SETIAP video/foto brand itu (bukan sekali pakai spt footage Pexels/broll yg memang
+// beda2 per video), jadi sebelum ini fetch+resize+crop lingkaran diulang dari NOL di
+// SETIAP render, padahal hasilnya SELALU identik selama logoUrl+ukuran sama. Cache
+// disk sederhana di tmpdir, key = hash(logoUrl+size) - TIDAK perlu invalidasi manual:
+// upload logo baru dari BrandSettingsSidebar selalu dapat URL R2 baru (nama file
+// pakai timestamp upload, lihat pola upload-url lain di project ini), jadi ganti logo
+// otomatis dapat cache key baru, logo lama di cache jadi tidak pernah kepakai lagi
+// (dibiarkan, bukan LRU - ukurannya kecil, PNG logo brand sedikit sekali variasinya).
+const LOGO_CACHE_DIR = path.join(tmpdir(), "kontenpilot_logo_cache");
+
+function logoCacheKey(logoUrl: string, sizePx: number): string {
+  return createHash("sha256").update(`${logoUrl}::${sizePx}`).digest("hex");
+}
+
 // Crop logo APA PUN bentuk aslinya (kotak, persegi panjang, dst) jadi lingkaran penuh
 // via SVG circle sbg alpha mask (blend "dest-in" - area di luar lingkaran jadi
 // transparan). sizePx = ukuran akhir dlm piksel, dihitung pemanggil berdasarkan
 // proporsi konten (lihat LOGO_SIZE_RATIO).
 export async function buildCircularLogoPng(logoUrl: string, sizePx: number): Promise<Buffer> {
-  const raw = await fetchBuffer(logoUrl);
   const size = Math.max(8, Math.round(sizePx));
+  const cacheFile = path.join(LOGO_CACHE_DIR, `${logoCacheKey(logoUrl, size)}.png`);
+  try {
+    return await readFile(cacheFile);
+  } catch {
+    // Cache miss (belum pernah/file terhapus) - lanjut proses normal di bawah.
+  }
+
+  const raw = await fetchBuffer(logoUrl);
   const circleMask = Buffer.from(
     `<svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#fff"/></svg>`
   );
-  return sharp(raw)
+  const png = await sharp(raw)
     .resize(size, size, { fit: "cover", position: "centre" })
     .ensureAlpha()
     .composite([{ input: circleMask, blend: "dest-in" }])
     .png()
     .toBuffer();
+
+  try {
+    await mkdir(LOGO_CACHE_DIR, { recursive: true });
+    await writeFile(cacheFile, png);
+  } catch (err) {
+    // Gagal simpan cache TIDAK BOLEH menggagalkan render (mis. disk penuh sesaat) -
+    // hasil PNG tetap dipakai/dikembalikan, cuma render berikutnya proses ulang lagi.
+    console.error("[logoOverlay] gagal simpan cache logo, lanjut tanpa cache:", err);
+  }
+  return png;
 }
 
 // Tempel logo lingkaran ke foto FINAL (poster/carousel) - pojok kanan-atas dgn margin,
