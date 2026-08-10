@@ -22,10 +22,28 @@ export async function publishProject(projectId: string): Promise<void> {
   // akun yg soft-disconnect (mis. channel putus di sisi Buffer) tidak lagi dihitung di
   // accounts.length, jadi platform lain yg sehat bisa selesai "published" bersih tanpa
   // nyangkut nunggu akun yang memang belum bisa dicoba lagi.
-  const accounts = await db
+  const rawAccounts = await db
     .select()
     .from(socialAccounts)
     .where(and(eq(socialAccounts.brandId, project.brandId), eq(socialAccounts.connected, true)));
+
+  // Split-routing YouTube native vs Buffer (2026-08-10, permintaan Agus - "kadang yt
+  // native membatasi jumlah upload, aku mau short ke buffer dan video panjang ke
+  // native") - HANYA relevan kalau brand ini py 2 akun YouTube sekaligus (native DAN
+  // Buffer, spt Animal Story & Co setelah insiden Shorts-vs-longform hari ini).
+  // Shorts -> Buffer (volume tinggi, kuota native dihemat), long-form -> native
+  // (terbukti hari ini native BERHASIL utk video panjang, Buffer JUSTRU gagal utk
+  // channel dgn pembatasan tertentu). Brand dgn cuma 1 akun YouTube (mayoritas kasus)
+  // TIDAK terpengaruh sama sekali - filter ini idle kalau youtubeAccounts.length <= 1.
+  const youtubeAccounts = rawAccounts.filter((a) => a.platform === "youtube");
+  let accounts = rawAccounts;
+  if (youtubeAccounts.length > 1) {
+    const preferredVia = project.contentFormat === "youtube_shorts" ? "buffer" : "native";
+    const preferred = youtubeAccounts.find((a) => a.publishVia === preferredVia);
+    if (preferred) {
+      accounts = rawAccounts.filter((a) => a.platform !== "youtube" || a.id === preferred.id);
+    }
+  }
 
   const assets = await db.select().from(mediaAssets).where(eq(mediaAssets.projectId, projectId));
   const finalVideo = assets.find((a) => a.type === "final_video");
