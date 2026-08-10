@@ -793,7 +793,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // otomatis krn TIDAK ADA pemeriksaan yg menahannya sblm status "ready". Cek di sini
     // JADI GERBANG WAJIB - gagal cek -> "failed" (BUKAN "ready"), tidak pernah tampil
     // sbg draft yg terlihat siap padahal cacat, apalagi ke-auto-publish.
-    const qualityCheck = await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, durationConfig.min);
+    const qualityCheck = await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, durationConfig.min, srt);
     if (!qualityCheck.passed) {
       await db
         .update(projects)
