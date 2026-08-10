@@ -1,6 +1,7 @@
 import { fal } from "@fal-ai/client";
 import { subscribeFalWithRetry } from "./falRetry";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
+import { logNonTokenUsage } from "./openaiClient";
 import type { PosterCopy } from "./posterCopy";
 
 function ensureFalConfigured(): void {
@@ -8,6 +9,15 @@ function ensureFalConfigured(): void {
   if (!apiKey) throw new Error("FAL_KEY belum diisi di .env");
   fal.config({ credentials: apiKey });
 }
+
+// Pencatatan biaya (2026-08-10, permintaan Agus - dashboard "Biaya AI Hari Ini"
+// sebelumnya CUMA nangkep OpenAI, biaya gambar fal.ai harus dicek terpisah manual di
+// dashboard fal.ai). $0.08/gambar @ resolusi 1K (dicek 2x: harga resmi fal.ai model
+// page, DAN sudah cocok dgn observasi Agus sendiri dari playground fal.ai - lihat
+// komentar applyPosterDesign di bawah). logNonTokenUsage() sama fungsi dipakai
+// kokoro-tts (dubbing.ts) - tabel llm_usage_log memang generik lintas provider,
+// bukan cuma OpenAI walau namanya begitu.
+const NANO_BANANA_PRICE_PER_IMAGE_1K = 0.08;
 
 // Brand Design System (2026-08-06, permintaan Agus - "jangan hanya membuat prompt 'buat
 // poster'... buatlah Brand Design System Prompt sehingga semua poster memiliki identitas
@@ -114,6 +124,7 @@ export async function applyPosterDesign(opts: {
 
   const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
   if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil poster");
+  await logNonTokenUsage("nano-banana-2-poster", NANO_BANANA_PRICE_PER_IMAGE_1K);
 
   const res = await fetch(imageUrl);
   if (!res.ok) throw new Error(`Gagal ambil hasil poster dari fal.ai: ${res.status}`);

@@ -3,12 +3,17 @@ import { subscribeFalWithRetry } from "./falRetry";
 import sharp from "sharp";
 import { extractVideoFrame } from "@/lib/render/cloudinary";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
+import { logNonTokenUsage } from "./openaiClient";
 
 function ensureFalConfigured(): void {
   const apiKey = process.env.FAL_KEY;
   if (!apiKey) throw new Error("FAL_KEY belum diisi di .env");
   fal.config({ credentials: apiKey });
 }
+
+// Pencatatan biaya (2026-08-10) - $0.08/gambar @ 1K, lihat catatan lengkap di
+// posterDesign.ts (harga sama, model+resolusi sama).
+const NANO_BANANA_PRICE_PER_IMAGE_1K = 0.08;
 
 const FINAL_WIDTH = 1280;
 const FINAL_HEIGHT = 720;
@@ -53,6 +58,7 @@ export async function generateThumbnail(opts: {
 
   const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
   if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil thumbnail");
+  await logNonTokenUsage("nano-banana-2-thumbnail", NANO_BANANA_PRICE_PER_IMAGE_1K);
 
   const res = await fetch(imageUrl);
   if (!res.ok) throw new Error(`Gagal ambil hasil thumbnail dari fal.ai: ${res.status}`);
