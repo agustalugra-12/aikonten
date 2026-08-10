@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { ALL_MOTION_TYPES, type MotionType } from "@/lib/render/cameraMotion";
 import { ALL_TRANSITION_TYPES, type TransitionType } from "@/lib/render/transitions";
 import { getStylePresetConfig, type StylePresetConfig } from "./stylePreset";
+import type { ColorGradeConfig } from "@/lib/render/colorGrade";
 
 // AI Director (2026-08-10, PRD "AI Content Editing Engine" - fitur INTI/pembeda utama,
 // permintaan Agus eksplisit "AI Director dulu" saat ditanya prioritas). Sebelum modul
@@ -37,6 +38,11 @@ export type DirectorDecision = {
   // sini spy processProject.ts TIDAK hardcode showProgressBar:true lagi, ikut preset.
   showProgressBar: boolean;
   allowSticker: boolean;
+  // Motion intensity + Color Grade (2026-08-10, preset editing "AI EDITING PRESET v2"
+  // Animal Story & Co - lihat cameraMotion.ts/colorGrade.ts) - diteruskan apa adanya
+  // dari StylePresetConfig, TIDAK diputuskan GPT (fixed per preset, spt LUT konsisten).
+  motionIntensity: number;
+  colorGrade: ColorGradeConfig | null;
 };
 
 const VALID_MOODS: MusicMood[] = ["calm", "mysterious", "upbeat", "dramatic", "neutral", "none"];
@@ -65,6 +71,8 @@ function fallbackDecision(clipCount: number, config: StylePresetConfig): Directo
     stickerClipIndex: null, // fallback round-robin tidak py info energi - tanpa sticker drpd nebak
     showProgressBar: config.showProgressBar,
     allowSticker: config.allowSticker,
+    motionIntensity: config.motionIntensity,
+    colorGrade: config.colorGrade,
   };
 }
 
@@ -161,6 +169,8 @@ export async function planEdit(
     stickerClipIndex: stickerClipIndex >= 0 ? stickerClipIndex : null,
     showProgressBar: presetConfig.showProgressBar,
     allowSticker: presetConfig.allowSticker,
+    motionIntensity: presetConfig.motionIntensity,
+    colorGrade: presetConfig.colorGrade,
   };
 }
 

@@ -12,6 +12,10 @@
 // "hblur" = blur transisi horizontal, "coverleft" = klip baru "mendorong" klip lama
 // keluar dari kanan [padanan terdekat "Push"] - ketiganya dikonfirmasi ADA di preset
 // xfade bawaan ffmpeg, bukan nama karangan sendiri).
+// "hlwind"/"hrwind" ditambahkan 2026-08-10 (preset editing Animal Story & Co minta
+// "Whip" transition) - dicek lagi ke `ffmpeg -h filter=xfade` server ini SEBELUM
+// dipakai (sama disiplin dgn fadewhite/hblur/coverleft), preset "wind" adalah padanan
+// FFmpeg native TERDEKAT ke whip-pan editorial (footage "tertiup" cepat ke satu arah).
 export type TransitionType =
   | "fade"
   | "slideleft"
@@ -20,7 +24,9 @@ export type TransitionType =
   | "circleopen"
   | "fadewhite"
   | "hblur"
-  | "coverleft";
+  | "coverleft"
+  | "hlwind"
+  | "hrwind";
 
 export const ALL_TRANSITION_TYPES: TransitionType[] = [
   "fade",
@@ -31,6 +37,8 @@ export const ALL_TRANSITION_TYPES: TransitionType[] = [
   "fadewhite",
   "hblur",
   "coverleft",
+  "hlwind",
+  "hrwind",
 ];
 
 // 0.5dtk - cukup terasa TANPA bikin video terasa lambat/ngambang (PRD: "transisi halus

@@ -699,6 +699,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
       musicUrl,
       musicBeatTimestamps: musicBeats.beatTimestamps,
       stickerClipIndex: directorDecision.stickerClipIndex,
+      motionIntensity: directorDecision.motionIntensity,
+      colorGrade: directorDecision.colorGrade,
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
       // cabang carousel di atas, sama alasannya.
       logoUrl: brand?.logoUrl,

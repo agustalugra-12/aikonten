@@ -13,6 +13,7 @@ import { buildXfadeFilterComplex, type TransitionType } from "./transitions";
 import { buildProgressBarFilter, buildCtaTextFilter } from "./overlayEngine";
 import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay";
 import { nearestBeat } from "@/lib/ai/beatDetect";
+import { buildColorGradeFilter, type ColorGradeConfig } from "./colorGrade";
 
 const execFileAsync = promisify(execFile);
 
@@ -183,6 +184,12 @@ export async function renderFinalVideo(opts: {
   // dapat flash sticker 🔥 singkat di awalnya. null/undefined = tidak ada sticker sama
   // sekali (mis. tidak ada beat "peak" terdeteksi, AI Director fallback, dst).
   stickerClipIndex?: number | null;
+  // Motion Intensity + Color Grade (2026-08-10, preset editing "AI EDITING PRESET v2" -
+  // lihat cameraMotion.ts/colorGrade.ts/stylePreset.ts) - motionIntensity default 1.0
+  // (perilaku lama) kalau caller tidak kirim. colorGrade null/undefined = tidak ada
+  // grading (perilaku lama, footage apa adanya).
+  motionIntensity?: number;
+  colorGrade?: ColorGradeConfig | null;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -216,7 +223,7 @@ export async function renderFinalVideo(opts: {
         "-ss", String(clip.start),
         "-i", clip.url,
         "-t", String(duration),
-        "-vf", buildCameraMotionFilter(motion, TARGET_WIDTH, TARGET_HEIGHT, duration),
+        "-vf", buildCameraMotionFilter(motion, TARGET_WIDTH, TARGET_HEIGHT, duration, opts.motionIntensity ?? 1.0),
         "-an",
         "-c:v", "libx264",
         "-preset", "veryfast",
@@ -411,6 +418,14 @@ export async function renderFinalVideo(opts: {
     const logoMargin = Math.round(TARGET_WIDTH * LOGO_MARGIN_RATIO);
     const filterStages: string[] = [];
     let curLabel = "0:v";
+    // Color Grading (2026-08-10, preset editing - lihat colorGrade.ts) - DILAKUKAN
+    // PALING AWAL, SEBELUM subtitle dibakar - grading cuma mengubah warna/kontras
+    // FOOTAGE, teks subtitle (putih/kuning solid) TIDAK PERLU ikut ke-grading (bisa
+    // bikin warnanya melenceng dari desain Subtitle Designer yg sudah presisi).
+    if (opts.colorGrade) {
+      filterStages.push(`[${curLabel}]${buildColorGradeFilter(opts.colorGrade)}[graded]`);
+      curLabel = "graded";
+    }
     // Chain label dinamis (2026-08-10, DIPERLUAS - logo dulu satu2nya tahap opsional
     // setelah subtitle, sekarang bisa +progress bar +CTA jg) - tahap TERAKHIR yg
     // benar2 jalan SELALU keluarkan label "vout" (dihitung di akhir, bukan diasumsikan
