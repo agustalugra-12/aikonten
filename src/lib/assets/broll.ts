@@ -33,10 +33,28 @@ export type BrollResult = {
 // AUTO-PUBLISH" dari PRD, cuma beda mekanisme (exception vs status field eksplisit).
 // Kalau nanti mau sumber ke-3 sungguhan, cari yang py API resmi (mis. Videezy) - jangan
 // scraping.
+// Query MAKSIMAL ~90 karakter (2026-08-10, bug nyata - batch produksi Animal Story &
+// Co: 2 dari 6 video GAGAL total krn query >100 karakter, Pixabay tolak eksplisit
+// ("Search query 'q' may not exceed 100 characters"), Pexels JUGA ikut gagal (400
+// Invalid query) - instruksi prompt "keyword singkat" di deriveBrollKeywords.ts/
+// generateContent.ts TIDAK SELALU dipatuhi model utk skrip panjang. Dipangkas di SATU
+// titik pusat sini (bukan di tiap pemanggil) - melindungi SEMUA sumber query (skrip
+// dokumenter YouTube, brollKeywords caption Pelangi, dst) sekaligus.
+const MAX_BROLL_QUERY_CHARS = 90;
+
+function capQueryLength(query: string): string {
+  const trimmed = query.trim();
+  if (trimmed.length <= MAX_BROLL_QUERY_CHARS) return trimmed;
+  const cut = trimmed.slice(0, MAX_BROLL_QUERY_CHARS);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 20 ? cut.slice(0, lastSpace) : cut).trim();
+}
+
 export async function searchBrollVideo(query: string, excludeUrls: Set<string> = new Set()): Promise<BrollResult | null> {
+  const cappedQuery = capQueryLength(query);
   if (process.env.PEXELS_API_KEY) {
     try {
-      const pexels = await searchPexelsVideo(query, excludeUrls);
+      const pexels = await searchPexelsVideo(cappedQuery, excludeUrls);
       if (pexels) return { videoUrl: pexels.videoUrl, durationSeconds: pexels.durationSeconds, source: "pexels", creator: pexels.photographer, sourceUrl: pexels.pageUrl };
     } catch (err) {
       console.error("[broll] Pexels gagal, coba Pixabay:", err);
@@ -45,7 +63,7 @@ export async function searchBrollVideo(query: string, excludeUrls: Set<string> =
 
   if (process.env.PIXABAY_API_KEY) {
     try {
-      const pixabay = await searchPixabayVideo(query, excludeUrls);
+      const pixabay = await searchPixabayVideo(cappedQuery, excludeUrls);
       if (pixabay) return { videoUrl: pixabay.videoUrl, durationSeconds: pixabay.durationSeconds, source: "pixabay", creator: pixabay.photographer, sourceUrl: pixabay.pageUrl };
     } catch (err) {
       console.error("[broll] Pixabay juga gagal:", err);

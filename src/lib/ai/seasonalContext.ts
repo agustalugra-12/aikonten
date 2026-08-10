@@ -34,9 +34,16 @@ export function buildSeasonalContext(): string {
   const lines = [
     `Hari ini: ${dayName}${isWeekend ? " (WEEKEND)" : ""}`,
   ];
-  if (holidayToday) lines.push(`Hari libur nasional hari ini: ${holidayToday} - relevan utk konten bertema liburan/promo.`);
+  // Kata2 GENERIK (2026-08-10, bug nyata ditemukan - versi lama "relevan utk konten
+  // bertema liburan/promo"/"persiapan liburan akhir pekan (booking, packing, dst)"
+  // HARDCODE kosakata travel/hospitality, disuntik ke SEMUA brand tanpa pandang bulu -
+  // sama root cause dgn bug pilar/restriction/keyword yg sudah diperbaiki di
+  // researchTopics.ts, fungsi ini KELEWATAN di fix itu krn dipanggil generik tanpa
+  // parameter brand. Dibuktikan nyata: batch ide Animal Story & Co [channel fakta
+  // hewan] penuh ide "persiapan liburan"/"booking" gara2 baris ini).
+  if (holidayToday) lines.push(`Hari libur nasional hari ini: ${holidayToday} - relevan kalau brand ini py momen/konten musiman yg sesuai.`);
   if (!isWeekend && tomorrowIsWeekendOrHoliday) {
-    lines.push("Besok weekend/libur - relevan utk konten \"persiapan liburan akhir pekan\" (booking, packing, dst).");
+    lines.push("Besok weekend/libur - relevan kalau brand ini py konten yg cocok utk momen itu (SESUAI niche brand, bukan dipaksakan).");
   }
   return `\n\n# KONTEKS KALENDER (fakta pasti, bukan cuaca/perkiraan)\n${lines.join("\n")}`;
 }

@@ -157,25 +157,52 @@ async function buildIdeaPromptBase(
   // pandang bulu, ikut jadi salah satu sumber bias "AI selalu condong ke homestay").
   const keywordBlock = knowledgeSite === "pelangi" ? buildKeywordPriorityBlock(recentClassifications) : "";
 
+  // Bug NYATA ditemukan 2026-08-10 - versi lama SELURUH kalimat ini (contoh angle,
+  // contoh kalender, contoh variasi >5 ide) hardcode kosakata hospitality/Pelangi
+  // ("sarapan", "target tamu", "day use vs menginap", "persiapan liburan") dan
+  // TIDAK KETANGKAP oleh fix pillar/restriction/keyword sebelumnya (itu cuma benerin 3
+  // konstanta bernama, BUKAN kalimat instruksi utama ini) - dibuktikan lewat batch ide
+  // Animal Story & Co nyata yang SEMUA 10 ide-nya jadi soal "Day Use hotel"/"penginapan
+  // murah Bedugul"/"tamu backpacker menginap" walau brand itu channel fakta hewan,
+  // channelProfile-nya JUGA belum sempat kepakai (dailyIdeas hari itu sudah kepersist
+  // dari SEBELUM channelProfile diisi - lihat cek used/created_at). Sekarang contoh2 di
+  // kalimat WAJIB angle-beda dibedakan per knowledgeSite: Pelangi tetap dpt teks PERSIS
+  // sama (zero behavior change, sudah teruji years), brand lain dpt contoh generik yg
+  // diikat ke NAMA brand sendiri, bukan kosakata penginapan.
+  const angleExamples =
+    knowledgeSite === "pelangi"
+      ? "mis. harga vs lokasi vs sarapan vs suasana vs target tamu tertentu"
+      : `mis. harga/value vs lokasi vs fitur produk/layanan spesifik vs suasana vs target audiens brand "${brandName}" tertentu`;
+  const batchAngleVariation =
+    count > 5
+      ? knowledgeSite === "pelangi"
+        ? `SEMUA ${count} ide dalam batch ini JUGA WAJIB angle BEDA satu sama lain (bukan cuma ` +
+          "beda drpd histori) - variasikan: harga/value, lokasi/jarak ke wisata sekitar, " +
+          "fasilitas spesifik, suasana/pengalaman, target tamu (keluarga/pasangan/rombongan/" +
+          "solo), momen/waktu (pagi/sore/weekend), FAQ/edukasi produk (mis. \"day use itu " +
+          "apa?\"), perbandingan (mis. day use vs menginap). "
+        : `SEMUA ${count} ide dalam batch ini JUGA WAJIB angle BEDA satu sama lain (bukan cuma ` +
+          "beda drpd histori) - variasikan: harga/value, fitur/topik spesifik yg berbeda-beda, " +
+          "suasana/gaya penyampaian, target audiens/segmen tertentu, momen/waktu, FAQ/edukasi " +
+          "seputar niche brand ini, perbandingan (kalau memang relevan dgn niche-nya). "
+      : "";
+  const calendarHint =
+    knowledgeSite === "pelangi"
+      ? "manfaatkan # KONTEKS KALENDER di bawah kalau relevan (mis. weekend/libur nasional - " +
+        "ide \"persiapan liburan\"/promo), TAPI JANGAN PAKSA semua ide berbau kalender kalau tidak natural. "
+      : "manfaatkan # KONTEKS KALENDER di bawah kalau relevan (mis. weekend/libur nasional - ide musiman/" +
+        "promo yg SESUAI niche brand ini), TAPI JANGAN PAKSA semua ide berbau kalender kalau tidak natural. ";
+
   const system =
     `Kamu content strategist media sosial utk bisnis lokal Indonesia. Usulkan ${count} ide ` +
     "brief konten singkat (1-2 kalimat tiap ide, Bahasa Indonesia) yang RELEVAN dgn " +
-    "niche brand & musim/tanggal sekarang - manfaatkan # KONTEKS KALENDER di bawah kalau " +
-    "relevan (mis. weekend/libur nasional - ide \"persiapan liburan\"/promo), TAPI JANGAN " +
-    "PAKSA semua ide berbau kalender kalau tidak natural. Ide harus konkret & bisa langsung difilmkan " +
+    `niche brand & musim/tanggal sekarang - ${calendarHint}` +
+    "Ide harus konkret & bisa langsung difilmkan " +
     "dgn footage asli (bukan konsep abstrak) - fokus ke hal yg BENAR-BENAR ada di " +
     "tempat/bisnis semacam ini, JANGAN mengarang fasilitas/promo yg belum tentu ada. " +
     "JANGAN ulangi ide yg mirip dgn skrip yg sudah pernah dipakai brand ini - kalau " +
-    "topik besarnya sama (mis. sama-sama soal harga), WAJIB angle/sudut pandang yg " +
-    "BEDA drpd yg sudah pernah dipakai (mis. harga vs lokasi vs sarapan vs suasana vs " +
-    "target tamu tertentu), bukan variasi kalimat dari ide yg sama. " +
-    (count > 5
-      ? `SEMUA ${count} ide dalam batch ini JUGA WAJIB angle BEDA satu sama lain (bukan cuma ` +
-        "beda drpd histori) - variasikan: harga/value, lokasi/jarak ke wisata sekitar, " +
-        "fasilitas spesifik, suasana/pengalaman, target tamu (keluarga/pasangan/rombongan/" +
-        "solo), momen/waktu (pagi/sore/weekend), FAQ/edukasi produk (mis. \"day use itu " +
-        "apa?\"), perbandingan (mis. day use vs menginap). "
-      : "") +
+    `topik besarnya sama (mis. sama-sama soal harga), WAJIB angle/sudut pandang yg BEDA drpd yg sudah pernah dipakai (${angleExamples}), bukan variasi kalimat dari ide yg sama. ` +
+    batchAngleVariation +
     (knowledge
       ? "\n\nKAMU PUNYA KNOWLEDGE BASE ASLI PROPERTI DI BAWAH (KAMAR/FASILITAS/RADIUS " +
         "WISATA) - WAJIB PATUHI INI KETAT: (1) SEMUA klaim fasilitas/harga/kamar HARUS " +
@@ -318,8 +345,8 @@ export async function suggestScoredContentIdeas(
     ` SETIAP ide WAJIB diberi score 0-100 (integer) berdasarkan ${scoreCriteria.length} kriteria PERSIS ini ` +
     `(pertimbangkan SEMUA, bukan cuma 1): ${scoreCriteriaText} Sertakan jg reasoning ` +
     "SINGKAT (1 kalimat, Bahasa Indonesia) kenapa skor itu diberikan - WAJIB jujur & " +
-    "spesifik (mis. \"skor tinggi krn isi kekosongan pilar Kuliner Sekitar & keyword " +
-    "Level 1 blm pernah dipakai\", atau \"pilar Wisata Sekitar terbukti performa tinggi " +
+    "spesifik (mis. \"skor tinggi krn isi kekosongan salah satu pilar yg jarang dipakai " +
+    "& keyword Level 1 blm pernah dipakai\", atau \"pilar ini terbukti performa tinggi " +
     "dari data views nyata\"), bukan pujian generik. " +
     // 3 tipe (2026-08-05, revisi Agus - awalnya 2 tipe "video"/"carousel" [carousel
     // sebenarnya berarti foto tunggal], sekarang dipisah eksplisit jadi 3: video, foto
@@ -327,11 +354,11 @@ export async function suggestScoredContentIdeas(
     `Sertakan jg contentType ("video", "foto", atau "carousel") - dari ${count} ide, TEPAT ` +
     `${videoCount} harus "video", TEPAT ${fotoCount} harus "foto", TEPAT ${carouselCount} ` +
     `harus "carousel" (JANGAN meleset dari angka ini). Pilih ide MANA yg cocok jadi apa: ` +
-    "\"video\" = butuh gerakan/proses/beberapa momen berurutan (mis. tur kamar, aktivitas, " +
+    "\"video\" = butuh gerakan/proses/beberapa momen berurutan (mis. tur produk/tempat, aktivitas, " +
     "perbandingan). \"foto\" = SATU momen visual kuat yg cukup diwakili 1 gambar diam (mis. " +
-    "highlight 1 fasilitas spesifik, 1 sudut estetik, promo harga simpel) - jadi POSTER " +
+    "highlight 1 fitur/fasilitas spesifik, 1 sudut estetik, promo harga simpel) - jadi POSTER " +
     "promosi tunggal. \"carousel\" = topik yg BENAR-BENAR butuh BEBERAPA foto berurutan utk " +
-    "cerita lengkap (mis. tur beberapa sudut kamar sekaligus, beberapa fasilitas berbeda " +
+    "cerita lengkap (mis. tur beberapa sudut produk/tempat sekaligus, beberapa fitur berbeda " +
     "dalam 1 post, before/after, beberapa menu/pilihan) - BUKAN cuma 1 foto yg dibagi jadi " +
     "beberapa slide tanpa alasan, harus ada alasan NYATA butuh multi-foto. JANGAN asal bagi " +
     "rata, pilih yg PALING NATURAL utk tiap format.";
