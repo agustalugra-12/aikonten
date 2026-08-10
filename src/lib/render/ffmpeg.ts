@@ -10,6 +10,7 @@ import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/
 import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN } from "./subtitleDesign";
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
 import { buildXfadeFilterComplex, type TransitionType } from "./transitions";
+import { buildProgressBarFilter, buildCtaTextFilter } from "./overlayEngine";
 
 const execFileAsync = promisify(execFile);
 
@@ -147,6 +148,12 @@ export async function renderFinalVideo(opts: {
   // Batas keras durasi output (2026-08-10, permintaan Agus "jangan buat short diatas 1
   // menit") - lihat catatan lengkap di dekat outputDurationSeconds di bawah.
   maxDurationSeconds?: number;
+  // Overlay Engine (2026-08-10, PRD "AI Content Editing Engine") - lihat
+  // overlayEngine.ts. Keduanya OPSIONAL & independen - showProgressBar default false
+  // (tidak ada perubahan visual kalau caller tidak minta), ctaText default tidak ada
+  // teks CTA sama sekali kalau kosong/undefined.
+  showProgressBar?: boolean;
+  ctaText?: string;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -330,12 +337,27 @@ export async function renderFinalVideo(opts: {
     const logoMargin = Math.round(TARGET_WIDTH * LOGO_MARGIN_RATIO);
     const filterStages: string[] = [];
     let curLabel = "0:v";
-    const subLabel = logoInputIdx !== null ? "subbed" : "vout";
-    filterStages.push(`[${curLabel}]ass=${escapeFilterPath(assPath)}[${subLabel}]`);
-    curLabel = subLabel;
+    // Chain label dinamis (2026-08-10, DIPERLUAS - logo dulu satu2nya tahap opsional
+    // setelah subtitle, sekarang bisa +progress bar +CTA jg) - tahap TERAKHIR yg
+    // benar2 jalan SELALU keluarkan label "vout" (dihitung di akhir, bukan diasumsikan
+    // di tengah), tahap SEBELUM itu pakai label sementara unik.
+    filterStages.push(`[${curLabel}]ass=${escapeFilterPath(assPath)}[subbed]`);
+    curLabel = "subbed";
     if (logoInputIdx !== null) {
       filterStages.push(`[${logoInputIdx}:v]format=rgba[logofmt]`);
-      filterStages.push(`[${curLabel}][logofmt]overlay=W-w-${logoMargin}:${logoMargin}[vout]`);
+      filterStages.push(`[${curLabel}][logofmt]overlay=W-w-${logoMargin}:${logoMargin}[logoed]`);
+      curLabel = "logoed";
+    }
+    if (opts.showProgressBar) {
+      filterStages.push(`[${curLabel}]${buildProgressBarFilter(TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds)}[barred]`);
+      curLabel = "barred";
+    }
+    if (opts.ctaText) {
+      filterStages.push(`[${curLabel}]${buildCtaTextFilter(opts.ctaText, TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds)}[vout]`);
+      curLabel = "vout";
+    } else {
+      filterStages.push(`[${curLabel}]null[vout]`);
+      curLabel = "vout";
     }
     // Durasi output = MAX(video, audio), bukan cuma video (2026-08-07 fix, DIPERLUAS
     // 2026-08-10 - lihat needsVideoLoop di atas). Kasus asli 2026-08-07: video Laundry

@@ -692,6 +692,13 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // menit ini aturannya") - jaring pengaman TERAKHIR di render (bukan gantikan
       // durationConfig.target=60 di atas yg cuma target lunak saat pemilihan klip).
       maxDurationSeconds: isYoutubeShorts ? 60 : undefined,
+      // Overlay Engine (2026-08-10, PRD "AI Content Editing Engine") - progress bar
+      // SELALU aktif (murni kosmetik ringan, aman utk semua brand/tipe konten). CTA
+      // teks generik ("Follow for more!") - BUKAN AI-generated per-video (proporsional,
+      // sama alasan dgn dokumentasi overlayEngine.ts: konsisten lintas video lebih
+      // baik utk branding drpd variasi yg tidak perlu).
+      showProgressBar: true,
+      ctaText: "Follow for more!",
     });
 
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,
