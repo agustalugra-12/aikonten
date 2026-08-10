@@ -15,10 +15,11 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
+import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { imageToVideoClip } from "@/lib/render/imageToClip";
 import { generatePosterCopy } from "@/lib/ai/posterCopy";
 import { applyPosterDesign } from "@/lib/ai/posterDesign";
-import { generateThumbnail } from "@/lib/ai/thumbnail";
+import { extractThumbnailFrame } from "@/lib/render/frameExtract";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { fetchDestinationBrollClips, isDestinationContent, type DestinationBrollClip } from "@/lib/ai/destinationBroll";
 import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
@@ -650,6 +651,20 @@ export async function processProject(id: string): Promise<ProcessResult> {
       createdAt: new Date(),
     });
 
+    // AI Director (2026-08-10, PRD "AI Content Editing Engine", modul prioritas #1
+    // pilihan Agus) - GPT baca narrationText (SAMA teks yg jadi voiceover di atas,
+    // bukan panggilan terpisah/beda konteks), tentukan motion/transisi per klip
+    // berdasar ARC narasi (tenang->membangun->klimaks->penutup), bukan round-robin
+    // acak (fallback lama, TETAP jadi fallback kalau panggilan GPT ini gagal - lihat
+    // aiDirector.ts). Gagal TIDAK BOLEH menggagalkan render (peningkatan kualitas,
+    // bukan syarat wajib) - planEdit sendiri sudah try/catch internal & balik fallback.
+    const clipCount = selected.length + brollClips.length;
+    const directorDecision = await planEdit(narrationText, clipCount, project.brandId);
+    const musicUrl = await pickMusicTrack(project.brandId, directorDecision.musicMood).catch((err) => {
+      console.error("[processProject] gagal ambil track Music Bank, lanjut tanpa musik:", err);
+      return null;
+    });
+
     const rendered = await renderFinalVideo({
       projectId: id,
       brandId: project.brandId,
@@ -661,6 +676,9 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // Agus). Audio-nya SUDAH digenerate di atas (perlu ada LEBIH DULU drpd subtitle
       // presisi dibangun) - di sini tinggal diteruskan, bukan generate baru lagi.
       voiceoverAudioBuffer: voiceoverBuffer,
+      motions: directorDecision.motions,
+      transitions: directorDecision.transitions,
+      musicUrl,
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
       // cabang carousel di atas, sama alasannya.
       logoUrl: brand?.logoUrl,
@@ -735,18 +753,18 @@ export async function processProject(id: string): Promise<ProcessResult> {
       });
     }
 
-    if (thumbnailText) {
+    // Thumbnail dari potongan video ASLI, TANPA biaya AI (2026-08-10, permintaan Agus -
+    // "jangan ada biaya thumbnail, gunakan potongan video terbaik saja") - GANTI dari
+    // generateThumbnail() (Nano Banana 2, $0.08/gambar + teks overlay AI). thumbnailText
+    // (konsep teks dari youtubeEditorial.ts) TIDAK DIPAKAI LAGI di sini - dibiarkan tetap
+    // dihasilkan di tempat lain (masih relevan sbg ide, cuma tidak dibakar ke gambar).
+    {
       const [ytAccount] = await db
         .select()
         .from(socialAccounts)
         .where(and(eq(socialAccounts.brandId, project.brandId), eq(socialAccounts.platform, "youtube")));
       if (ytAccount) {
-        const thumbnailUrl = await generateThumbnail({
-          brandId: project.brandId,
-          projectId: id,
-          rawFootageUrl: rawFootage.fileUrl,
-          thumbnailText,
-        });
+        const thumbnailUrl = await extractThumbnailFrame(rendered.videoUrl, rendered.durationSeconds, project.brandId, id);
         await db.insert(mediaAssets).values({
           id: newId("asset"),
           projectId: id,
