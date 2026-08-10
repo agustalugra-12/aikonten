@@ -18,6 +18,8 @@ import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { detectBeats } from "@/lib/ai/beatDetect";
 import { extractStatOverlays } from "@/lib/ai/statExtractor";
+import { extractLowerThird } from "@/lib/ai/lowerThirdExtractor";
+import { parseWeightToKg } from "@/lib/render/comparisonBar";
 import { pickCtaText, type CtaContext } from "@/lib/ai/ctaEngine";
 import { runVideoQualityChecks } from "@/lib/pipeline/qualityChecker";
 import { imageToVideoClip } from "@/lib/render/imageToClip";
@@ -696,6 +698,19 @@ export async function processProject(id: string): Promise<ProcessResult> {
       clipIndex: Math.min(clipCount - 1, Math.max(0, Math.floor(s.positionFraction * clipCount))),
       iconCategory: s.iconCategory,
     }));
+    // Lower Third (2026-08-10, "Overlay System PRD" Category A) - SAMA gating dgn stat
+    // card (cuma preset "documentary"), panggilan GPT terpisah kecil (nama+tagline
+    // subjek, bukan angka - beda tujuan dari statExtractor).
+    const lowerThird = brand?.stylePreset === "documentary" ? await extractLowerThird(narrationText) : null;
+    // Comparison Bar (2026-08-10) - REUSE stat "weight" yg SUDAH diekstrak di atas
+    // (nol panggilan GPT tambahan) - HANYA jalan kalau nilainya bisa di-parse ke
+    // satuan berat dikenal (lihat comparisonBar.ts kenapa TIDAK ditampilkan kalau
+    // parsing gagal, drpd bar salah skala).
+    const weightStat = statOverlays.find((s) => s.iconCategory === "weight");
+    const weightKg = weightStat ? parseWeightToKg(weightStat.value) : null;
+    const comparisonBar = weightStat && weightKg !== null
+      ? { label: weightStat.label, value: weightStat.value, kg: weightKg, clipIndex: weightStat.clipIndex }
+      : null;
 
     const rendered = await renderFinalVideo({
       projectId: id,
@@ -716,6 +731,8 @@ export async function processProject(id: string): Promise<ProcessResult> {
       motionIntensity: directorDecision.motionIntensity,
       colorGrade: directorDecision.colorGrade,
       statOverlays,
+      lowerThird,
+      comparisonBar,
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
       // cabang carousel di atas, sama alasannya.
       logoUrl: brand?.logoUrl,

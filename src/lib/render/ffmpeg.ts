@@ -15,6 +15,8 @@ import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay"
 import { nearestBeat } from "@/lib/ai/beatDetect";
 import { buildColorGradeFilter, type ColorGradeConfig } from "./colorGrade";
 import { buildStatOverlayFilterStages } from "./statOverlay";
+import { buildLowerThirdFilter } from "./lowerThird";
+import { buildComparisonBarFilter } from "./comparisonBar";
 import { getStatIconPath } from "./statIcons";
 import type { StatIconCategory } from "@/lib/ai/statExtractor";
 
@@ -197,6 +199,11 @@ export async function renderFinalVideo(opts: {
   // urutan dgn `motions` (allClips: segments dulu, baru brollClips). Di luar rentang
   // clipStartOffsets = di-skip diam2 (jaga2 clipCount berubah), sama pola dgn sticker.
   statOverlays?: { label: string; value: string; clipIndex: number; iconCategory: StatIconCategory }[];
+  // Lower Third + Comparison Bar (2026-08-10, "Overlay System PRD" Category A - lihat
+  // lowerThird.ts/comparisonBar.ts) - keduanya pure drawbox/drawtext, TIDAK butuh
+  // input ffmpeg tambahan (beda dari stat card yg py ikon gambar).
+  lowerThird?: { name: string; tagline: string } | null;
+  comparisonBar?: { label: string; value: string; kg: number; clipIndex: number } | null;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -489,6 +496,16 @@ export async function renderFinalVideo(opts: {
       );
       curLabel = outLabel;
     });
+    if (opts.lowerThird) {
+      filterStages.push(`[${curLabel}]${buildLowerThirdFilter(opts.lowerThird.name, opts.lowerThird.tagline, TARGET_WIDTH, TARGET_HEIGHT)}[lowerthirded]`);
+      curLabel = "lowerthirded";
+    }
+    if (opts.comparisonBar && opts.comparisonBar.clipIndex >= 0 && opts.comparisonBar.clipIndex < clipStartOffsets.length) {
+      const cb = opts.comparisonBar;
+      const startSeconds = clipStartOffsets[cb.clipIndex];
+      filterStages.push(`[${curLabel}]${buildComparisonBarFilter(cb.label, cb.value, cb.kg, startSeconds, TARGET_WIDTH, TARGET_HEIGHT)}[compared]`);
+      curLabel = "compared";
+    }
     if (opts.showProgressBar) {
       filterStages.push(`[${curLabel}]${buildProgressBarFilter(TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds)}[barred]`);
       curLabel = "barred";
