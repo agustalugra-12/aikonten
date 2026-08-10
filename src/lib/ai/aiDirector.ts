@@ -28,9 +28,20 @@ export type DirectorDecision = {
 
 const VALID_MOODS: MusicMood[] = ["calm", "mysterious", "upbeat", "dramatic", "neutral", "none"];
 
+// Hook Optimization (2026-08-10, PRD "AI Content Editing Engine" - "3 detik pertama
+// wajib memiliki curiosity/motion/subtitle/zoom, tidak boleh ada intro panjang") -
+// klip PERTAMA dipaksa "zoom-in" TANPA PENGECUALIAN, tidak diserahkan ke klasifikasi
+// GPT (bug nyata sblm fix ini: kalau GPT nilai beat pembuka sbg "calm" - narasi hook
+// yg bernada tenang/eksplanatif - klip pertama bisa jadi "static", persis yg PRD
+// larang). Subtitle sudah otomatis tampil dari frame pertama (dibakar sepanjang
+// video, lihat ffmpeg.ts) - HANYA motion yg butuh override eksplisit di sini.
+const HOOK_MOTION: MotionType = "zoom-in";
+
 function fallbackDecision(clipCount: number): DirectorDecision {
+  const motions = Array.from({ length: clipCount }, (_, i) => ALL_MOTION_TYPES[i % ALL_MOTION_TYPES.length]);
+  if (motions.length > 0) motions[0] = HOOK_MOTION;
   return {
-    motions: Array.from({ length: clipCount }, (_, i) => ALL_MOTION_TYPES[i % ALL_MOTION_TYPES.length]),
+    motions,
     transitions: Array.from({ length: Math.max(0, clipCount - 1) }, (_, i) => ALL_TRANSITION_TYPES[i % ALL_TRANSITION_TYPES.length]),
     musicMood: "neutral",
   };
@@ -102,6 +113,7 @@ export async function planEdit(script: string, clipCount: number, brandId: strin
   });
 
   const motions = energyLevels.map((energy, i) => mapEnergyToMotion(energy, i));
+  if (motions.length > 0) motions[0] = HOOK_MOTION; // Hook Optimization - lihat catatan di atas fallbackDecision
   const transitions: TransitionType[] = [];
   for (let i = 0; i < energyLevels.length - 1; i++) {
     transitions.push(mapEnergyToTransition(energyLevels[i], energyLevels[i + 1]));
