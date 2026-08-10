@@ -467,15 +467,16 @@ export function BrandSettingsSidebar({
               <Label htmlFor="orientation" className="text-xs">📐 Orientasi video</Label>
               <p className="text-xs text-muted-foreground">
                 Portrait (9:16) untuk IG/TikTok Reels. Landscape (16:9) untuk YouTube - thumbnail otomatis khusus YT
-                cuma relevan dipakai kalau ini landscape.
+                cuma relevan dipakai kalau ini landscape. Square (1:1) untuk feed IG/FB biasa (bukan Reels).
               </p>
-              <Select value={orientation} onValueChange={(v) => setOrientation(v as "portrait" | "landscape")}>
+              <Select value={orientation} onValueChange={(v) => setOrientation(v as "portrait" | "landscape" | "square")}>
                 <SelectTrigger id="orientation" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="portrait">Portrait (9:16 - IG/TikTok)</SelectItem>
                   <SelectItem value="landscape">Landscape (16:9 - YouTube)</SelectItem>
+                  <SelectItem value="square">Square (1:1 - Feed IG/FB)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

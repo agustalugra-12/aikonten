@@ -60,7 +60,10 @@ export const brands = sqliteTable("brands", {
   // utk kebutuhan YT") - render pipeline (ffmpeg.ts) sebelumnya hardcode portrait
   // 1080x1920 (IG/TikTok Reels) - landscape 1920x1080 utk YouTube, auto-thumbnail
   // (thumbnail.ts, sudah ada) baru relevan dipakai kalau orientasi ini "landscape".
-  videoOrientation: text("video_orientation", { enum: ["portrait", "landscape"] }).notNull().default("portrait"),
+  // "square" ditambahkan 2026-08-10 (PRD "AI Content Editing Engine" - Layout Landscape/
+  // Vertical/Square) - utk feed IG/FB non-Reels yg masih umum pakai rasio 1:1, beda dari
+  // portrait (Reels/Shorts/TikTok 9:16) & landscape (YouTube 16:9).
+  videoOrientation: text("video_orientation", { enum: ["portrait", "landscape", "square"] }).notNull().default("portrait"),
   // Knowledge Base manual (2026-08-05, permintaan Agus - "setiap brand bisa mengisi
   // pengetahuan secara manual") - MELENGKAPI (bukan menggantikan) fakta otomatis dari
   // PMS/website (lihat knowledgeSite/pelangiKnowledge.ts) - utk hal yg tidak ada

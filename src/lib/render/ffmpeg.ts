@@ -30,10 +30,12 @@ export type RenderResult = {
 // kebutuhan YT") - portrait (9:16, default lama - IG/TikTok Reels) vs landscape (16:9 -
 // YouTube). Dulu TARGET_WIDTH/HEIGHT konstanta tetap, sekarang fungsi dari orientasi
 // yg dikirim per-project (dari brands.videoOrientation, lihat processProject.ts).
-export type VideoOrientation = "portrait" | "landscape";
+export type VideoOrientation = "portrait" | "landscape" | "square";
 
 function getTargetDimensions(orientation: VideoOrientation): { width: number; height: number } {
-  return orientation === "landscape" ? { width: 1920, height: 1080 } : { width: 1080, height: 1920 };
+  if (orientation === "landscape") return { width: 1920, height: 1080 };
+  if (orientation === "square") return { width: 1080, height: 1080 };
+  return { width: 1080, height: 1920 };
 }
 
 // Loudness normalization (2026-08-10, PRD "AI Content Editing Engine" - "Normalize

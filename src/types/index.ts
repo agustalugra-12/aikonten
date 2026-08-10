@@ -10,7 +10,7 @@ export type Brand = {
   dailyYoutubeShortsCount: number;
   videoDurationTarget: number;
   carouselPhotosPerPost: number;
-  videoOrientation: "portrait" | "landscape";
+  videoOrientation: "portrait" | "landscape" | "square";
   manualKnowledge: string | null;
   knowledgeSite: string | null;
   publishMode: "draft" | "auto";
