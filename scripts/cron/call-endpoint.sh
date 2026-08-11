@@ -10,8 +10,17 @@ if [ -z "$SECRET" ]; then
   echo "CRON_SECRET belum diisi di .env" >&2
   exit 1
 fi
-# --max-time longgar (2026-08-06) - auto-generate bisa proses beberapa ide sekaligus
-# (render video/poster per ide, panggilan API berbayar + ffmpeg), curl default TIDAK
-# ADA batas waktu tapi systemd TimeoutStartSec per service yg atur batas sesungguhnya -
-# --max-time di sini cuma jaring pengaman tambahan spy curl sendiri tidak nyangkut mati.
-curl -sf --max-time 1700 -X POST "http://localhost:3100$1" -H "X-Cron-Key: $SECRET" -w "\nHTTP %{http_code}\n"
+# --max-time dinaikkan 1700 -> 10700 (2026-08-11, bug nyata ditemukan - lihat catatan
+# lengkap di kontenpilot-auto-generate.service TimeoutStartSec, angka ini SENGAJA
+# dipasangkan sedikit di bawah situ) - batch auto-generate semalam TERBUKTI masih aktif
+# proses ide SATU JAM PENUH stlh mulai (dicek langsung di journalctl
+# kontenpilot-backend.service), jauh melebihi 1700dtk (~28menit) yg lama - curl
+# TIMEOUT/putus duluan padahal proses generate sungguhan (server long-running TERPISAH,
+# TIDAK ikut berhenti saat koneksi klien putus) tetap jalan sampai selesai. Status
+# "curl gagal"/"service failed" SELAMA INI seringkali cuma berarti "curl bosan nunggu",
+# bukan sinyal kontennya benar2 gagal - naikkan supaya wrapper ini benar2 nunggu sampai
+# respons asli (atau baru genuinely timeout kalau proses beneran macet berjam-jam).
+# Dipakai bareng utk endpoint LAIN yg dipanggil script sama (mis. daily-ideas, jauh
+# lebih cepat) - timeout longgar tidak merugikan job yg cepat, cuma jadi jaring pengaman
+# lebih longgar.
+curl -sf --max-time 10700 -X POST "http://localhost:3100$1" -H "X-Cron-Key: $SECRET" -w "\nHTTP %{http_code}\n"
