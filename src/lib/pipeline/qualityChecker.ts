@@ -21,9 +21,27 @@ const execFileAsync = promisify(execFile);
 // lain: logo cuma dilewati kalau brand.logoUrl kosong (lihat ffmpeg.ts, bukan "hilang"
 // tak sengaja), transisi dibangun deterministik dari AI Director (tidak ada jalur
 // gagal-diam - filter_complex error akan melempar exception render, bukan lolos diam2).
+// Klasifikasi fixability (2026-08-12, Fase 2c PRD Animal Story & Co section 9/10/21/22/42
+// - "jangan reject, coba perbaiki dulu... reject HANYA kalau masalahnya material"). Versi
+// lama: SEMUA issue = 1 boolean `passed`, satu issue apa pun (termasuk yg borderline/
+// remeh) = reject total, render yg SUDAH JADI (sudah kena biaya) dibuang. Sekarang tiap
+// issue diklasifikasi:
+// - "retry_subtitle_only": SRT kosong/baris kepanjangan - BISA diperbaiki murah (re-
+//   transkripsi audio yg SUDAH ADA, TANPA render ulang video) - lihat processProject.ts.
+// - "warn": borderline/tidak cukup parah utk dibuang (mis. sunyi 8-12dtk, hitam 2-4dtk,
+//   volume -35 s/d -30dB) - dicatat (autoFixLog), TIDAK menahan status "ready".
+// - "hard_reject": genuinely material (durasi jauh di bawah minimum, sunyi/hitam/volume
+//   PARAH) - PRD sendiri sebutkan "render/audio total failure" sbg alasan reject sah.
+export type QualityIssue = {
+  code: string;
+  message: string;
+  fixability: "retry_subtitle_only" | "warn" | "hard_reject";
+};
+
 export type QualityCheckResult = {
   passed: boolean;
-  issues: string[];
+  issues: string[]; // gabungan semua issue.message, dipertahankan utk backward-compat (errorMessage dsb)
+  structured: QualityIssue[];
 };
 
 // Ambang sunyi (2026-08-10) - >8 detik sunyi BERTURUT-TURUT dianggap cacat (jeda wajar
@@ -109,52 +127,114 @@ function checkSrtContent(srtContent: string): string[] {
 // R2, minDurationSeconds dari durationConfig.min yg sudah dipakai konsisten di seluruh
 // pipeline (bukan angka baru terpisah). srtContent OPSIONAL (caller lama/tanpa
 // subtitle presisi tetap bisa panggil tanpa cek subtitle - lihat processProject.ts).
+// Ambang "warn, bukan hard-fail" (2026-08-12, Fase 2c) - borderline case yg dekat batas
+// asli TAPI belum genuinely material. Sunyi 8-12dtk / hitam 2-4dtk / volume -35 s/d
+// -30dB dicatat sbg warning (autoFixLog), TIDAK menahan status "ready" - selaras
+// prinsip PRD "jangan reject krn tidak sempurna, reject HANYA krn material." Melebihi
+// batas warn ini baru genuinely hard_reject.
+const SILENCE_WARN_MAX_SECONDS = 12;
+const BLACK_WARN_MAX_SECONDS = 4;
+const MEAN_VOLUME_WARN_MIN_DB = -30;
+
 export async function runVideoQualityChecks(
   videoUrl: string,
   actualDurationSeconds: number,
   minDurationSeconds: number,
   srtContent?: string
 ): Promise<QualityCheckResult> {
-  const issues: string[] = [];
+  const structured: QualityIssue[] = [];
 
   if (actualDurationSeconds < minDurationSeconds) {
-    issues.push(`Durasi video ${Math.round(actualDurationSeconds)}dtk di bawah minimum ${minDurationSeconds}dtk`);
+    // Bukan retry murah di sini (butuh render ulang penuh) - caller (processProject.ts)
+    // yg memutuskan apakah mau reroute lewat ladder Fase 2b, cek ini cuma melaporkan.
+    structured.push({
+      code: "duration_short",
+      message: `Durasi video ${Math.round(actualDurationSeconds)}dtk di bawah minimum ${minDurationSeconds}dtk`,
+      fixability: "hard_reject",
+    });
   }
 
   if (srtContent !== undefined) {
-    issues.push(...checkSrtContent(srtContent));
+    for (const msg of checkSrtContent(srtContent)) {
+      structured.push({ code: "srt_content", message: msg, fixability: "retry_subtitle_only" });
+    }
   }
 
   try {
     const longestSilence = await detectLongestSilence(videoUrl);
-    if (longestSilence > 0) {
-      issues.push(
-        `Ada jeda sunyi ${Math.round(longestSilence)} detik di audio (narasi kemungkinan terputus/tidak menutupi seluruh video)`
-      );
+    if (longestSilence > SILENCE_WARN_MAX_SECONDS) {
+      structured.push({
+        code: "silence",
+        message: `Ada jeda sunyi ${Math.round(longestSilence)} detik di audio (narasi kemungkinan terputus/tidak menutupi seluruh video)`,
+        fixability: "hard_reject",
+      });
+    } else if (longestSilence > MAX_SILENCE_SECONDS) {
+      structured.push({
+        code: "silence",
+        message: `Ada jeda sunyi ${Math.round(longestSilence)} detik di audio (borderline, di bawah batas parah)`,
+        fixability: "warn",
+      });
     }
   } catch (err) {
     // Gagal cek TIDAK BOLEH menggagalkan project (mis. ffmpeg sesaat error) - dicatat
-    // sbg issue tapi video tetap lanjut, drpd macet total krn pemeriksaan tambahan.
-    issues.push(`Gagal menjalankan cek silence: ${err instanceof Error ? err.message : String(err)}`);
+    // sbg warning, bukan hard_reject, drpd macet total krn pemeriksaan tambahan gagal.
+    structured.push({
+      code: "silence_check_error",
+      message: `Gagal menjalankan cek silence: ${err instanceof Error ? err.message : String(err)}`,
+      fixability: "warn",
+    });
   }
 
   try {
     const meanVolume = await detectMeanVolume(videoUrl);
     if (meanVolume !== null && meanVolume < MIN_MEAN_VOLUME_DB) {
-      issues.push(`Volume audio terlalu pelan (rata-rata ${meanVolume.toFixed(1)}dB, di bawah ambang ${MIN_MEAN_VOLUME_DB}dB)`);
+      structured.push({
+        code: "mean_volume",
+        message: `Volume audio terlalu pelan (rata-rata ${meanVolume.toFixed(1)}dB, di bawah ambang ${MIN_MEAN_VOLUME_DB}dB)`,
+        fixability: "hard_reject",
+      });
+    } else if (meanVolume !== null && meanVolume < MEAN_VOLUME_WARN_MIN_DB) {
+      structured.push({
+        code: "mean_volume",
+        message: `Volume audio agak pelan (rata-rata ${meanVolume.toFixed(1)}dB, borderline)`,
+        fixability: "warn",
+      });
     }
   } catch (err) {
-    issues.push(`Gagal menjalankan cek volume: ${err instanceof Error ? err.message : String(err)}`);
+    structured.push({
+      code: "volume_check_error",
+      message: `Gagal menjalankan cek volume: ${err instanceof Error ? err.message : String(err)}`,
+      fixability: "warn",
+    });
   }
 
   try {
     const totalBlack = await detectTotalBlackSeconds(videoUrl);
-    if (totalBlack > MAX_BLACK_SECONDS) {
-      issues.push(`Ada ${Math.round(totalBlack)} detik layar hitam total (footage kemungkinan gagal dimuat/corrupt)`);
+    if (totalBlack > BLACK_WARN_MAX_SECONDS) {
+      structured.push({
+        code: "black_frames",
+        message: `Ada ${Math.round(totalBlack)} detik layar hitam total (footage kemungkinan gagal dimuat/corrupt)`,
+        fixability: "hard_reject",
+      });
+    } else if (totalBlack > MAX_BLACK_SECONDS) {
+      structured.push({
+        code: "black_frames",
+        message: `Ada ${Math.round(totalBlack)} detik layar hitam total (borderline, di bawah batas parah)`,
+        fixability: "warn",
+      });
     }
   } catch (err) {
-    issues.push(`Gagal menjalankan cek footage kosong: ${err instanceof Error ? err.message : String(err)}`);
+    structured.push({
+      code: "black_check_error",
+      message: `Gagal menjalankan cek footage kosong: ${err instanceof Error ? err.message : String(err)}`,
+      fixability: "warn",
+    });
   }
 
-  return { passed: issues.length === 0, issues };
+  const hardFails = structured.filter((i) => i.fixability === "hard_reject" || i.fixability === "retry_subtitle_only");
+  return {
+    passed: hardFails.length === 0,
+    issues: structured.map((i) => i.message),
+    structured,
+  };
 }

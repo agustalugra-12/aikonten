@@ -856,49 +856,57 @@ export async function processProject(id: string): Promise<ProcessResult> {
       ? { label: weightStat.label, value: weightStat.value, kg: weightKg, clipIndex: weightStat.clipIndex }
       : null;
 
-    const rendered = await renderFinalVideo({
-      projectId: id,
-      brandId: project.brandId,
-      segments: selected,
-      srtContent: srt,
-      wordTimings,
-      brollClips,
-      // AI Dubbing - GANTI TOTAL suara asli (lihat memory proyek, keputusan eksplisit
-      // Agus). Audio-nya SUDAH digenerate di atas (perlu ada LEBIH DULU drpd subtitle
-      // presisi dibangun) - di sini tinggal diteruskan, bukan generate baru lagi.
-      voiceoverAudioBuffer: voiceoverBuffer,
-      motions: directorDecision.motions,
-      transitions: directorDecision.transitions,
-      musicUrl,
-      musicBeatTimestamps: musicBeats.beatTimestamps,
-      stickerClipIndex: directorDecision.stickerClipIndex,
-      motionIntensity: directorDecision.motionIntensity,
-      colorGrade: directorDecision.colorGrade,
-      statOverlays,
-      lowerThird,
-      comparisonBar,
-      // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
-      // cabang carousel di atas, sama alasannya.
-      logoUrl: brand?.logoUrl,
-      // Orientasi (2026-08-05, permintaan Agus - "landscape atau potrait ini utk
-      // kebutuhan YT") - setting per-brand, default "portrait" kalau belum di-set.
-      // YT Shorts (2026-08-10) SELALU portrait, override setting brand - lihat
-      // isYoutubeShorts di atas.
-      orientation: isYoutubeShorts ? "portrait" : brand?.videoOrientation,
-      // Batas keras 60dtk (2026-08-10, permintaan Agus - "jangan buat short diatas 1
-      // menit ini aturannya") - jaring pengaman TERAKHIR di render (bukan gantikan
-      // durationConfig.target=60 di atas yg cuma target lunak saat pemilihan klip).
-      maxDurationSeconds: isYoutubeShorts ? 60 : undefined,
-      // Overlay Engine (2026-08-10, PRD "AI Content Editing Engine") - progress bar
-      // ikut Style Preset (2026-08-10, DIREVISI dari hardcode true - lihat
-      // stylePreset.ts, preset documentary/minimal mematikannya). CTA dinamis per
-      // konteks platform (2026-08-10 - lihat ctaEngine.ts kenapa TETAP bukan
-      // GPT-generated per-video, cuma rotasi deterministik dari pool kecil sesuai
-      // konvensi platform: Subscribe utk YouTube, Follow utk Reels/TikTok/Shorts
-      // non-YouTube).
-      showProgressBar: directorDecision.showProgressBar,
-      ctaText: pickCtaText(id, ctaContext),
-    });
+    // renderWithSubtitles (2026-08-12, Fase 2c) - dijadikan closure (semula 1 pemanggilan
+    // inline) supaya BISA dipanggil ulang dgn srtContent/wordTimings BEDA tanpa duplikasi
+    // ~40 baris param - dipakai retry subtitle-only di bawah (lihat Quality Checker).
+    // Semua param LAIN (klip, motion, transisi, musik, overlay) TETAP sama persis antar
+    // panggilan - retry ini murni soal subtitle, bukan pilih ulang footage/durasi (itu
+    // ranah Fase 2b, sudah selesai di atas sblm render pertama ini).
+    const renderWithSubtitles = (srtForRender: string, wordTimingsForRender: typeof wordTimings) =>
+      renderFinalVideo({
+        projectId: id,
+        brandId: project.brandId,
+        segments: selected,
+        srtContent: srtForRender,
+        wordTimings: wordTimingsForRender,
+        brollClips,
+        // AI Dubbing - GANTI TOTAL suara asli (lihat memory proyek, keputusan eksplisit
+        // Agus). Audio-nya SUDAH digenerate di atas (perlu ada LEBIH DULU drpd subtitle
+        // presisi dibangun) - di sini tinggal diteruskan, bukan generate baru lagi.
+        voiceoverAudioBuffer: voiceoverBuffer,
+        motions: directorDecision.motions,
+        transitions: directorDecision.transitions,
+        musicUrl,
+        musicBeatTimestamps: musicBeats.beatTimestamps,
+        stickerClipIndex: directorDecision.stickerClipIndex,
+        motionIntensity: directorDecision.motionIntensity,
+        colorGrade: directorDecision.colorGrade,
+        statOverlays,
+        lowerThird,
+        comparisonBar,
+        // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lihat catatan lengkap di
+        // cabang carousel di atas, sama alasannya.
+        logoUrl: brand?.logoUrl,
+        // Orientasi (2026-08-05, permintaan Agus - "landscape atau potrait ini utk
+        // kebutuhan YT") - setting per-brand, default "portrait" kalau belum di-set.
+        // YT Shorts (2026-08-10) SELALU portrait, override setting brand - lihat
+        // isYoutubeShorts di atas.
+        orientation: isYoutubeShorts ? "portrait" : brand?.videoOrientation,
+        // Batas keras 60dtk (2026-08-10, permintaan Agus - "jangan buat short diatas 1
+        // menit ini aturannya") - jaring pengaman TERAKHIR di render (bukan gantikan
+        // durationConfig.target=60 di atas yg cuma target lunak saat pemilihan klip).
+        maxDurationSeconds: isYoutubeShorts ? 60 : undefined,
+        // Overlay Engine (2026-08-10, PRD "AI Content Editing Engine") - progress bar
+        // ikut Style Preset (2026-08-10, DIREVISI dari hardcode true - lihat
+        // stylePreset.ts, preset documentary/minimal mematikannya). CTA dinamis per
+        // konteks platform (2026-08-10 - lihat ctaEngine.ts kenapa TETAP bukan
+        // GPT-generated per-video, cuma rotasi deterministik dari pool kecil sesuai
+        // konvensi platform: Subscribe utk YouTube, Follow utk Reels/TikTok/Shorts
+        // non-YouTube).
+        showProgressBar: directorDecision.showProgressBar,
+        ctaText: pickCtaText(id, ctaContext),
+      });
+    let rendered = await renderWithSubtitles(srt, wordTimings);
 
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,
     // bukan estimasi pre-render) tetap >= minimum wajib. Ditemukan lewat tes nyata: durasi
@@ -918,6 +926,80 @@ export async function processProject(id: string): Promise<ProcessResult> {
           `${effectiveMinDuration} detik yg diwajibkan (estimasi pre-render meleset - ` +
           `durasi nyata sumber footage beda dari metadata) - coba generate ulang.`
       );
+    }
+
+    // Quality Checker (2026-08-10, PRD "AI Content Editing Engine" - dibangun LANGSUNG
+    // stlh insiden nyata: 3 video lama dgn narasi rusak [163dtk sunyi] sempat ke-publish
+    // otomatis krn TIDAK ADA pemeriksaan yg menahannya sblm status "ready". Cek di sini
+    // JADI GERBANG WAJIB - gagal cek -> "failed" (BUKAN "ready"), tidak pernah tampil
+    // sbg draft yg terlihat siap padahal cacat, apalagi ke-auto-publish.
+    // Fase 2c (2026-08-12) - DIPINDAH ke sini (semula di akhir, SETELAH chapter/thumbnail/
+    // broll-tracking) supaya retry di bawah TIDAK perlu mengulang kerja itu 2x, dan biar
+    // gagal-cepat sblm biaya thumbnail extraction terbuang percuma di video yg akan
+    // ditolak. SEKALIGUS ditambah retry utk issue subtitle (SRT kosong/baris kepanjangan):
+    // catatan jujur - subtitle di-BAKAR ke video (lihat ffmpeg.ts "Bakar subtitle"), BUKAN
+    // track terpisah, jadi retry ini TETAP render ulang (bukan literally "tanpa render
+    // ulang" seperti asumsi awal di rencana) - tapi tetap jauh lebih murah dari retry
+    // footage/durasi (Fase 2b, TIDAK diulang di sini): nol panggilan API berbayar baru
+    // KECUALI 1x Whisper transkripsi ulang (audio yg SUDAH ada), semua input render lain
+    // (klip, motion, transisi, musik, overlay) dipakai ULANG apa adanya lewat
+    // renderWithSubtitles(). Issue silence/durasi/black-frame yg PARAH (bukan borderline -
+    // lihat SILENCE_WARN_MAX_SECONDS dkk di qualityChecker.ts) TIDAK diretry di sini
+    // (butuh footage BEDA, bukan cuma subtitle - reselect footage stlh render selesai
+    // butuh restrukturisasi pipeline lebih besar, belum aman dilakukan di pass ini) -
+    // tetap hard_reject, selaras daftar alasan reject SAH milik PRD sendiri sendiri
+    // ("render/audio total failure").
+    let qualityCheck = await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, effectiveMinDuration, srt);
+    if (!qualityCheck.passed) {
+      const hardRejectIssues = qualityCheck.structured.filter((i) => i.fixability === "hard_reject");
+      const subtitleIssues = qualityCheck.structured.filter((i) => i.fixability === "retry_subtitle_only");
+
+      if (hardRejectIssues.length === 0 && subtitleIssues.length > 0) {
+        autoFixLog.push({
+          step: "subtitle_quality",
+          action: `transkripsi ulang audio + render ulang subtitle (issue: ${subtitleIssues.map((i) => i.code).join(", ")})`,
+          result: "mencoba",
+        });
+        try {
+          const retryTranscription = await transcribeAudioBuffer(voiceoverBuffer);
+          const retrySrt = buildSrtFromTranscriptSegments(retryTranscription.segments);
+          const retryRendered = await renderWithSubtitles(retrySrt, retryTranscription.words);
+          const retryCheck = await runVideoQualityChecks(
+            retryRendered.videoUrl,
+            retryRendered.durationSeconds,
+            effectiveMinDuration,
+            retrySrt
+          );
+          if (retryCheck.passed) {
+            autoFixLog[autoFixLog.length - 1].result = "berhasil";
+            rendered = retryRendered;
+            srt = retrySrt;
+            wordTimings = retryTranscription.words;
+            qualityCheck = retryCheck;
+            await db.insert(mediaAssets).values({
+              id: newId("asset"),
+              projectId: id,
+              type: "subtitle_file",
+              fileUrl: `data:text/plain;base64,${Buffer.from(retrySrt).toString("base64")}`,
+              durationSeconds: null,
+              createdAt: new Date(),
+            });
+          } else {
+            autoFixLog[autoFixLog.length - 1].result = `masih gagal stlh retry: ${retryCheck.issues.join("; ")}`;
+            qualityCheck = retryCheck;
+          }
+        } catch (err) {
+          autoFixLog[autoFixLog.length - 1].result = `gagal dicoba: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+    }
+
+    if (!qualityCheck.passed) {
+      await db
+        .update(projects)
+        .set({ status: "failed", errorMessage: `Quality Check gagal: ${qualityCheck.issues.join("; ")}`, updatedAt: new Date() })
+        .where(eq(projects.id, id));
+      throw new Error(`Quality Check gagal: ${qualityCheck.issues.join("; ")}`);
     }
 
     // Chapter YouTube (2026-08-10) - BARU bisa dihitung SEKARANG, durasi render ASLI
@@ -990,20 +1072,6 @@ export async function processProject(id: string): Promise<ProcessResult> {
           createdAt: new Date(),
         });
       }
-    }
-
-    // Quality Checker (2026-08-10, PRD "AI Content Editing Engine" - dibangun LANGSUNG
-    // stlh insiden nyata: 3 video lama dgn narasi rusak [163dtk sunyi] sempat ke-publish
-    // otomatis krn TIDAK ADA pemeriksaan yg menahannya sblm status "ready". Cek di sini
-    // JADI GERBANG WAJIB - gagal cek -> "failed" (BUKAN "ready"), tidak pernah tampil
-    // sbg draft yg terlihat siap padahal cacat, apalagi ke-auto-publish.
-    const qualityCheck = await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, effectiveMinDuration, srt);
-    if (!qualityCheck.passed) {
-      await db
-        .update(projects)
-        .set({ status: "failed", errorMessage: `Quality Check gagal: ${qualityCheck.issues.join("; ")}`, updatedAt: new Date() })
-        .where(eq(projects.id, id));
-      throw new Error(`Quality Check gagal: ${qualityCheck.issues.join("; ")}`);
     }
 
     await db
