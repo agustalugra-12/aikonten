@@ -14,7 +14,14 @@ import path from "path";
 // (sticker_fire.png, 72x72, dari Twemoji - CC-BY 4.0, atribusi: "Twemoji" oleh
 // Twitter/X, https://github.com/twitter/twemoji) di-download SEKALI ke repo, bukan
 // fetch jaringan tiap render.
-const STICKER_PATH = path.join(__dirname, "assets", "sticker_fire.png");
+// BUG NYATA (2026-08-11, ditemukan lewat 12 video GAGAL nyata semalam via cron
+// auto-generate) - __dirname di sini kena SAMA masalah dgn statIcons.ts (lihat
+// catatan lengkap di sana) - build Turbopack project ini menulis ulang __dirname jadi
+// string literal SALAH CASING ("/ROOT/..." bukan "/root/..."). Fix: process.cwd()
+// (runtime, bukan build-time), bukan __dirname. Ini artinya sticker KEMUNGKINAN BESAR
+// SUDAH GAGAL DIAM-DIAM di SEMUA render production sejak fitur ini dibuat - test tsx
+// saya sendiri selalu lolos krn tidak lewat build production sungguhan.
+const STICKER_PATH = path.join(process.cwd(), "src/lib/render/assets/sticker_fire.png");
 
 export function getStickerAssetPath(): string {
   return STICKER_PATH;
