@@ -328,7 +328,11 @@ export async function generateCaptionAndHashtags(
     "Kamu content strategist media sosial. Buat caption yang menarik & natural (bukan " +
     "generik/template) plus MAKSIMAL 5 hashtag PALING relevan (bukan lebih - pilih yg " +
     "paling tepat sasaran, jangan asal banyak) berdasarkan skrip & isi klip yang " +
-    "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip." +
+    "benar-benar terpilih. JANGAN mengarang klaim yang tidak ada di skrip/klip. " +
+    "KALAU skrip ini berisi TIPS/CARA/LANGKAH konkret (bukan cuma cerita/promosi biasa), " +
+    "caption WAJIB memuat SEMUA poin/langkah tipsnya secara LENGKAP - JANGAN cuma " +
+    "disebut sepintas/dijadikan teaser yg mengarahkan ke tempat lain, penonton harus " +
+    "dapat SELURUH isi tipsnya langsung dari caption ini." +
     grounding.instruction +
     " Caption ini JUGA jadi naskah voiceover (dibacakan TTS, GANTI TOTAL audio asli video) - " +
     `WAJIB ikuti struktur narasi berikut (jangan tulis label section-nya literal, cukup ` +
@@ -394,10 +398,22 @@ export async function generateCaptionForImages(
   // caption ini, dari script - bukan sebaliknya), jadi instruksi "lihat foto asli" tidak
   // relevan di mode ini - caption dibuat murni dari skrip/brief spt jalur video, TETAP
   // JANGAN mengarang klaim di luar skrip (prinsip sama, sumbernya beda).
+  // "Caption lengkap berisi tipsnya" (2026-08-11, permintaan Agus) - SAMA instruksi
+  // dgn generateCaptionAndHashtags (video) di atas, diulang di sini krn ini prompt
+  // TERPISAH (fungsi beda) - bukan lupa duplikasi, poster/foto TIDAK PUNYA narasi
+  // voiceover spt video (yg captionnya otomatis lengkap krn jd naskah TTS), jadi
+  // instruksi ini malah LEBIH penting di sini - caption teks SATU-SATUNYA tempat
+  // tipsnya ditulis lengkap di luar gambar poster itu sendiri.
+  const tipsInstruction =
+    " KALAU skrip ini berisi TIPS/CARA/LANGKAH konkret (bukan cuma cerita/promosi biasa), " +
+    "caption WAJIB memuat SEMUA poin/langkah tipsnya secara LENGKAP - JANGAN cuma disebut " +
+    "sepintas/dijadikan teaser, pembaca harus dapat SELURUH isi tipsnya langsung dari " +
+    "caption ini.";
   const photoInstruction =
-    imageUrls.length > 0
+    (imageUrls.length > 0
       ? "Lihat SEMUA foto yang diberikan (bisa lebih dari satu, urutan sesuai carousel), lalu buat SATU caption yang merangkum & menarik & natural (bukan generik/template) plus MAKSIMAL 5 hashtag PALING relevan (bukan lebih - pilih yg paling tepat sasaran, jangan asal banyak) berdasarkan ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto."
-      : "Tidak ada foto asli utk konten ini (visual dibuat AI generate sesudah caption ini, lihat skrip/brief). Buat SATU caption yang menarik & natural (bukan generik/template) plus MAKSIMAL 5 hashtag PALING relevan (bukan lebih - pilih yg paling tepat sasaran, jangan asal banyak) berdasarkan skrip/brief SAJA. JANGAN mengarang detail yang tidak ada di skrip.";
+      : "Tidak ada foto asli utk konten ini (visual dibuat AI generate sesudah caption ini, lihat skrip/brief). Buat SATU caption yang menarik & natural (bukan generik/template) plus MAKSIMAL 5 hashtag PALING relevan (bukan lebih - pilih yg paling tepat sasaran, jangan asal banyak) berdasarkan skrip/brief SAJA. JANGAN mengarang detail yang tidak ada di skrip.") +
+    tipsInstruction;
   const system =
     "Kamu content strategist media sosial. " +
     photoInstruction +

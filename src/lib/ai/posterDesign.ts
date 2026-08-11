@@ -98,26 +98,43 @@ WARNA: Biru tua (#1E3A5F) & Putih sbg warna utama, abu-abu terang sbg background
 TONE: profesional, terpercaya, bersih, modern - netral, tidak condong ke niche tertentu.
 `.trim();
 
+// Layout Infografis (2026-08-11, permintaan Agus - "jika buat konten tips dan edukasi
+// pada poster gunakan konsep infografis sehingga konsumen mendapatkan info lengkap
+// bukan seperti sekarang terputus") - TAMBAHAN di atas SHARED_STRUCTURAL_RULES (bukan
+// pengganti - tipografi/zona logo/anti-mengarang kontak dst TETAP sama), meng-OVERRIDE
+// bagian KOMPOSISI/HIERARKI SPESIFIK: mode promosi biasa visual dominan 60-70% (wajar,
+// tujuannya jual), mode infografis KEBALIKANNYA - teks/poin yg WAJIB dominan & mudah
+// dibaca, visual jadi pendukung/aksen, krn tujuannya konsumen dapat INFO LENGKAP
+// langsung dari 1 gambar, bukan cuma hook yg mengarahkan ke tempat lain.
+const INFOGRAFIS_LAYOUT_RULE = `
+LAYOUT INFOGRAFIS (mode konten edukasi/tips - OVERRIDE bagian KOMPOSISI/HIERARKI di atas): tujuan poster ini INFORMATIF, konsumen harus dapat SELURUH info dari poster ini sendiri tanpa perlu baca teks lain. SEMUA poin di INFOGRAFISPOINTS di bawah WAJIB tampil LENGKAP & mudah dibaca (bukan cuma judulnya, TERJEMAHKAN teks penuh tiap poin ke dalam gambar apa adanya, JANGAN dipotong/diringkas lagi) - gunakan layout numbered-list/step-card yang jelas (nomor besar 1/2/3/dst + 1 ikon relevan kecil + teks poin lengkap per baris/card), susun vertikal atau grid rapi tergantung jumlah poin. Visual (foto/AI) jadi BACKGROUND/aksen kecil di satu sisi/belakang (BUKAN dominan 60-70% lagi) - PRIORITASKAN ruang & keterbacaan teks poin di atas ukuran visual. CTA dibuat JAUH lebih kecil/halus di pojok bawah (bukan tombol besar mencolok) krn ini bukan poster hard-sell.
+`.trim();
+
 function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undefined, mode: "real-photo" | "full-ai"): string {
+  const isInfografis = !!copy.infografisPoints && copy.infografisPoints.length > 0;
   const baris = [
     `Headline: "${copy.headline}"`,
     copy.subheadline ? `Subheadline: "${copy.subheadline}"` : null,
     copy.harga ? `Harga/Badge Promo: "${copy.harga}"` : "Tidak ada harga/promo - JANGAN tampilkan badge harga sama sekali.",
     `CTA: "${copy.cta}"`,
-    copy.benefits.length > 0 ? `Benefit/fasilitas yang ditonjolkan: ${copy.benefits.join(", ")}` : null,
+    isInfografis
+      ? `INFOGRAFISPOINTS (WAJIB tampil LENGKAP semua, lihat LAYOUT INFOGRAFIS di atas):\n${copy.infografisPoints!.map((p) => `  ${p.nomor}. ${p.teks}`).join("\n")}`
+      : null,
+    !isInfografis && copy.benefits.length > 0 ? `Benefit/fasilitas yang ditonjolkan: ${copy.benefits.join(", ")}` : null,
     copy.isiTulisan ? `Isi tulisan tambahan: "${copy.isiTulisan}"` : null,
   ].filter((line): line is string => !!line);
 
   const profile = (brandProfile || "").trim() || FALLBACK_BRAND_PROFILE;
   const visualRule = mode === "full-ai" ? FULL_AI_VISUAL_RULE : REAL_PHOTO_VISUAL_RULE;
   const batasan = mode === "full-ai" ? FULL_AI_BATASAN : REAL_PHOTO_BATASAN;
+  const layoutOverride = isInfografis ? `\n\n${INFOGRAFIS_LAYOUT_RULE}` : "";
   const closingLine =
     mode === "full-ai"
       ? "Buat SATU poster promosi dengan visual utama HASIL AI GENERATION SEPENUHNYA (tidak ada foto asli)."
       : "Buat SATU poster promosi memakai foto yang diberikan sebagai visual utama.";
 
   return (
-    `${SHARED_STRUCTURAL_RULES}\n\n${visualRule}\n\n${batasan}\n\n---\n\n` +
+    `${SHARED_STRUCTURAL_RULES}\n\n${visualRule}\n\n${batasan}${layoutOverride}\n\n---\n\n` +
     `PROFIL BRAND (warna/font/ikon/tone brand ini - ` +
     `WAJIB diikuti, ini yang membedakan brand ini dari brand lain):\n${profile}\n\n---\n\n` +
     `KONTEN POSTER INI (isi teks yang harus muncul, TERJEMAHKAN ke elemen visual sesuai ` +
