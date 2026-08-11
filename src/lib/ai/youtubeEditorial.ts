@@ -156,7 +156,23 @@ export async function pickNextTopic(
   }
 
   const category = await pickNextCategory(channelProfile, socialAccountId);
-  const { name, topics } = await generateSeriesTopics(channelProfile, category, format);
+  // Anti-duplikat LINTAS SERI (2026-08-11, bug nyata ditemukan dari konten produksi
+  // sungguhan - laporan Agus "pembahasan tidak boleh sama") - SEBELUM fix ini,
+  // generateSeriesTopics() TIDAK PERNAH tahu topik seri LAIN (aktif MAUPUN selesai,
+  // format long MAUPUN short) utk channel yg sama - dicek langsung: 3 seri terpisah
+  // (Wild Instincts/Minds of the Wild/Wild Enigmas Unveiled) SEMUA independen
+  // menghasilkan topik "dolphin signature whistles/communication", 2 lagi ttg
+  // "elephant memory/empathy", 2 lagi ttg "octopus intelligence" - Youtube bisa
+  // menganggap ini konten berulang. Fix: kumpulkan SEMUA topik seri manapun (lintas
+  // format, lintas status) utk socialAccountId ini, kirim sbg daftar "SUDAH PERNAH
+  // DIBAHAS" ke prompt generateSeriesTopics - GPT wajib hindari topik baru yg
+  // beririsan (bukan cuma persis sama kata, TAPI sudut/isu yg sama).
+  const allExistingSeries = await db
+    .select({ topics: youtubeSeries.topics })
+    .from(youtubeSeries)
+    .where(eq(youtubeSeries.socialAccountId, socialAccountId));
+  const existingTopics = allExistingSeries.flatMap((s) => JSON.parse(s.topics) as string[]);
+  const { name, topics } = await generateSeriesTopics(channelProfile, category, format, existingTopics);
   const seriesId = newId("ytseries");
   await db.insert(youtubeSeries).values({
     id: seriesId, socialAccountId, name, format, topics: JSON.stringify(topics), status: "active", createdAt: new Date(),
@@ -168,7 +184,8 @@ export async function pickNextTopic(
 async function generateSeriesTopics(
   channelProfile: ChannelProfile,
   category: string,
-  format: "long" | "short"
+  format: "long" | "short",
+  existingTopics: string[] = []
 ): Promise<{ name: string; topics: string[] }> {
   const client = getOpenAIClient();
   const count = format === "long" ? 5 : 8; // Shorts lebih cepat diproduksi, runway lebih panjang per seri
@@ -179,13 +196,26 @@ async function generateSeriesTopics(
   const preferred = channelProfile.preferredTopics.length
     ? ` Prioritize topics related to: ${channelProfile.preferredTopics.join(", ")} when relevant to this category.`
     : "";
+  // Anti-duplikat lintas seri (2026-08-11) - lihat catatan lengkap di pickNextTopic
+  // (pemanggil satu2nya fungsi ini) kenapa list ini WAJIB dikirim, bukan optional
+  // nice-to-have. Dibatasi 60 topik TERAKHIR (bukan seluruh histori tak terbatas) -
+  // cukup utk channel yg sudah py banyak seri tanpa bikin prompt makin lama makin
+  // panjang tak terkendali seiring waktu.
+  const existingTopicsBlock = existingTopics.length
+    ? `\n\nThese topics have ALREADY been covered by this channel (across all past and current series, ` +
+      `both long-form and Shorts) - DO NOT repeat any of them, and avoid new topics that cover essentially ` +
+      `the same specific angle/fact/subject even if worded differently (e.g. if "dolphin signature whistles" ` +
+      `is listed, do NOT also suggest "how dolphins communicate" - that is the same underlying topic to a ` +
+      `viewer and risks being flagged as repetitive/duplicate content by YouTube):\n` +
+      existingTopics.slice(-60).map((t) => `- ${t}`).join("\n")
+    : "";
 
   const prompt =
     `You are a YouTube content strategist for a channel about "${channelProfile.primaryNiche || "general educational content"}" ` +
     `targeting ${channelProfile.targetAudience || "a general curious audience"}.\n\n` +
     `Create ONE themed video series in the category "${category}" for ${format === "long" ? "long-form documentary videos (5-8 min each)" : "YouTube Shorts (20-60 sec each)"}. ` +
     `Give the series a short catchy name, and list EXACTLY ${count} specific episode topics - each a distinct, evergreen, curiosity-driven angle within this category (not generic, not duplicates of each other, avoid temporary trends/celebrity/seasonal topics unless the category itself is inherently seasonal). ` +
-    `All output MUST be in ${lang}.${forbidden}${preferred}\n\n` +
+    `All output MUST be in ${lang}.${forbidden}${preferred}${existingTopicsBlock}\n\n` +
     `Reply as valid JSON only (no markdown fence): {"name": "...", "topics": ["...", ...]}`;
 
   const completion = await client.chat.completions.create({
