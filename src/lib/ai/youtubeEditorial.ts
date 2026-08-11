@@ -252,6 +252,69 @@ async function generateSeriesTopics(
 const LONG_FORM_WORDS_PER_SECOND = 2.5; // sama estimasi dgn generateContent.ts WORDS_PER_SECOND
 const LONG_FORM_TARGET_SECONDS = 390; // ~6.5 menit, tengah target PRD 5-8 menit
 
+export type HookCandidate = { text: string; score: number; reasoning: string };
+
+// Hook Engine (2026-08-12, Fase 2a PRD Animal Story & Co section 12 - "AI membuat
+// minimal beberapa kandidat hook secara internal... memilih hook yang paling sesuai
+// dgn topic"). SEBELUM ini hook cuma bagian (1) dari SATU panggilan skrip sekali-jalan
+// (generateLongFormScript di bawah) - tidak ada perbandingan/pilihan sama sekali, apa
+// pun yg model tulis pertama kali langsung dipakai. Sekarang: 1 panggilan TERPISAH
+// (kecil/murah, JSON, BUKAN generate skrip penuh) minta beberapa kandidat SEKALIGUS
+// diberi skor+alasan sendiri oleh model (pola SAMA dgn ScoredIdea/
+// suggestScoredContentIdeas di researchTopics.ts - skor eksplisit, dipilih di KODE
+// bukan dipercaya urutan/pilihan model), baru skrip penuh di-generate DIANGKUR ke hook
+// pemenang. 1 panggilan ekstra kecil per video, tapi mengurangi kelas masalah "hook
+// lemah" yg SEBELUM ini cuma bisa ketahuan setelah nonton hasil jadi.
+const HOOK_CANDIDATE_COUNT = 4;
+
+export async function generateHookCandidates(
+  channelProfile: ChannelProfile,
+  topic: string,
+  recentScripts: string[]
+): Promise<HookCandidate[]> {
+  const client = getOpenAIClient();
+  const lang = channelProfile.language || "English";
+
+  const system =
+    `You are a YouTube hook specialist for a documentary channel about "${channelProfile.primaryNiche || "educational content"}", ` +
+    `targeting ${channelProfile.targetAudience || "curious general viewers"}. Generate EXACTLY ${HOOK_CANDIDATE_COUNT} distinct opening-line ` +
+    "candidates (1-2 sentences each) for a video's first ~15 seconds. Each candidate MUST use a DIFFERENT technique, drawing from (but not " +
+    "limited to): CURIOSITY (\"This animal should have been afraid. But instead, it did something completely unexpected.\"), MYSTERY " +
+    "(\"Scientists found something unusual about this creature.\"), CONFLICT (\"A mongoose and a hyena should never behave like this.\"), " +
+    "QUESTION (\"Why would a predator refuse to attack its prey?\"), or DISCOVERY (\"What researchers found here changed what they knew about " +
+    "this animal.\"). NEVER begin with 'Hello everyone' or 'Welcome back'. For EACH candidate, also give an honest 0-100 score for how strong " +
+    "it is at stopping a scroll/making it impossible to skip, plus a one-sentence reasoning (be genuinely critical/differentiated across " +
+    "candidates, not uniformly high). " +
+    `Reply as valid JSON only (no markdown fence): {"candidates": [{"text": "...", "score": 0, "reasoning": "..."}, ...]}. ` +
+    `Write entirely in ${lang}.` +
+    (channelProfile.forbiddenTopics.length ? ` NEVER mention or relate this to: ${channelProfile.forbiddenTopics.join(", ")}.` : "");
+
+  const user =
+    `Topic for this episode: "${topic}"\n\n` +
+    `Hooks already used recently on this channel (candidates must NOT reuse the same angle/wording):\n` +
+    `${recentScripts.length ? recentScripts.map((s) => `- ${s.slice(0, 100)}...`).join("\n") : "(none yet)"}`;
+
+  const completion = await client.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    temperature: 0.9,
+  });
+  const parsed = JSON.parse(stripFence(completion.choices[0]?.message?.content?.trim() || "{}"));
+  const candidates: HookCandidate[] = Array.isArray(parsed.candidates)
+    ? parsed.candidates
+        .filter((c: unknown): c is HookCandidate => !!c && typeof (c as HookCandidate).text === "string")
+        .map((c: HookCandidate) => ({
+          text: c.text,
+          score: typeof c.score === "number" ? c.score : 0,
+          reasoning: typeof c.reasoning === "string" ? c.reasoning : "",
+        }))
+    : [];
+  return candidates;
+}
+
 // Struktur naskah (2026-08-10) - PERSIS beats dari PRD Agus (Hook/Viewer Promise/Story
 // Introduction/Main Documentary/Pattern Interrupts/Ending) - BEDA TOTAL dari
 // LONG_FORM_STRUCTURE_TEMPLATES di generateContent.ts (itu spesifik hospitality/
@@ -267,12 +330,28 @@ export async function generateLongFormScript(
   const lang = channelProfile.language || "English";
   const targetWords = Math.round(LONG_FORM_TARGET_SECONDS * LONG_FORM_WORDS_PER_SECOND);
 
+  // Hook Engine (2026-08-12, Fase 2a) - pilih pemenang di KODE (skor tertinggi), bukan
+  // percaya urutan respons model. Best-effort: kalau pemanggilan gagal/kosong (rare -
+  // JSON malformed dsb), fallback ke perilaku LAMA (model tulis hook sendiri di dalam
+  // 1 panggilan skrip penuh, TIDAK PERNAH gagal generate cuma krn hook engine error).
+  let winningHook: HookCandidate | null = null;
+  try {
+    const candidates = await generateHookCandidates(channelProfile, topic, recentScripts);
+    if (candidates.length > 0) {
+      winningHook = candidates.reduce((best, c) => (c.score > best.score ? c : best), candidates[0]);
+    }
+  } catch (err) {
+    console.error("[youtubeEditorial] gagal generate hook candidates, fallback ke hook dari skrip penuh:", err);
+  }
+
   const system =
     `You are a professional documentary narrator/scriptwriter for a YouTube channel about "${channelProfile.primaryNiche || "educational content"}", ` +
     `targeting ${channelProfile.targetAudience || "curious general viewers"}${channelProfile.targetCountry ? ` in ${channelProfile.targetCountry}` : ""}. ` +
     "Your primary goal is WATCH TIME and audience retention, not short-term viral shock value - think like a documentary content creator, not an AI video generator.\n\n" +
     "STRUCTURE (follow this exactly, but do NOT label the sections literally in the output - flow naturally through them as one continuous narration):\n" +
-    "1) HOOK (first ~15 sec): open with a strong curiosity-driven statement. NEVER begin with 'Hello everyone' or 'Welcome back' - create immediate curiosity instead.\n" +
+    (winningHook
+      ? `1) HOOK (first ~15 sec): open with EXACTLY this pre-selected hook line (verbatim or a very close natural variation): "${winningHook.text}"\n`
+      : "1) HOOK (first ~15 sec): open with a strong curiosity-driven statement. NEVER begin with 'Hello everyone' or 'Welcome back' - create immediate curiosity instead.\n") +
     "2) VIEWER PROMISE: tell viewers what they will discover in this video.\n" +
     "3) STORY INTRODUCTION: introduce the topic naturally.\n" +
     "4) MAIN DOCUMENTARY: explain what, why, how, interesting facts, scientific explanation, real examples - in real depth.\n" +
