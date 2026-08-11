@@ -10,9 +10,32 @@ const FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
 const DISPLAY_SECONDS = 1.8;
 const FADE_SECONDS = 0.25;
+// Icon Pop-in (2026-08-11, permintaan Agus "animasi sebanyak mungkin") - dicek dulu
+// LANGSUNG via render test drawtext/scale `eval=frame` SEBELUM dipakai (bukan asumsi
+// dari dokumentasi) - icon TUMBUH dari 50%->100% ukuran cepat (0.15dtk) di awal
+// kemunculan, bukan langsung muncul penuh spt sebelumnya.
+const POP_IN_SECONDS = 0.15;
+// Counter (2026-08-11) - dicek dulu LANGSUNG via render test `%{eif:EXPR:d}` SEBELUM
+// dipakai (sintaks expansion drawtext, BUKAN parameter biasa - beda mekanisme dari
+// alpha=/enable= yg sudah dipakai di file lain). Angka MENGHITUNG NAIK dari 0 ke nilai
+// asli selama COUNT_SECONDS pertama kemunculan kartu, baru diam di nilai final.
+const COUNT_SECONDS = 0.6;
 
 export function getStatOverlayDurationSeconds(): number {
   return DISPLAY_SECONDS;
+}
+
+// Deteksi angka BULAT di AWAL string value (2026-08-11) - HANYA aktifkan counter kalau
+// polanya jelas/aman (mis. "1938", "250", "5000 kg") - value yg angkanya TIDAK di awal
+// (mis. "fewer than 250") atau perlu pengali kata (mis. "66 million years") SENGAJA
+// TIDAK dikenali di sini (drpd salah tampil "66" tanpa "million", teks statis biasa
+// tetap dipakai - fallback aman, bukan best-effort yg berisiko salah makna).
+function parseLeadingInteger(value: string): { number: number; suffix: string } | null {
+  const m = value.match(/^(\d[\d,]*)(.*)$/);
+  if (!m) return null;
+  const num = parseInt(m[1].replace(/,/g, ""), 10);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return { number: num, suffix: m[2] };
 }
 
 // Box+ikon HARD in/out (enable=), teks FADE in/out (alpha= expression, teknik SAMA
@@ -34,7 +57,17 @@ export function buildStatOverlayFilterStages(
   const endSeconds = startSeconds + DISPLAY_SECONDS;
   const fadeOutStart = endSeconds - FADE_SECONDS;
   const escape = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "").replace(/:/g, "\\:");
-  const text = escape(`${label.toUpperCase()}: ${value}`);
+
+  // Counter (lihat catatan const di atas) - label TETAP teks statis biasa, cuma bagian
+  // ANGKA (kalau polanya cocok) yg jadi expression `%{eif:...}` digabung LANGSUNG di
+  // string `text=` yg sama (dicek: kombinasi statis+%{} dalam 1 text= SUDAH terverifikasi
+  // render benar via tes langsung) - suffix (mis. " kg") tetap statis, cuma angkanya hidup.
+  const labelPart = escape(`${label.toUpperCase()}: `);
+  const counterInfo = parseLeadingInteger(value);
+  const valuePart = counterInfo
+    ? `%{eif\\:${counterInfo.number}*max(0\\,min(1\\,(t-${startSeconds.toFixed(2)})/${COUNT_SECONDS}))\\:d}${escape(counterInfo.suffix)}`
+    : escape(value);
+  const text = labelPart + valuePart;
 
   const boxW = Math.round(targetWidth * 0.5);
   const boxH = Math.round(targetHeight * 0.06);
@@ -51,10 +84,15 @@ export function buildStatOverlayFilterStages(
   const iconFmtLabel = `${outLabel}_iconfmt`;
   const iconedLabel = `${outLabel}_iconed`;
 
+  // Pop-in: scale ikon 50%->100% dari ukuran akhir selama POP_IN_SECONDS pas box mulai
+  // muncul - `eval=frame` WAJIB (scale filter defaultnya cuma evaluasi expression SEKALI
+  // di awal, bukan tiap frame - dicek langsung, bukan asumsi).
+  const popScale = `trunc(${iconSize}*min(1\\,0.5+0.5*(t-${startSeconds.toFixed(2)})/${POP_IN_SECONDS}))`;
+
   return [
     `[${curLabel}]drawbox=x=${boxX}:y=${boxY}:w=${boxW}:h=${boxH}:color=black@0.55:t=fill:` +
       `enable='between(t,${startSeconds.toFixed(2)},${endSeconds.toFixed(2)})'[${boxLabel}]`,
-    `[${iconInputIdx}:v]format=rgba,scale=${iconSize}:${iconSize}[${iconFmtLabel}]`,
+    `[${iconInputIdx}:v]format=rgba,scale=w='${popScale}':h='${popScale}':eval=frame[${iconFmtLabel}]`,
     `[${boxLabel}][${iconFmtLabel}]overlay=${iconX}:${iconY}:enable='between(t,${startSeconds.toFixed(2)},${endSeconds.toFixed(2)})'[${iconedLabel}]`,
     `[${iconedLabel}]drawtext=fontfile=${FONT_PATH}:text='${text}':fontsize=${fontSize}:fontcolor=white:` +
       `x=${textX}:y=${boxY}+(${boxH}-text_h)/2:` +

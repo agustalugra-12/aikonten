@@ -13,12 +13,17 @@ import { getOpenAIClient } from "./openaiClient";
 // "default" fallback, semua di-download SEKALI dari Lucide (ISC license, SVG vektor
 // polos - BUKAN color-emoji font yg terbukti gagal render sebelumnya, lihat
 // stickerOverlay.ts) & di-rasterize ke PNG putih di repo (src/lib/render/assets/icons).
+// "discovery"/"intelligence"/"sound" ditambahkan 2026-08-11 (gap NYATA ditemukan dari
+// batch produksi sungguhan - "DISCOVERY YEAR: 1938" & "PROBOSCIS LENGTH" terpaksa
+// dipetakan ke "species", tidak pas) - permintaan Agus lanjutan.
 export type StatIconCategory =
   | "weight" | "speed" | "habitat" | "diet" | "lifespan"
-  | "danger" | "population" | "size" | "species" | "temperature" | "default";
+  | "danger" | "population" | "size" | "species" | "temperature"
+  | "discovery" | "intelligence" | "sound" | "default";
 const VALID_ICON_CATEGORIES: StatIconCategory[] = [
   "weight", "speed", "habitat", "diet", "lifespan",
-  "danger", "population", "size", "species", "temperature", "default",
+  "danger", "population", "size", "species", "temperature",
+  "discovery", "intelligence", "sound", "default",
 ];
 
 export type StatOverlay = {
@@ -42,7 +47,8 @@ export async function extractStatOverlays(script: string): Promise<StatOverlay[]
             "You are extracting factual stat call-outs from a narration script for on-screen graphic overlays " +
             `(like a documentary infographic). Find UP TO ${MAX_STATS} concrete, numeric or short-factual stats ` +
             "EXPLICITLY stated in the text (weight, height, speed, length, lifespan, population, habitat, diet, " +
-            "danger level, country/location, or similar measurable facts). Do NOT invent, estimate, or infer any " +
+            "danger level, country/location, discovery year, brain/intelligence measures, sound/hearing facts, " +
+            "or similar measurable facts). Do NOT invent, estimate, or infer any " +
             "number or fact that is not literally stated in the text - if the script has no such explicit stats, " +
             "return an empty list. For each stat, give a short label (1-3 words, e.g. \"Top Speed\", \"Weight\", " +
             "\"Habitat\"), the value exactly as stated (short, e.g. \"70 mph\", \"200kg\", \"Pacific Ocean\"), and " +

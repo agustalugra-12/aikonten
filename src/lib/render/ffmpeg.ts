@@ -10,7 +10,8 @@ import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/
 import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN } from "./subtitleDesign";
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
 import { buildXfadeFilterComplex, type TransitionType } from "./transitions";
-import { buildProgressBarFilter, buildCtaTextFilter } from "./overlayEngine";
+import { buildProgressBarFilter } from "./overlayEngine";
+import { buildSubscribeButtonFilterStages, getBellAssetPath } from "./subscribeButton";
 import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay";
 import { nearestBeat } from "@/lib/ai/beatDetect";
 import { buildColorGradeFilter, type ColorGradeConfig } from "./colorGrade";
@@ -399,6 +400,14 @@ export async function renderFinalVideo(opts: {
       finalArgs.push("-loop", "1", "-i", getStatIconPath(stat.iconCategory));
       statIconInputIdx.push(nextInputIdx++);
     }
+    // Bell icon utk Subscribe Button animasi (2026-08-11 - lihat subscribeButton.ts) -
+    // HANYA di-input kalau ctaText ADA (sama pola dgn logo/sticker - opsional, bukan
+    // wajib tiap render).
+    let bellInputIdx: number | null = null;
+    if (opts.ctaText) {
+      finalArgs.push("-loop", "1", "-i", getBellAssetPath());
+      bellInputIdx = nextInputIdx++;
+    }
     let audioInputIdx: number | null = null;
     if (audioPath) {
       finalArgs.push("-i", audioPath);
@@ -510,8 +519,10 @@ export async function renderFinalVideo(opts: {
       filterStages.push(`[${curLabel}]${buildProgressBarFilter(TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds)}[barred]`);
       curLabel = "barred";
     }
-    if (opts.ctaText) {
-      filterStages.push(`[${curLabel}]${buildCtaTextFilter(opts.ctaText, TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds)}[vout]`);
+    if (opts.ctaText && bellInputIdx !== null) {
+      filterStages.push(
+        ...buildSubscribeButtonFilterStages(bellInputIdx, opts.ctaText, TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds, curLabel, "vout")
+      );
       curLabel = "vout";
     } else {
       filterStages.push(`[${curLabel}]null[vout]`);
