@@ -1,4 +1,5 @@
 import { fal } from "@fal-ai/client";
+import { logNonTokenUsage } from "./openaiClient";
 
 // Retry wrapper utk fal.subscribe (2026-08-05, bug nyata ditemukan Agus - "kenapa bisa
 // banyak percobaan yang gagal?" - ditemukan lewat tes live hari ini juga: fal.ai/Nano
@@ -12,6 +13,22 @@ import { fal } from "@fal-ai/client";
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 2000;
 
+// Log detail LENGKAP (2026-08-11, permintaan Agus - "saldo fal.ai kok abis, kenapa bisa
+// gagal?" - dicek LANGSUNG ke journalctl, gap nyata ditemukan: console.error SEBELUM ini
+// cuma print `err.message` [utk error fal.ai jenis ApiError, message-nya SERING cuma
+// frasa HTTP generik spt "Unprocessable Entity" - detail SUNGGUHAN [mis. field mana yg
+// invalid, atau alasan model gagal generate] ada di `err.body`, yg TIDAK PERNAH
+// ditampilkan sama sekali]. Kegagalan Aug 6 yg ketemu di log CUMA bilang "Unprocessable
+// Entity" tanpa penjelasan lebih lanjut - akar masalahnya sendiri TIDAK BISA didiagnosis
+// dari log yg ada, gap ini yg diperbaiki di sini (bukan menebak akar masalah tanpa data).
+function describeError(err: unknown): string {
+  if (err && typeof err === "object" && "status" in err) {
+    const e = err as { status?: number; body?: unknown; message?: string };
+    return `status=${e.status} message=${e.message} body=${JSON.stringify(e.body)}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
 export async function subscribeFalWithRetry(endpoint: string, input: Record<string, unknown>) {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -19,10 +36,15 @@ export async function subscribeFalWithRetry(endpoint: string, input: Record<stri
       return await fal.subscribe(endpoint, { input });
     } catch (err) {
       lastError = err;
-      console.error(
-        `[fal.subscribe] percobaan ${attempt}/${MAX_ATTEMPTS} gagal (${endpoint}):`,
-        err instanceof Error ? err.message : err
-      );
+      console.error(`[fal.subscribe] percobaan ${attempt}/${MAX_ATTEMPTS} gagal (${endpoint}): ${describeError(err)}`);
+      // Visibilitas biaya (2026-08-11, permintaan Agus) - dicatat dgn cost_usd=0 SENGAJA
+      // (BUKAN ditaksir $0.08 - kita TIDAK PUNYA cara memastikan fal.ai benar2 charge
+      // percobaan gagal ini atau tidak dari sisi sini, cuma dashboard billing fal.ai yg
+      // tahu pasti - mencatat angka karangan lebih menyesatkan drpd $0 dgn label jelas
+      // "attempt-failed") - tujuannya supaya FREKUENSI kegagalan kelihatan di sistem
+      // (query llm_usage_log WHERE model LIKE '%attempt-failed%'), sebelumnya kegagalan
+      // sama sekali tidak ninggalkan jejak apa pun di sini.
+      await logNonTokenUsage(`${endpoint}-attempt-failed`, 0);
       if (attempt < MAX_ATTEMPTS) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
       }
