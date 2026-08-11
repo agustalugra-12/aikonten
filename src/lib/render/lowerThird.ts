@@ -17,6 +17,21 @@ const FADE_SECONDS = 0.3;
 // drpd 2 angka magic terpisah yg bisa menyimpang kalau salah satu diubah nanti.
 export const LOWER_THIRD_END_SECONDS = START_SECONDS + DISPLAY_SECONDS;
 
+// Jeda narasi (2026-08-11, permintaan Agus - "di bagian awal kamu harusnya memberikan
+// jeda untuk judul dan kemudian baru masuk penjelasan dan animasi... tidak terlihat
+// tabrakan") - SEBELUM ini narasi (& subtitle-nya, yg mengikuti audio) mulai bicara
+// PERSIS di t=0, numpuk LANGSUNG dgn lower third yg baru mulai muncul di 0.6dtk -
+// judul dan penjelasan sama2 minta perhatian di detik yg sama, kelihatan "tabrakan"
+// walau secara pixel tidak saling timpa (lihat fix LOWER_THIRD_END_SECONDS di atas,
+// itu utk stat card, BUKAN utk subtitle). Fix-nya BUKAN reposisi lagi (sudah pas),
+// tapi kasih JEDA WAKTU - audio (makanya subtitle ikut) DITUNDA sekian detik via
+// `adelay` (lihat ffmpeg.ts) supaya lower third dapat momen SENDIRIAN dulu (0.6-1.4dtk
+// cuma judul, tanpa teks lain) sebelum narasi+subtitle mulai. 1.4 dipilih supaya masih
+// di DALAM jendela lower third (0.6-3.2) - bukan nunggu sampai lower third fade out
+// baru narasi mulai (itu kebuang terlalu banyak durasi Short yg berharga), cukup kasih
+// ~0.8dtk "judul sendirian" dulu.
+export const NARRATION_LEAD_IN_SECONDS = 1.4;
+
 // Estimasi lebar teks (2026-08-11, bug nyata ditemukan di render sama - nama panjang
 // spt "PINK FAIRY ARMADILLO" di fontsize tetap 7% lebar video KELUAR LAYAR di KEDUA
 // sisi, terlihat jelas lewat cek frame langsung, bukan cuma hitungan teori) - drawtext

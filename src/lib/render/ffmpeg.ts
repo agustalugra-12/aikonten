@@ -16,7 +16,7 @@ import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay"
 import { nearestBeat } from "@/lib/ai/beatDetect";
 import { buildColorGradeFilter, type ColorGradeConfig } from "./colorGrade";
 import { buildStatOverlayFilterStages } from "./statOverlay";
-import { buildLowerThirdFilter, LOWER_THIRD_END_SECONDS } from "./lowerThird";
+import { buildLowerThirdFilter, LOWER_THIRD_END_SECONDS, NARRATION_LEAD_IN_SECONDS } from "./lowerThird";
 import { buildComparisonBarFilter } from "./comparisonBar";
 import { getStatIconPath } from "./statIcons";
 import type { StatIconCategory } from "@/lib/ai/statExtractor";
@@ -101,6 +101,21 @@ function srtTimeToAss(srtTime: string): string {
   const [h, m, s] = hms.split(":");
   const centiseconds = Math.round(parseInt(ms, 10) / 10);
   return `${parseInt(h, 10)}:${m}:${s}.${String(centiseconds).padStart(2, "0")}`;
+}
+
+// Geser timestamp format ASS ("H:MM:SS.cc") sebesar deltaSeconds (2026-08-11, dipakai
+// utk NARRATION_LEAD_IN_SECONDS - lihat lowerThird.ts) - dipakai HANYA di jalur
+// fallback (srtContent statis, jarang kepakai - wordTimings jalur normal digeser
+// langsung sbg angka detik, jauh lebih simpel).
+function shiftAssTime(assTime: string, deltaSeconds: number): string {
+  const [hms, cs] = assTime.split(".");
+  const [h, m, s] = hms.split(":").map(Number);
+  const total = h * 3600 + m * 60 + s + Number(cs) / 100 + deltaSeconds;
+  const hh = Math.floor(total / 3600);
+  const mm = Math.floor((total % 3600) / 60);
+  const ss = Math.floor(total % 60);
+  const centiseconds = Math.round((total - Math.floor(total)) * 100);
+  return `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
 }
 
 function parseSrt(srt: string): Array<{ start: string; end: string; text: string }> {
@@ -285,11 +300,35 @@ export async function renderFinalVideo(opts: {
     // posisi/ukurannya). wordTimings ADA -> caption "kata per kata" gaya TikTok/YT
     // Shorts, kosong -> fallback statis dari srtContent (tetap ikut Subtitle Designer
     // utk font/warna/posisi, cuma tanpa animasi per-kata).
+    // Narration Lead-In (2026-08-11, permintaan Agus - lihat NARRATION_LEAD_IN_SECONDS
+    // di lowerThird.ts) - HANYA aktif kalau video ini py lower third (preset
+    // documentary), brand lain TIDAK terpengaruh sama sekali. Subtitle (& audio
+    // narasinya, lihat adelay di bawah) digeser mundur supaya lower third dapat momen
+    // sendirian dulu sebelum penjelasan+animasi lain masuk.
+    const leadInSeconds = opts.lowerThird ? NARRATION_LEAD_IN_SECONDS : 0;
     const assPath = path.join(workDir, "subtitles.ass");
     const assContent =
       opts.wordTimings && opts.wordTimings.length > 0
-        ? buildWordHighlightAss(opts.wordTimings, DEFAULT_SUBTITLE_DESIGN, TARGET_WIDTH, TARGET_HEIGHT)
-        : buildStaticAss(parseSrt(opts.srtContent), DEFAULT_SUBTITLE_DESIGN, TARGET_WIDTH, TARGET_HEIGHT);
+        ? buildWordHighlightAss(
+            leadInSeconds > 0
+              ? opts.wordTimings.map((w) => ({ ...w, start: w.start + leadInSeconds, end: w.end + leadInSeconds }))
+              : opts.wordTimings,
+            DEFAULT_SUBTITLE_DESIGN,
+            TARGET_WIDTH,
+            TARGET_HEIGHT
+          )
+        : buildStaticAss(
+            leadInSeconds > 0
+              ? parseSrt(opts.srtContent).map((e) => ({
+                  ...e,
+                  start: shiftAssTime(e.start, leadInSeconds),
+                  end: shiftAssTime(e.end, leadInSeconds),
+                }))
+              : parseSrt(opts.srtContent),
+            DEFAULT_SUBTITLE_DESIGN,
+            TARGET_WIDTH,
+            TARGET_HEIGHT
+          );
     await writeFile(assPath, assContent);
 
     // 4) Logo brand OPSIONAL (2026-08-05, permintaan Agus) - crop lingkaran +
@@ -316,7 +355,13 @@ export async function renderFinalVideo(opts: {
     if (opts.voiceoverAudioBuffer) {
       audioPath = path.join(workDir, "voiceover.mp3");
       await writeFile(audioPath, opts.voiceoverAudioBuffer);
-      audioDurationSeconds = await getDurationSeconds(audioPath);
+      // +leadInSeconds (2026-08-11) - durasi FILE aslinya tidak berubah, tapi di
+      // filter_complex nanti narasi ditunda `leadInSeconds` (adelay) sebelum mulai
+      // bicara - total durasi EFEKTIF di linimasa akhir jadi lebih panjang segitu.
+      // Kalau ini tidak dihitung, video/output bisa kepotong PAS sebelum narasi
+      // selesai (sama kelas bug dgn catatan "narasi sampai tengah sudah habis" di
+      // bawah - needsVideoLoop/outputDurationSeconds WAJIB tahu durasi efektif ini).
+      audioDurationSeconds = (await getDurationSeconds(audioPath)) + leadInSeconds;
     }
     // Narasi lebih panjang dari footage yg berhasil terkumpul (2026-08-10, laporan
     // Agus - "narasi sampai tengah sudah habis... long atau short vidio harus begitu"
@@ -614,6 +659,18 @@ export async function renderFinalVideo(opts: {
     // kebalikannya - audio (narasi PANJANG, YouTube Editorial Engine) lebih panjang dari
     // video (footage stok kehabisan sebelum capai target) - video di-LOOP (lihat
     // needsVideoLoop) supaya narasi TIDAK PERNAH terpotong gara-gara footage kurang.
+    // Tunda narasi (2026-08-11, adelay - lihat NARRATION_LEAD_IN_SECONDS di
+    // lowerThird.ts & catatan leadInSeconds di atas) - `all=1` supaya 1 nilai delay
+    // dipakai ke SEMUA channel audio apa pun jumlah channelnya (mono/stereo TTS),
+    // drpd pola "ms|ms" yg WAJIB tahu channel count di muka. Label diganti SEKALI di
+    // sini, dipakai di kedua cabang (dgn/tanpa musik) di bawah - drpd duplikasi delay
+    // filter di 2 tempat.
+    const leadInMs = Math.round(leadInSeconds * 1000);
+    let voiceLabel = audioInputIdx !== null ? `${audioInputIdx}:a` : null;
+    if (leadInMs > 0 && audioInputIdx !== null) {
+      filterStages.push(`[${audioInputIdx}:a]adelay=${leadInMs}:all=1[voice_delayed]`);
+      voiceLabel = "voice_delayed";
+    }
     if (audioInputIdx !== null && musicInputIdx !== null) {
       // Duck otomatis (sidechaincompress) - volume musik TURUN sendiri saat sidechain
       // [narasi] py suara, NAIK lagi saat narasi jeda - bukan cuma volume statis rendah
@@ -625,16 +682,23 @@ export async function renderFinalVideo(opts: {
       filterStages.push(
         `[${musicInputIdx}:a]afade=t=in:st=0:d=1.5,afade=t=out:st=${fadeOutStart.toFixed(2)}:d=1.5,volume=0.5[music_pre]`
       );
+      // asplit WAJIB (2026-08-11, bug nyata ditemukan lewat tes langsung - voiceLabel
+      // dipakai 2x di bawah [sidechaincompress & apad], TAPI beda dari "[N:a]" stream
+      // specifier mentah [yg BOLEH dipakai berkali2 tanpa split, dites terpisah],
+      // label HASIL FILTER [adelay] TIDAK BOLEH dipakai lebih dari sekali - ffmpeg
+      // error "Invalid stream specifier" pas dicoba. asplit=2 duplikasi stream-nya
+      // dulu jadi 2 label terpisah, baru masing2 dipakai SEKALI.
+      filterStages.push(`[${voiceLabel}]asplit=2[voice_sc][voice_mix]`);
       filterStages.push(
-        `[music_pre][${audioInputIdx}:a]sidechaincompress=threshold=0.05:ratio=8:attack=5:release=300[music_ducked]`
+        `[music_pre][voice_sc]sidechaincompress=threshold=0.05:ratio=8:attack=5:release=300[music_ducked]`
       );
-      filterStages.push(`[${audioInputIdx}:a]apad[voice_padded]`);
+      filterStages.push(`[voice_mix]apad[voice_padded]`);
       filterStages.push(`[voice_padded][music_ducked]amix=inputs=2:duration=longest:weights=1.4 1[mixed]`);
       filterStages.push(`[mixed]${LOUDNORM_FILTER}[aout]`);
       finalArgs.push("-filter_complex", filterStages.join(";"));
       finalArgs.push("-map", "[vout]", "-map", "[aout]");
     } else if (audioInputIdx !== null) {
-      filterStages.push(`[${audioInputIdx}:a]apad[voice_padded]`);
+      filterStages.push(`[${voiceLabel}]apad[voice_padded]`);
       filterStages.push(`[voice_padded]${LOUDNORM_FILTER}[aout]`);
       finalArgs.push("-filter_complex", filterStages.join(";"));
       finalArgs.push("-map", "[vout]", "-map", "[aout]");
