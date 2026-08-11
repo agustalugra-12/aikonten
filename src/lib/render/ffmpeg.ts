@@ -11,7 +11,7 @@ import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN } from "
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
 import { buildXfadeFilterComplex, type TransitionType } from "./transitions";
 import { buildProgressBarFilter } from "./overlayEngine";
-import { buildSubscribeButtonFilterStages, getBellAssetPath } from "./subscribeButton";
+import { buildSubscribeButtonFilterStages, getBellAssetPath, SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS } from "./subscribeButton";
 import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay";
 import { nearestBeat } from "@/lib/ai/beatDetect";
 import { buildColorGradeFilter, type ColorGradeConfig } from "./colorGrade";
@@ -20,6 +20,7 @@ import { buildLowerThirdFilter } from "./lowerThird";
 import { buildComparisonBarFilter } from "./comparisonBar";
 import { getStatIconPath } from "./statIcons";
 import type { StatIconCategory } from "@/lib/ai/statExtractor";
+import { getLottieFramePattern, getLottieMeta, buildLottieOverlayFilterStages } from "./lottieOverlay";
 
 const execFileAsync = promisify(execFile);
 
@@ -379,12 +380,24 @@ export async function renderFinalVideo(opts: {
     // Sticker (2026-08-10, lihat stickerOverlay.ts) - HANYA di-input kalau AI Director
     // pilih 1 klip "peak" DAN index-nya valid (dalam rentang clipStartOffsets - jaga2
     // kalau clipCount berubah/mismatch). Sama "-loop 1" WAJIB spt logo di atas.
+    // Reaction VARIAN (2026-08-11, permintaan Agus "animasi sebanyak mungkin") - momen
+    // "peak" yg sama sekarang py 2 kemungkinan visual: sticker api statis (asli) ATAU
+    // badge "WOW!" Lottie yg BERANIMASI (pop-in bintang+tetesan, lihat lottieOverlay.ts/
+    // assets/lottie/wow) - dipilih ACAK 50/50 tiap render, supaya video tidak monoton
+    // (tema besar sesi ini - "konten tidak boleh monoton") TANPA nambah elemen baru yg
+    // bikin layar penuh (masih SATU reaction per video, di slot & trigger yg SAMA
+    // persis, cuma variasi visualnya).
     let stickerInputIdx: number | null = null;
+    let wowInputIdx: number | null = null;
     const stickerStartSeconds =
       opts.stickerClipIndex != null && opts.stickerClipIndex >= 0 && opts.stickerClipIndex < clipStartOffsets.length
         ? clipStartOffsets[opts.stickerClipIndex]
         : null;
-    if (stickerStartSeconds !== null) {
+    const useWowReaction = Math.random() < 0.5;
+    if (stickerStartSeconds !== null && useWowReaction) {
+      finalArgs.push("-framerate", String(getLottieMeta("wow").fps), "-i", getLottieFramePattern("wow"));
+      wowInputIdx = nextInputIdx++;
+    } else if (stickerStartSeconds !== null) {
       finalArgs.push("-loop", "1", "-i", getStickerAssetPath());
       stickerInputIdx = nextInputIdx++;
     }
@@ -407,6 +420,20 @@ export async function renderFinalVideo(opts: {
     if (opts.ctaText) {
       finalArgs.push("-loop", "1", "-i", getBellAssetPath());
       bellInputIdx = nextInputIdx++;
+    }
+    // Confetti outro (2026-08-11, permintaan Agus - "kerjakan semua" 9 file Lottie) -
+    // aksen background TIPIS di jendela waktu SAMA dgn Subscribe Button (showLastSeconds,
+    // lihat subscribeButton.ts), full-bleed di BELAKANG pill+lonceng+teks (dioverlay
+    // SEBELUM subscribeButton di chain filter di bawah, bukan sesudah - spy teks CTA
+    // tetap paling atas & tetap terbaca). Asset SUDAH dipotong (lihat
+    // assets/lottie/confetti/meta.json) - bagian "kotak kado terbuka" awal SENGAJA
+    // dibuang (start-seconds 1.8 saat render_lottie.py dipanggil), disisakan cuma fase
+    // confetti jatuh/beterbangan murni - kotak kado tidak nyambung tematik dgn tombol
+    // subscribe, beda dari confetti polos yg cocok jadi aksen perayaan generik.
+    let confettiInputIdx: number | null = null;
+    if (opts.ctaText) {
+      finalArgs.push("-framerate", String(getLottieMeta("confetti").fps), "-i", getLottieFramePattern("confetti"));
+      confettiInputIdx = nextInputIdx++;
     }
     let audioInputIdx: number | null = null;
     if (audioPath) {
@@ -482,6 +509,28 @@ export async function renderFinalVideo(opts: {
     if (stickerInputIdx !== null && snappedStickerStartSeconds !== null) {
       filterStages.push(...buildStickerFilterStages(stickerInputIdx, snappedStickerStartSeconds, TARGET_WIDTH, curLabel, "stickered"));
       curLabel = "stickered";
+    } else if (wowInputIdx !== null && snappedStickerStartSeconds !== null) {
+      // Posisi & ukuran SAMA persis dgn slot sticker api (pojok kiri-atas, margin sama) -
+      // badge WOW dirender sedikit lebih besar (lebih banyak elemen visual/teks drpd 1
+      // emoji api, perlu ruang lebih spy tetap terbaca) tapi tetap 1 slot, tidak nambah
+      // area baru.
+      const margin = Math.round(TARGET_WIDTH * 0.04);
+      const wowMeta = getLottieMeta("wow");
+      const wowWidth = Math.round(TARGET_WIDTH * 0.24);
+      filterStages.push(
+        ...buildLottieOverlayFilterStages(
+          wowInputIdx,
+          wowMeta,
+          wowWidth,
+          snappedStickerStartSeconds,
+          margin,
+          margin,
+          curLabel,
+          "stickered",
+          { fadeOutSeconds: 0.3 }
+        )
+      );
+      curLabel = "stickered";
     }
     // Graphic Overlay - Stat Card (2026-08-10, DGN IKON - lihat statOverlay.ts) - tiap
     // stat dapat beberapa STAGE berurutan (box+ikon+teks, per statIconInputIdx yg
@@ -518,6 +567,28 @@ export async function renderFinalVideo(opts: {
     if (opts.showProgressBar) {
       filterStages.push(`[${curLabel}]${buildProgressBarFilter(TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds)}[barred]`);
       curLabel = "barred";
+    }
+    if (opts.ctaText && confettiInputIdx !== null) {
+      // Dioverlay SEBELUM subscribeButton (lihat catatan di dekat confettiInputIdx di
+      // atas) - full-bleed x=0/y=0, alpha diturunkan (0.55) spy tetap jadi AKSEN
+      // background, bukan menutupi/bersaing dgn subtitle yg masih mungkin jalan di
+      // jendela waktu yg sama.
+      const confettiMeta = getLottieMeta("confetti");
+      const confettiStart = Math.max(0, outputDurationSeconds - SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS);
+      filterStages.push(
+        ...buildLottieOverlayFilterStages(
+          confettiInputIdx,
+          confettiMeta,
+          TARGET_WIDTH,
+          confettiStart,
+          0,
+          0,
+          curLabel,
+          "confettied",
+          { alpha: 0.55 }
+        )
+      );
+      curLabel = "confettied";
     }
     if (opts.ctaText && bellInputIdx !== null) {
       filterStages.push(

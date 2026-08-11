@@ -22,6 +22,11 @@ const FADE_SECONDS = 0.6;
 const PULSE_HZ = 1.1; // ritme denyut - tidak terlalu cepat (mengganggu) atau lambat (kurang "hidup")
 const PULSE_AMPLITUDE = 0.12; // +-12% ukuran lonceng - kelihatan tapi tidak berlebihan
 
+// Diekspor (2026-08-11) - dipakai jg di ffmpeg.ts utk hitung kapan aksen confetti outro
+// mulai (harus SAMA persis dgn kapan tombol subscribe muncul, bukan angka duplikat yg
+// bisa "menyimpang" kalau salah satu diubah nanti).
+export const SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS = 4;
+
 export function buildSubscribeButtonFilterStages(
   bellInputIdx: number,
   ctaText: string,
@@ -30,7 +35,7 @@ export function buildSubscribeButtonFilterStages(
   durationSeconds: number,
   curLabel: string,
   outLabel: string,
-  showLastSeconds: number = 4
+  showLastSeconds: number = SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS
 ): string[] {
   const startAt = Math.max(0, durationSeconds - showLastSeconds);
   const fadeInEnd = startAt + FADE_SECONDS;
