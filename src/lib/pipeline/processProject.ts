@@ -24,7 +24,8 @@ import { pickCtaText, type CtaContext } from "@/lib/ai/ctaEngine";
 import { runVideoQualityChecks } from "@/lib/pipeline/qualityChecker";
 import { imageToVideoClip } from "@/lib/render/imageToClip";
 import { generatePosterCopy } from "@/lib/ai/posterCopy";
-import { applyPosterDesign } from "@/lib/ai/posterDesign";
+import { applyPosterDesign, generatePosterFullAi } from "@/lib/ai/posterDesign";
+import { validatePriceClaims, stripInvalidPrices } from "@/lib/ai/priceValidator";
 import { extractThumbnailFrame } from "@/lib/render/frameExtract";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { fetchDestinationBrollClips, isDestinationContent, type DestinationBrollClip } from "@/lib/ai/destinationBroll";
@@ -99,14 +100,26 @@ export async function processProject(id: string): Promise<ProcessResult> {
       .select()
       .from(mediaAssets)
       .where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.type, "raw_footage")));
-    if (rawFootageAssets.length === 0) throw new Error("Belum ada footage mentah utk project ini");
+    // brand dipindah ke SINI (2026-08-11, sebelumnya di bawah) - dibutuhkan guard di
+    // bawah SEBELUM titik lama fetch-nya.
+    const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
+    // project.type === "carousel" DAN brand.allowAiGeneratedPhotos DIKECUALIKAN
+    // (2026-08-11, bug nyata ditemukan lewat tes generate langsung - "Belum ada footage
+    // mentah" walau ini SENGAJA dibuat 0-asset oleh autoContent.ts sbg sinyal full
+    // AI-generate poster, lihat allowAiGeneratedPhotos di schema.ts & catatan lengkap
+    // di cabang carousel di bawah). SENGAJA dicek allowAiGeneratedPhotos DI SINI JUGA
+    // (bukan cuma percaya "type carousel = pasti sengaja") - brand TANPA toggle ini yg
+    // kebetulan 0 asset (edge case pre-existing lain, bukan dari fitur ini) TETAP kena
+    // guard spt sebelumnya, drpd lolos lalu crash lebih membingungkan di
+    // applyPosterDesign (imageUrl undefined).
+    if (rawFootageAssets.length === 0 && !(project.type === "carousel" && brand?.allowAiGeneratedPhotos)) {
+      throw new Error("Belum ada footage mentah utk project ini");
+    }
     // jalur video BISA >1 file sekaligus (2026-08-05, permintaan Agus - "dominasi footage
     // Pelangi" perlu digabung dari beberapa klip, 1 file asli sering terlalu pendek
     // sendirian) - lihat pooling multi-source di bawah. rawFootage (tunggal) tetap dipakai
     // sbg representatif utk thumbnail & cek stok-atau-tidak.
     const [rawFootage] = rawFootageAssets;
-
-    const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
     // YT Shorts (2026-08-10, permintaan Agus) - project dari bucket dailyYoutubeShorts
     // Count SELALU dipaksa <=60dtk & portrait, TIDAK PEDULI videoOrientation/
     // videoDurationTarget brand (brand itu bisa saja disetel landscape 5 menit utk video
@@ -119,13 +132,26 @@ export async function processProject(id: string): Promise<ProcessResult> {
 
     if (project.type === "carousel") {
       const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
-      const { caption, hashtags, promoText, pillar, angle, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionForImages(
+      // eslint-disable-next-line prefer-const
+      let { caption, hashtags, promoText, pillar, angle, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionForImages(
         brand?.name || "Brand",
         project.script,
         photoUrls,
         brand?.knowledgeSite,
-        brand?.manualKnowledge
+        brand?.manualKnowledge,
+        brand?.contentPillars
       );
+      // Price Source of Truth (2026-08-11, permintaan Agus - lihat priceValidator.ts) -
+      // caption/promoText dibersihkan dari klaim harga yg TIDAK cocok persis dgn
+      // knowledgeUsed (knowledge base RESMI brand ini, gabungan manualKnowledge + fetch
+      // otomatis PMS Pelangi/Harmoni kalau relevan - lebih lengkap drpd manualKnowledge
+      // mentah). promoText field KHUSUS harga/promo - kalau isinya sendiri invalid,
+      // dikosongkan total (bukan di-strip parsial, tidak ada isinya lagi kalau harganya
+      // dibuang), caption tetap teks lain-lain jalan normal cuma nominalnya hilang.
+      caption = stripInvalidPrices(caption, knowledgeUsed);
+      if (promoText && !validatePriceClaims(promoText, knowledgeUsed).valid) {
+        promoText = null;
+      }
 
       // Foto TUNGGAL & COVER carousel SAMA-SAMA pakai "Pelangi Homestay Poster Design
       // System v1" (2026-08-05, master prompt lengkap dari Agus; 2026-08-06 disatukan ke
@@ -141,14 +167,33 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // tambahan) - promoOverlay.ts (badge kecil) sudah TIDAK dipakai lagi di jalur ini,
       // digantikan penuh oleh poster (yg juga bisa tampilkan harga lewat field `harga`
       // di PosterCopy kalau skrip menyebutnya).
-      const posterCopy = await generatePosterCopy(brand?.name || "Brand", project.script);
-      const coverUrl = await applyPosterDesign({
-        brandId: project.brandId,
-        projectId: id,
-        imageUrl: photoUrls[0],
-        copy: posterCopy,
-        brandProfile: brand?.posterBrandProfile,
-      });
+      // knowledgeUsed (bukan brand?.manualKnowledge mentah) - lebih LENGKAP, sudah
+      // gabung manualKnowledge + fetch otomatis PMS Pelangi/Harmoni (lihat catatan
+      // stripInvalidPrices di atas) - poster Pelangi/Harmoni jg divalidasi thd harga
+      // REAL-TIME PMS, bukan cuma teks manual yg bisa basi.
+      const posterCopy = await generatePosterCopy(brand?.name || "Brand", project.script, knowledgeUsed);
+      // Full AI-Generate (2026-08-11, permintaan Agus - lihat allowAiGeneratedPhotos di
+      // schema.ts) - photoUrls KOSONG artinya autoContent.ts SENGAJA tidak menemukan
+      // foto asli relevan & brand ini py toggle full-AI diaktifkan (lihat autoContent.ts
+      // "useFullAiPoster") - poster dibuat text-to-image PENUH drpd gagal/paksa pakai
+      // foto asli yg tidak relevan. Brand TANPA toggle ini tidak akan pernah sampai ke
+      // titik ini dgn photoUrls kosong (autoContent.ts sudah throw error duluan kalau
+      // toggle mati & tidak ada foto sama sekali - perilaku LAMA, tidak berubah).
+      const coverUrl =
+        photoUrls.length > 0
+          ? await applyPosterDesign({
+              brandId: project.brandId,
+              projectId: id,
+              imageUrl: photoUrls[0],
+              copy: posterCopy,
+              brandProfile: brand?.posterBrandProfile,
+            })
+          : await generatePosterFullAi({
+              brandId: project.brandId,
+              projectId: id,
+              copy: posterCopy,
+              brandProfile: brand?.posterBrandProfile,
+            });
       const finalImageUrls = photoUrls.length === 1 ? [coverUrl] : [coverUrl, ...photoUrls.slice(1)];
 
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lingkaran, proporsional,
@@ -397,8 +442,19 @@ export async function processProject(id: string): Promise<ProcessResult> {
         selectedText,
         brand?.knowledgeSite,
         brand?.manualKnowledge,
-        durationConfig.target
+        durationConfig.target,
+        brand?.contentPillars
       ));
+    }
+    // Price Source of Truth (2026-08-11, permintaan Agus - lihat priceValidator.ts &
+    // catatan sama di jalur carousel di atas) - caption (jadi naskah voiceover, lihat
+    // generateVoiceover di bawah) & thumbnailText dibersihkan dari klaim harga yg tidak
+    // cocok persis dgn knowledgeUsed. Jalur youtubeMeta (knowledgeUsed="") otomatis
+    // "tidak ada sumber resmi" - aman krn konten YouTube Editorial (Animal Story & Co dkk)
+    // tidak pernah membahas harga Rupiah sama sekali (dokumenter Bahasa Inggris).
+    caption = stripInvalidPrices(caption, knowledgeUsed);
+    if (thumbnailText && !validatePriceClaims(thumbnailText, knowledgeUsed).valid) {
+      thumbnailText = null;
     }
 
     // Kombinasi footage asli + Pexels (2026-08-05, permintaan Agus - "jika ada

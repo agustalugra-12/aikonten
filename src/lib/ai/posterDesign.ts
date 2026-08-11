@@ -36,30 +36,35 @@ const NANO_BANANA_PRICE_PER_IMAGE_1K = 0.08;
 // 2. `brandProfile` (param fungsi ini, dari brands.posterBrandProfile - lihat schema.ts)
 //    - bagian yg BOLEH beda per brand (warna, font, ikon relevan, tone, target audiens,
 //    aturan foto spesifik niche) - staf isi via Brand Settings, BUKAN hardcode di kode.
-const MASTER_DESIGN_SYSTEM_PROMPT = `
+// Dipecah jadi 3 bagian (2026-08-11, permintaan Agus - brand "laundry in bali": "untuk
+// konten foto ... bisa berikan sedikit kebebasan foto bisa full generate ai juga") -
+// SEBELUM ini SATU string monolitik yg KERAS melarang foto AI/stok sama sekali (baris
+// FOTO + baris BATASAN KERAS "menghasilkan foto AI atau gambar stok"), ditulis sengaja
+// awalnya utk brand hospitality (jangan sampai tamu lihat kamar palsu). Larangan itu
+// TETAP berlaku penuh utk jalur foto ASLI (applyPosterDesign, brand tanpa toggle
+// allowAiGeneratedPhotos) - visualSourceRule di bawah jadi SATU-SATUNYA bagian yg beda
+// antara 2 mode, sisanya (layout/tipografi/badge harga/zona logo/anti-mengarang
+// kontak) SAMA PERSIS di kedua mode, tidak diduplikasi.
+const SHARED_STRUCTURAL_RULES = `
 Kamu adalah seorang Senior Graphic Designer berpengalaman 15+ tahun, spesialis poster promosi komersial premium utk bisnis lokal (hospitality, laundry, resto, travel, jasa, dst). Ikuti PROFIL BRAND yang diberikan terpisah di bawah utk warna/font/ikon/tone - bagian ini berlaku SAMA utk semua brand.
 
 STYLE: Modern Minimalist, Premium Commercial Advertising, Clean Layout, High Trust, Eye-catching, High Conversion. Harus terlihat seperti buatan desainer profesional, BUKAN buatan AI. Jangan membuat poster seperti brosur jadul.
 
-KOMPOSISI: layout rapi, banyak ruang kosong (white space), visual utama (foto) mendominasi 60-70%, elemen teks 30-40%. Posisi headline/CTA/badge harga/benefit/icon boleh fleksibel tiap poster (kiri-kanan, hero image full, split layout, diagonal, magazine, floating card, editorial) selama tetap terlihat premium & seimbang - JANGAN selalu taruh semua di tengah.
-
-FOTO (SANGAT PENTING): WAJIB pakai FOTO ASLI yang diberikan sbg visual utama - objek utamanya (kamar/pakaian/produk/apa pun sesuai niche brand, lihat PROFIL BRAND) HARUS tetap identik, JANGAN membuat objek baru, JANGAN mengganti objek dgn yang lain, JANGAN membuat foto AI atau memakai gambar stok. AI HANYA boleh: perspective correction, lighting enhancement, HDR enhancement, contrast improvement, color grading, highlight/shadow recovery, sharpness enhancement, background enhancement, reflection & depth. TIDAK BOLEH mengubah bentuk/identitas objek utama, menambah elemen yang tidak ada di foto asli.
+KOMPOSISI: layout rapi, banyak ruang kosong (white space), visual utama mendominasi 60-70%, elemen teks 30-40%. Posisi headline/CTA/badge harga/benefit/icon boleh fleksibel tiap poster (kiri-kanan, hero image full, split layout, diagonal, magazine, floating card, editorial) selama tetap terlihat premium & seimbang - JANGAN selalu taruh semua di tengah.
 
 TYPOGRAPHY: kombinasi maksimal 2 font. Headline: Bold/Extra Bold Sans Serif Modern (kecuali PROFIL BRAND minta lain). Body: Clean Sans Serif, mudah dibaca. Hierarki font harus sangat jelas.
 
-HIERARKI visual (urutan kepentingan): 1) Headline, 2) Foto utama, 3) Promo/Badge, 4) Benefit/Fasilitas, 5) Harga, 6) CTA, 7) Kontak.
+HIERARKI visual (urutan kepentingan): 1) Headline, 2) Visual utama, 3) Promo/Badge, 4) Benefit/Fasilitas, 5) Harga, 6) CTA, 7) Kontak.
 
 ICON: outline modern, minimalis, stroke seragam, warna sesuai warna utama PROFIL BRAND (bukan warna acak). Jangan pakai icon kartun.
 
 CARD: card putih/gradient, rounded corner, soft shadow, floating card. Glass effect tipis boleh dipakai.
 
-BADGE HARGA/PROMO: kalau ada harga/promo, bentuknya lingkaran/rounded badge/pill/ribbon, jadi salah satu fokus utama poster. Kalau TIDAK ada harga yg disebutkan di KONTEN POSTER di bawah, JANGAN menampilkan badge harga sama sekali - jangan mengarang angka.
+BADGE HARGA/PROMO: kalau ada harga/promo, bentuknya lingkaran/rounded badge/pill/ribbon, jadi salah satu fokus utama poster. Kalau TIDAK ada harga yg disebutkan di KONTEN POSTER di bawah, JANGAN menampilkan badge harga sama sekali - jangan mengarang angka, DAN JANGAN JUGA membuat elemen dekoratif generik yang MENYERUPAI badge diskon/promo (lingkaran kecil berisi simbol "%", pita "SALE"/"DISKON", starburst harga, dst) walau tanpa angka sungguhan di dalamnya - kalau KONTEN POSTER di bawah tidak menyebut promo, poster ini TIDAK SEDANG promo apa pun, jangan seolah-olah begitu hanya karena itu lazim di poster retail pada umumnya.
 
 EFEK: soft shadow natural (bukan hard shadow), soft glow, gradient overlay, light blur, depth, floating element, glassmorphism ringan. Jangan berlebihan/norak/sesak.
 
 OUTPUT: resolusi tinggi, social media ready (4:5 atau 1:1), margin rapi, semua tulisan mudah dibaca, tidak ada elemen yang saling bertabrakan/tumpang tindih.
-
-BATASAN KERAS - JANGAN PERNAH: mengubah logo/identitas visual brand, bikin layout terlalu penuh/sesak, menambahkan elemen yang tidak ada di foto asli, menghasilkan foto AI atau gambar stok, mengubah identitas objek utama di foto asli.
 
 KONTAK: JANGAN PERNAH menambahkan nomor telepon/WhatsApp, alamat website/domain, atau handle media sosial di poster kecuali disebutkan eksplisit di KONTEN POSTER INI di bawah - lebih baik tidak ada info kontak sama sekali daripada info yang salah/mengarang.
 
@@ -67,6 +72,21 @@ LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified
 
 ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira 16% dari sisi PENDEK gambar dan margin sekitar 4% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira 20% lebar x 20% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, atau elemen penting apa pun - boleh diisi background/langit/warna polos/blur di area itu, TAPI JANGAN taruh huruf/kata di sana sama sekali, walau cuma sebagian huruf. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo.
 `.trim();
+
+const REAL_PHOTO_VISUAL_RULE = `
+FOTO (SANGAT PENTING): WAJIB pakai FOTO ASLI yang diberikan sbg visual utama - objek utamanya (kamar/pakaian/produk/apa pun sesuai niche brand, lihat PROFIL BRAND) HARUS tetap identik, JANGAN membuat objek baru, JANGAN mengganti objek dgn yang lain, JANGAN membuat foto AI atau memakai gambar stok. AI HANYA boleh: perspective correction, lighting enhancement, HDR enhancement, contrast improvement, color grading, highlight/shadow recovery, sharpness enhancement, background enhancement, reflection & depth. TIDAK BOLEH mengubah bentuk/identitas objek utama, menambah elemen yang tidak ada di foto asli.
+`.trim();
+const REAL_PHOTO_BATASAN = "BATASAN KERAS - JANGAN PERNAH: mengubah logo/identitas visual brand, bikin layout terlalu penuh/sesak, menambahkan elemen yang tidak ada di foto asli, menghasilkan foto AI atau gambar stok, mengubah identitas objek utama di foto asli.";
+
+// Full AI-Generate (2026-08-11) - HANYA dipakai brand dgn allowAiGeneratedPhotos=true
+// (lihat schema.ts) - TIDAK ada foto asli sama sekali, visual utama dibuat PENUH lewat
+// AI generation. Tetap photorealistic/premium (bukan kartun/clip art) & relevan niche
+// brand, plus larangan wajah spesifik (privasi - tidak ada orang sungguhan yg fotonya
+// dipakai tanpa izin).
+const FULL_AI_VISUAL_RULE = `
+VISUAL UTAMA (SANGAT PENTING): TIDAK ADA foto asli yang dipakai kali ini - buat visual utama SEPENUHNYA lewat AI image generation, photorealistic & premium quality (BUKAN ilustrasi kartun/clip art/gambar datar), relevan dgn niche bisnis sesuai PROFIL BRAND di bawah (mis. tumpukan pakaian bersih rapi, mesin cuci modern, proses laundry, kamar/fasilitas sesuai niche - SESUAIKAN dgn niche brand, jangan objek generik yang tidak relevan). Kalau perlu figur manusia, buat GENERIK/tidak menghadap kamera langsung/wajah tidak jelas terlihat (privasi - JANGAN buat wajah spesifik yang terlihat seperti orang sungguhan tertentu).
+`.trim();
+const FULL_AI_BATASAN = "BATASAN KERAS - JANGAN PERNAH: mengubah logo/identitas visual brand, bikin layout terlalu penuh/sesak, membuat visual generik yang tidak relevan niche brand, membuat wajah manusia spesifik yang terlihat seperti orang sungguhan tertentu.";
 
 // Fallback (2026-08-06) - brand yg BELUM isi posterBrandProfile (mis. brand baru yg
 // belum sempat diisi stafnya) pakai profil netral ini, BUKAN diam-diam warisan gaya
@@ -78,7 +98,7 @@ WARNA: Biru tua (#1E3A5F) & Putih sbg warna utama, abu-abu terang sbg background
 TONE: profesional, terpercaya, bersih, modern - netral, tidak condong ke niche tertentu.
 `.trim();
 
-function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undefined): string {
+function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undefined, mode: "real-photo" | "full-ai"): string {
   const baris = [
     `Headline: "${copy.headline}"`,
     copy.subheadline ? `Subheadline: "${copy.subheadline}"` : null,
@@ -89,13 +109,20 @@ function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undef
   ].filter((line): line is string => !!line);
 
   const profile = (brandProfile || "").trim() || FALLBACK_BRAND_PROFILE;
+  const visualRule = mode === "full-ai" ? FULL_AI_VISUAL_RULE : REAL_PHOTO_VISUAL_RULE;
+  const batasan = mode === "full-ai" ? FULL_AI_BATASAN : REAL_PHOTO_BATASAN;
+  const closingLine =
+    mode === "full-ai"
+      ? "Buat SATU poster promosi dengan visual utama HASIL AI GENERATION SEPENUHNYA (tidak ada foto asli)."
+      : "Buat SATU poster promosi memakai foto yang diberikan sebagai visual utama.";
 
   return (
-    `${MASTER_DESIGN_SYSTEM_PROMPT}\n\n---\n\nPROFIL BRAND (warna/font/ikon/tone brand ini - ` +
+    `${SHARED_STRUCTURAL_RULES}\n\n${visualRule}\n\n${batasan}\n\n---\n\n` +
+    `PROFIL BRAND (warna/font/ikon/tone brand ini - ` +
     `WAJIB diikuti, ini yang membedakan brand ini dari brand lain):\n${profile}\n\n---\n\n` +
     `KONTEN POSTER INI (isi teks yang harus muncul, TERJEMAHKAN ke elemen visual sesuai ` +
     `seluruh aturan gaya di atas - jangan tampilkan teks lain di luar ini):\n` +
-    `${baris.join("\n")}\n\nBuat SATU poster promosi memakai foto yang diberikan sebagai visual utama.`
+    `${baris.join("\n")}\n\n${closingLine}`
   );
 }
 
@@ -117,7 +144,7 @@ export async function applyPosterDesign(opts: {
   ensureFalConfigured();
 
   const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
-    prompt: buildPosterPrompt(opts.copy, opts.brandProfile),
+    prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "real-photo"),
     image_urls: [opts.imageUrl],
     resolution: "1K",
   });
@@ -129,6 +156,40 @@ export async function applyPosterDesign(opts: {
   const res = await fetch(imageUrl);
   if (!res.ok) throw new Error(`Gagal ambil hasil poster dari fal.ai: ${res.status}`);
   const buffer = Buffer.from(await res.arrayBuffer());
+  const key = buildAssetKey(opts.brandId, opts.projectId, "poster.png");
+  return uploadBuffer(key, buffer, "image/png");
+}
+
+// Poster full AI-generate, TANPA foto asli sama sekali (2026-08-11, permintaan Agus -
+// brand "laundry in bali" - lihat catatan panjang di FULL_AI_VISUAL_RULE di atas soal
+// kenapa & batasannya). Endpoint text-to-image BEDA dari applyPosterDesign
+// (`fal-ai/nano-banana-2`, TANPA "/edit" & TANPA `image_urls` - dicek langsung ke
+// dokumentasi resmi fal.ai, bukan tebak) - model & resolusi 1K SAMA, jadi HARGA SAMA
+// PERSIS ($0.08/gambar, "harganya sama saja" sesuai permintaan Agus). aspect_ratio
+// "4:5" (bukan "auto") - samakan dgn konvensi poster foto asli yg SUDAH ada
+// (OUTPUT: "4:5 atau 1:1" di SHARED_STRUCTURAL_RULES), supaya hasil kedua mode
+// konsisten dipakai di slot yang sama (feed/carousel).
+export async function generatePosterFullAi(opts: {
+  brandId: string;
+  projectId: string;
+  copy: PosterCopy;
+  brandProfile?: string | null;
+}): Promise<string> {
+  ensureFalConfigured();
+
+  const result = await subscribeFalWithRetry("fal-ai/nano-banana-2", {
+    prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "full-ai"),
+    aspect_ratio: "4:5",
+    resolution: "1K",
+  });
+
+  const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
+  if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil poster full-AI");
+  await logNonTokenUsage("nano-banana-2-poster-full-ai", NANO_BANANA_PRICE_PER_IMAGE_1K);
+
+  const res2 = await fetch(imageUrl);
+  if (!res2.ok) throw new Error(`Gagal ambil hasil poster full-AI dari fal.ai: ${res2.status}`);
+  const buffer = Buffer.from(await res2.arrayBuffer());
   const key = buildAssetKey(opts.brandId, opts.projectId, "poster.png");
   return uploadBuffer(key, buffer, "image/png");
 }

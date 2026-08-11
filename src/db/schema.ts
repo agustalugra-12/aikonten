@@ -115,6 +115,31 @@ export const brands = sqliteTable("brands", {
   // (bukan warisan gaya Pelangi diam-diam, beda dari bug knowledgeSite yg baru
   // diperbaiki - pelajaran yg SAMA diterapkan di sini dari awal).
   posterBrandProfile: text("poster_brand_profile"),
+  // Full AI-Generate Poster (2026-08-11, permintaan Agus - brand "laundry in bali":
+  // "untuk konten foto laundry in bali bisa berikan sedikit kebebasan foto bisa full
+  // generate ai juga, harganya sama saja") - SEBELUM ini SEMUA brand WAJIB foto ASLI
+  // sbg dasar (posterDesign.ts MASTER_DESIGN_SYSTEM_PROMPT: "JANGAN membuat foto AI
+  // atau memakai gambar stok" - larangan keras, ditulis sengaja utk brand hospitality
+  // spy tidak menipu tamu dgn kamar palsu). Toggle ini per-brand, default FALSE (brand
+  // lain/lama TIDAK berubah perilakunya sama sekali) - kalau TRUE, jalur foto/carousel
+  // yang TIDAK menemukan foto asli relevan (mis. ide edukasi/tips yg tidak match Bank
+  // Footage) boleh pakai poster full text-to-image (fal.ai, sama model/harga - lihat
+  // generatePosterFullAi di posterDesign.ts) drpd gagal/paksa pakai foto asli yg tidak
+  // relevan.
+  allowAiGeneratedPhotos: integer("allow_ai_generated_photos", { mode: "boolean" }).notNull().default(false),
+  // Content Pillar Override (2026-08-11, permintaan Agus - brand "laundry in bali":
+  // "aku mau kembangkan jenis kontennya ada konten edukasi dan tips... aku mau juga
+  // konsumen mendapat konten jualan") - SEBELUM ini pilar konten HANYA py 2 opsi:
+  // PELANGI_PILLARS (hardcode, khusus knowledgeSite="pelangi") atau GENERIC_PILLARS
+  // (4 pilar generik 25% rata utk SEMUA brand lain tanpa pandang bulu - laundry in
+  // bali PUNYA target pilar sendiri yg SUDAH ditulis di manualKnowledge-nya, "40%
+  // Edukasi/30% Aktivitas/20% Promosi/10% Testimoni", tapi kode TIDAK PERNAH
+  // membacanya). Nullable JSON `{pillars: string[], targetPercent: Record<string,
+  // number>}` - null/kosong = perilaku LAMA (generic/pelangi), brand lain TIDAK
+  // terpengaruh. Field TERPISAH dari manualKnowledge (sama alasan posterBrandProfile
+  // dipisah dari manualKnowledge - data terstruktur yg dibaca kode, bukan teks bebas
+  // yg cuma jadi konteks prompt).
+  contentPillars: text("content_pillars"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

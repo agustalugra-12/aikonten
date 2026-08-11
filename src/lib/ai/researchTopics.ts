@@ -90,7 +90,7 @@ function buildRestrictionFragment(brandName: string, knowledgeSite?: string | nu
 // distribusi SEBENARNYA (bukan tebakan) disuntik eksplisit ke prompt supaya AI benar2
 // tahu pilar/angle mana yg SUDAH terlalu sering & mana yg kurang - bukan lagi cuma
 // "usahakan beda", tapi ada angka nyata sbg pegangan.
-function buildDistributionBlock(classifications: RecentClassification[], knowledgeSite?: string | null): string {
+function buildDistributionBlock(classifications: RecentClassification[], knowledgeSite?: string | null, customPillarsJson?: string | null): string {
   if (classifications.length === 0) return "";
 
   const pillarCounts: Record<string, number> = {};
@@ -101,8 +101,8 @@ function buildDistributionBlock(classifications: RecentClassification[], knowled
   }
   const total = classifications.length;
 
-  const pillars = pillarsForSite(knowledgeSite);
-  const pillarTargetPercent = pillarTargetPercentForSite(knowledgeSite);
+  const pillars = pillarsForSite(knowledgeSite, customPillarsJson);
+  const pillarTargetPercent = pillarTargetPercentForSite(knowledgeSite, customPillarsJson);
   const pillarLines = pillars.map((p) => {
     const count = pillarCounts[p] || 0;
     const actualPercent = Math.round((count / total) * 100);
@@ -140,7 +140,8 @@ async function buildIdeaPromptBase(
   count: number,
   recentClassifications: RecentClassification[],
   knowledgeSite?: string | null,
-  manualKnowledge?: string | null
+  manualKnowledge?: string | null,
+  customPillarsJson?: string | null
 ): Promise<{ system: string; user: string }> {
   const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
   // `knowledgeSite || "pelangi"` DIHAPUS (2026-08-06, bug nyata - lihat catatan sama di
@@ -149,7 +150,7 @@ async function buildIdeaPromptBase(
   // dapat fakta kamar/harga Pelangi Homestay.
   const autoKnowledge = knowledgeSite ? await fetchPelangiKnowledge(knowledgeSite) : "";
   const knowledge = mergeManualKnowledge(autoKnowledge, manualKnowledge);
-  const distributionBlock = buildDistributionBlock(recentClassifications, knowledgeSite);
+  const distributionBlock = buildDistributionBlock(recentClassifications, knowledgeSite, customPillarsJson);
   const seasonalBlock = buildSeasonalContext();
   // Keyword Priority List (2026-08-10, bug pilar hardcode - lihat catatan
   // buildRestrictionFragment) - daftar keyword SEO ini murni Bedugul-spesifik, jadi
@@ -193,14 +194,24 @@ async function buildIdeaPromptBase(
       : "manfaatkan # KONTEKS KALENDER di bawah kalau relevan (mis. weekend/libur nasional - ide musiman/" +
         "promo yg SESUAI niche brand ini), TAPI JANGAN PAKSA semua ide berbau kalender kalau tidak natural. ";
 
+  // Pillar EKSPLISIT (2026-08-11, permintaan Agus - brand py content_pillars custom
+  // [Laundry in Bali/Pelangi, lihat schema.ts] butuh pilar barunya [Edukasi/Tips/dst]
+  // KETAHUAN sejak panggilan PERTAMA, bukan nunggu buildDistributionBlock yg cuma aktif
+  // KALAU sudah ada histori terklasifikasi - brand yg baru dikasih pilar baru mulai dari
+  // 0 histori pilar itu, jadi tanpa ini idenya tidak akan pernah diarahkan ke sana).
+  const pillars = pillarsForSite(knowledgeSite, customPillarsJson);
+  const pillarBlock = `\n\nJENIS/PILAR KONTEN yang bisa diusulkan (VARIASIKAN, jangan cuma 1 jenis terus-menerus): ${pillars.join(", ")}.`;
   const system =
     `Kamu content strategist media sosial utk bisnis lokal Indonesia. Usulkan ${count} ide ` +
     "brief konten singkat (1-2 kalimat tiap ide, Bahasa Indonesia) yang RELEVAN dgn " +
     `niche brand & musim/tanggal sekarang - ${calendarHint}` +
-    "Ide harus konkret & bisa langsung difilmkan " +
-    "dgn footage asli (bukan konsep abstrak) - fokus ke hal yg BENAR-BENAR ada di " +
-    "tempat/bisnis semacam ini, JANGAN mengarang fasilitas/promo yg belum tentu ada. " +
-    "JANGAN ulangi ide yg mirip dgn skrip yg sudah pernah dipakai brand ini - kalau " +
+    "Ide harus konkret (bukan konsep abstrak) & bisa difilmkan dgn footage asli ATAU " +
+    "video stok umum (Pexels/Pixabay) kalau topiknya memang tidak butuh menunjukkan " +
+    "properti/produk spesifik brand ini (mis. tips/edukasi umum) - fokus ke hal yg " +
+    "BENAR-BENAR ada di tempat/bisnis semacam ini, JANGAN mengarang fasilitas/promo yg " +
+    "belum tentu ada." +
+    pillarBlock +
+    " JANGAN ulangi ide yg mirip dgn skrip yg sudah pernah dipakai brand ini - kalau " +
     `topik besarnya sama (mis. sama-sama soal harga), WAJIB angle/sudut pandang yg BEDA drpd yg sudah pernah dipakai (${angleExamples}), bukan variasi kalimat dari ide yg sama. ` +
     batchAngleVariation +
     (knowledge
@@ -244,10 +255,11 @@ export async function suggestContentIdeas(
   count: number = 4,
   recentClassifications: RecentClassification[] = [],
   knowledgeSite?: string | null,
-  manualKnowledge?: string | null
+  manualKnowledge?: string | null,
+  customPillarsJson?: string | null
 ): Promise<string[]> {
   const client = getOpenAIClient();
-  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge);
+  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge, customPillarsJson);
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -307,11 +319,12 @@ export async function suggestScoredContentIdeas(
   // mengisi SISA slot yg belum terisi + tetap kasih score/reasoning/contentType utk
   // SEMUA ide (termasuk yg dari owner) - satu panggilan API yg sama, bukan 2 panggilan
   // terpisah.
-  mustIncludeIdeas: string[] = []
+  mustIncludeIdeas: string[] = [],
+  customPillarsJson?: string | null
 ): Promise<ScoredIdea[]> {
   const client = getOpenAIClient();
   const count = videoCount + fotoCount + carouselCount;
-  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge);
+  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge, customPillarsJson);
   const performanceBlock = buildPerformanceInsightBlock(performanceClassifications);
   const mustIncludeBlock =
     mustIncludeIdeas.length > 0

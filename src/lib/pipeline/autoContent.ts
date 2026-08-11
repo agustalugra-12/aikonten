@@ -108,7 +108,7 @@ export async function runAutoContent(
         .orderBy(desc(projects.createdAt))
         .limit(15);
       const recentScripts = recentProjects.map((p) => p.script).filter((s): s is string => !!s);
-      const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts, 4, [], brand.knowledgeSite, brand.manualKnowledge);
+      const ideas = await suggestContentIdeas(brand.name, brand.description, recentScripts, 4, [], brand.knowledgeSite, brand.manualKnowledge, brand.contentPillars);
       if (ideas.length === 0) {
         throw new AutoContentError("AI tidak berhasil kasih ide konten");
       }
@@ -121,6 +121,13 @@ export async function runAutoContent(
   let urlsToUse: string[] = [];
   let fromBroll = false;
   let brollAssetDurationSeconds: number | null = null;
+  // Full AI-Generate Poster (2026-08-11, permintaan Agus - lihat allowAiGeneratedPhotos
+  // di schema.ts) - true HANYA kalau brand ini toggle-nya AKTIF DAN benar2 tidak ada
+  // foto asli relevan/tersedia (dicek di 2 titik fallback di bawah). urlsToUse TETAP
+  // kosong di kasus ini (BUKAN diisi foto asli yg tidak relevan) - processProject.ts
+  // baca photoUrls.length===0 sbg sinyal "pakai generatePosterFullAi", lihat catatan
+  // lengkap di sana.
+  let useFullAiPoster = false;
 
   if (matchedUrls.length > 0) {
     const matchedRows = await db.select().from(footageBank).where(eq(footageBank.brandId, brandId));
@@ -191,9 +198,22 @@ export async function runAutoContent(
       // tema - fallback ke foto asli APA SAJA (pickAnyRealPhoto, sama pola dgn cabang
       // "tidak ada footage cocok" di bawah) drpd project gagal total krn kandidat foto
       // kosong walau bank sebenarnya py foto.
+      //
+      // Urutan prioritas (2026-08-11, DIPERBAIKI - permintaan Agus eksplisit "VISUAL
+      // SOURCE PRIORITY": poster edukasi/tips = "1. AI generated image... 3. optional
+      // real photo" - AI generate LEBIH DIUTAMAKAN drpd foto asli SEMBARANGAN yg belum
+      // tentu relevan ke topik spesifik ini, BUKAN sebaliknya spt versi awal saya tadi
+      // [dites langsung: generate 1 konten nyata malah pakai foto bank yg tidak relevan
+      // krn pickAnyRealPhoto dicoba duluan] - brand dgn toggle aktif COBA full-AI DULU,
+      // foto asli APA SAJA cuma dipakai kalau toggle MATI (perilaku LAMA, brand lain
+      // tidak berubah).
       if (urlsToUse.length === 0) {
-        const anyPhoto = await pickAnyRealPhoto(brandId);
-        if (anyPhoto) urlsToUse = [anyPhoto];
+        if (brand.allowAiGeneratedPhotos) {
+          useFullAiPoster = true;
+        } else {
+          const anyPhoto = await pickAnyRealPhoto(brandId);
+          if (anyPhoto) urlsToUse = [anyPhoto];
+        }
       }
     }
   } else {
@@ -214,15 +234,25 @@ export async function runAutoContent(
       }
     }
 
+    // Urutan prioritas (2026-08-11, lihat catatan lengkap di titik fallback sama di
+    // atas) - AI generate DIUTAMAKAN drpd foto asli sembarangan, kalau toggle aktif DAN
+    // ide ini TIDAK spesifik soal properti/layanan (mis. Day Use Pelangi - promo yg
+    // mengklaim properti/layanan SPESIFIK tetap WAJIB gagal jelas drpd diam2 dapat
+    // visual karangan, aturan LAMA dipertahankan penuh - lihat throw di bawah).
     if (urlsToUse.length === 0) {
-      const anyPhoto = await pickAnyRealPhoto(brandId);
-      if (anyPhoto) {
+      if (brand.allowAiGeneratedPhotos && !spesifik) {
         type = "carousel";
-        urlsToUse = [anyPhoto];
+        useFullAiPoster = true;
+      } else {
+        const anyPhoto = await pickAnyRealPhoto(brandId);
+        if (anyPhoto) {
+          type = "carousel";
+          urlsToUse = [anyPhoto];
+        }
       }
     }
 
-    if (urlsToUse.length === 0) {
+    if (urlsToUse.length === 0 && !useFullAiPoster) {
       throw new AutoContentError(
         spesifik
           ? "Ide ini spesifik soal properti (harga/fasilitas/kamar) - wajib footage/foto asli, tidak ada yg cocok di Bank Footage. Upload dulu footage asli, atau foto apa pun (utk fallback foto)."

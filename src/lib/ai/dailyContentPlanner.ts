@@ -157,7 +157,8 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     brand.name, brand.description, recentScripts,
     videoCountForIdeas, brand.dailySinglePhotoCount, brand.dailyCarouselCount,
     recentClassifications, performanceClassifications, brand.knowledgeSite, brand.manualKnowledge,
-    manualPool.map((m) => m.idea)
+    manualPool.map((m) => m.idea),
+    brand.contentPillars
   );
 
   if (manualPool.length > 0) {

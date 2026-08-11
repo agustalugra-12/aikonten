@@ -50,10 +50,38 @@ const PELANGI_PILLAR_TARGET_PERCENT: Record<string, number> = {
 };
 export const GENERIC_PILLARS = ["Edukasi", "Promosi", "Hiburan/Engagement", "Testimoni"] as const;
 
-export function pillarsForSite(knowledgeSite?: string | null): readonly string[] {
+// Content Pillar Override (2026-08-11, permintaan Agus - brand "laundry in bali" & jg
+// Pelangi Homestay: "aku mau kembangkan jenis kontennya ada konten edukasi dan tips...
+// jangan menghapus content pillar lama"). customPillarsJson = brands.contentPillars
+// (JSON `{pillars: string[], targetPercent: Record<string, number>}`, lihat schema.ts).
+// KALAU brand py override, dipakai APA ADANYA (brand itu penuh kendali isi listnya -
+// staf/Agus yg menulis JSON-nya SUDAH menyertakan pillar LAMA + BARU sekaligus di sana,
+// bukan cuma yg baru, supaya pillar lama tetap ada di daftar - lihat contoh nyata yg
+// ditulis ke DB utk Laundry/Pelangi). Brand TANPA override (null/kosong) - perilaku
+// LAMA PERSIS (Pelangi hardcode / generic 4-pillar), TIDAK terpengaruh sama sekali.
+function parseCustomPillars(customPillarsJson?: string | null): { pillars: string[]; targetPercent: Record<string, number> } | null {
+  if (!customPillarsJson) return null;
+  try {
+    const parsed = JSON.parse(customPillarsJson);
+    if (!Array.isArray(parsed.pillars) || parsed.pillars.length === 0) return null;
+    return { pillars: parsed.pillars, targetPercent: parsed.targetPercent || {} };
+  } catch {
+    return null; // JSON rusak - fallback ke perilaku lama, bukan gagalkan generate
+  }
+}
+
+export function pillarsForSite(knowledgeSite?: string | null, customPillarsJson?: string | null): readonly string[] {
+  const custom = parseCustomPillars(customPillarsJson);
+  if (custom) return custom.pillars;
   return knowledgeSite === "pelangi" ? PELANGI_PILLARS : GENERIC_PILLARS;
 }
-export function pillarTargetPercentForSite(knowledgeSite?: string | null): Record<string, number> {
+export function pillarTargetPercentForSite(knowledgeSite?: string | null, customPillarsJson?: string | null): Record<string, number> {
+  const custom = parseCustomPillars(customPillarsJson);
+  if (custom) {
+    if (Object.keys(custom.targetPercent).length > 0) return custom.targetPercent;
+    const equal = Math.round(100 / custom.pillars.length);
+    return Object.fromEntries(custom.pillars.map((p) => [p, equal]));
+  }
   if (knowledgeSite === "pelangi") return PELANGI_PILLAR_TARGET_PERCENT;
   const pillars = GENERIC_PILLARS;
   const equal = Math.round(100 / pillars.length);
@@ -88,8 +116,8 @@ function normalizeTargetKeyword(v: unknown): { targetKeyword: string | null; key
 // daftar pillar & instruksi targetKeyword sekarang tergantung knowledgeSite brand ini
 // (targetKeyword daftar Level 1/2/3 itu SEO Bedugul-spesifik, tidak masuk akal disodorkan
 // ke brand yg sama sekali bukan properti Bedugul).
-function buildClassificationFragment(knowledgeSite?: string | null): string {
-  const pillars = pillarsForSite(knowledgeSite);
+function buildClassificationFragment(knowledgeSite?: string | null, customPillarsJson?: string | null): string {
+  const pillars = pillarsForSite(knowledgeSite, customPillarsJson);
   const keywordPart =
     knowledgeSite === "pelangi"
       ? " Sertakan juga targetKeyword: SALAH SATU PERSIS dari daftar keyword " +
@@ -279,7 +307,8 @@ export async function generateCaptionAndHashtags(
   selectedClipsText: string,
   knowledgeSite?: string | null,
   manualKnowledge?: string | null,
-  videoDurationTarget: number = 60
+  videoDurationTarget: number = 60,
+  customPillarsJson?: string | null
 ): Promise<GeneratedVideoContent> {
   const client = getOpenAIClient();
   const structureTemplate = pickStructureTemplate(videoDurationTarget);
@@ -315,7 +344,7 @@ export async function generateCaptionAndHashtags(
     "Sertakan juga thumbnailText: teks hook SANGAT singkat (2-5 kata, Bahasa Indonesia, " +
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
-    buildClassificationFragment(knowledgeSite);
+    buildClassificationFragment(knowledgeSite, customPillarsJson);
   const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
@@ -355,22 +384,29 @@ export async function generateCaptionForImages(
   script: string,
   imageUrls: string[],
   knowledgeSite?: string | null,
-  manualKnowledge?: string | null
+  manualKnowledge?: string | null,
+  customPillarsJson?: string | null
 ): Promise<GeneratedImageContent> {
   const client = getOpenAIClient();
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
+  // imageUrls KOSONG (2026-08-11) - jalur full AI-generate poster (allowAiGeneratedPhotos,
+  // lihat posterDesign.ts) TIDAK PUNYA foto asli sama sekali (visual dibuat SETELAH
+  // caption ini, dari script - bukan sebaliknya), jadi instruksi "lihat foto asli" tidak
+  // relevan di mode ini - caption dibuat murni dari skrip/brief spt jalur video, TETAP
+  // JANGAN mengarang klaim di luar skrip (prinsip sama, sumbernya beda).
+  const photoInstruction =
+    imageUrls.length > 0
+      ? "Lihat SEMUA foto yang diberikan (bisa lebih dari satu, urutan sesuai carousel), lalu buat SATU caption yang merangkum & menarik & natural (bukan generik/template) plus MAKSIMAL 5 hashtag PALING relevan (bukan lebih - pilih yg paling tepat sasaran, jangan asal banyak) berdasarkan ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto."
+      : "Tidak ada foto asli utk konten ini (visual dibuat AI generate sesudah caption ini, lihat skrip/brief). Buat SATU caption yang menarik & natural (bukan generik/template) plus MAKSIMAL 5 hashtag PALING relevan (bukan lebih - pilih yg paling tepat sasaran, jangan asal banyak) berdasarkan skrip/brief SAJA. JANGAN mengarang detail yang tidak ada di skrip.";
   const system =
-    "Kamu content strategist media sosial. Lihat SEMUA foto yang diberikan (bisa lebih " +
-    "dari satu, urutan sesuai carousel), lalu buat SATU caption yang merangkum & " +
-    "menarik & natural (bukan generik/template) plus MAKSIMAL 5 hashtag PALING relevan " +
-    "(bukan lebih - pilih yg paling tepat sasaran, jangan asal banyak) berdasarkan " +
-    "ISI FOTO ASLI dan skrip/brief. JANGAN mengarang detail yang tidak terlihat di foto." +
+    "Kamu content strategist media sosial. " +
+    photoInstruction +
     grounding.instruction +
     " Kalau skrip menyebutkan harga/promo/diskon, tulis juga versi SINGKAT teks itu " +
     "(mis. \"Rp175.000\" atau \"Promo 20%\") di field promoText - ini akan ditempel " +
     "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
     "TIDAK menyebut harga/promo sama sekali, promoText HARUS null." +
-    buildClassificationFragment(knowledgeSite);
+    buildClassificationFragment(knowledgeSite, customPillarsJson);
   const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "...", "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
