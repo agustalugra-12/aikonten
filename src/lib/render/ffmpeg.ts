@@ -16,7 +16,7 @@ import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay"
 import { nearestBeat } from "@/lib/ai/beatDetect";
 import { buildColorGradeFilter, type ColorGradeConfig } from "./colorGrade";
 import { buildStatOverlayFilterStages } from "./statOverlay";
-import { buildLowerThirdFilter } from "./lowerThird";
+import { buildLowerThirdFilter, LOWER_THIRD_END_SECONDS } from "./lowerThird";
 import { buildComparisonBarFilter } from "./comparisonBar";
 import { getStatIconPath } from "./statIcons";
 import type { StatIconCategory } from "@/lib/ai/statExtractor";
@@ -538,7 +538,13 @@ export async function renderFinalVideo(opts: {
     // pakai clipStartOffsets MENTAH (posisi awal klip, TIDAK di-snap ke beat spt
     // sticker - stat card soal KAPAN faktanya disebut di narasi, bukan irama musik).
     validStatOverlays.forEach((stat, idx) => {
-      const startSeconds = clipStartOffsets[stat.clipIndex];
+      // Tunda stat card kalau jatuh di jendela lower third (2026-08-11, bug nyata
+      // ditemukan lewat render "Pink Fairy Armadillo" - stat card & lower third
+      // numpuk PERSIS di 0.6-3.2dtk, dicek langsung lewat frame, bukan asumsi).
+      // Cuma stat yg BENERAN jatuh di jendela itu yg ditunda - stat lain di klip
+      // lebih belakang tidak disentuh sama sekali.
+      const rawStart = clipStartOffsets[stat.clipIndex];
+      const startSeconds = opts.lowerThird && rawStart < LOWER_THIRD_END_SECONDS ? LOWER_THIRD_END_SECONDS + 0.1 : rawStart;
       const outLabel = `statted${idx}`;
       filterStages.push(
         ...buildStatOverlayFilterStages(
