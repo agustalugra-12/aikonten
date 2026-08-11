@@ -97,6 +97,14 @@ export async function processProject(id: string): Promise<ProcessResult> {
   // Atribusi biaya (2026-08-12, Fase 1a) - SEMUA panggilan model di dalam try/catch di
   // bawah ini (langsung maupun via fungsi lain yang dipanggil dari sini) otomatis
   // ke-tag brandId/projectId lewat AsyncLocalStorage, lihat usageContext.ts.
+  // Auto-Fix Ladder log (2026-08-12, Fase 2b) - diisi tiap kali sebuah reject-point
+  // mencoba strategi degradasi sebelum benar2 gagal (lihat pemakaian dekat
+  // durationConfig.min di bawah). Dideklarasikan DI LUAR try/catch (bukan di dalam try)
+  // supaya catch block juga bisa baca isinya - kejadian yg SEMPAT dicoba tetap berharga
+  // dicatat walau project ini akhirnya failed total (mis. langkah 1 broaden keyword
+  // berhasil dicoba tapi project gagal belakangan krn sebab lain yg tidak terkait).
+  const autoFixLog: { step: string; action: string; result: string }[] = [];
+
   return runWithUsageContext({ brandId: project.brandId, projectId: id }, async () => {
   try {
     if (!project.script) throw new Error("Project belum punya script/brief");
@@ -621,11 +629,77 @@ export async function processProject(id: string): Promise<ProcessResult> {
       }
     }
 
-    if (currentTotalDuration() < durationConfig.min) {
-      throw new Error(
-        `Footage/B-roll yg tersedia tidak cukup utk capai minimum ${durationConfig.min} detik ` +
-          `(cuma dapat ~${Math.round(currentTotalDuration())} detik) - upload lebih banyak footage asli, atau coba ide/skrip lain.`
-      );
+    // Auto-Fix Ladder (2026-08-12, Fase 2b PRD Animal Story & Co section 9/10/21/22/42)
+    // - SEBELUM ini durasi kurang = reject LANGSUNG di sini, walau top-up di atas cuma
+    // gagal krn 1 query B-roll SEMPIT (mis. nama spesies jarang) kehabisan hasil di
+    // Pexels/Pixabay - bukan berarti genuinely "footage tidak tersedia" (searchPexelsVideo
+    // sendiri SUDAH toleran soal pengulangan klip, lihat catatan di pexels.ts - gap
+    // sebenarnya ada di KEYWORD-nya, bukan exclusion). effectiveMinDuration dipakai GANTI
+    // durationConfig.min utk SISA fungsi ini (cek post-render + quality checker) supaya
+    // keputusan "terima durasi lebih pendek" konsisten di semua gerbang, bukan cuma di sini.
+    let effectiveMinDuration = durationConfig.min;
+
+    // Langkah 1: broaden keyword B-roll & ulang top-up SEKALI (hanya kalau ini benar2
+    // jalur B-roll - brollKeywords null utk cabang lain yg tidak relevan).
+    if (currentTotalDuration() < effectiveMinDuration && brollKeywords) {
+      const semula = brollKeywords;
+      autoFixLog.push({
+        step: "footage_insufficient",
+        action: `broaden keyword B-roll (semula: "${semula}", ~${Math.round(currentTotalDuration())}dtk dari ${effectiveMinDuration}dtk)`,
+        result: "mencoba",
+      });
+      try {
+        const broaderKeywords = await deriveBrollKeywordsFromScript(project.script, true);
+        const usedBrollUrls2 = new Set([...recentlyUsedUrls, ...brollClips.map((c) => c.videoUrl)]);
+        const gapSeconds2 = Math.max(0, PRE_RENDER_TARGET_SECONDS - currentTotalDuration());
+        const maxAttempts2 = Math.ceil(gapSeconds2 / MAX_CLIP_DURATION) + 10;
+        let attempts2 = 0;
+        while (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && attempts2 < maxAttempts2) {
+          attempts2 += 1;
+          const broll = await searchBrollVideo(broaderKeywords, usedBrollUrls2);
+          if (!broll) break;
+          usedBrollUrls2.add(broll.videoUrl);
+          brollClips.push({
+            videoUrl: broll.videoUrl,
+            durationSeconds: Math.min(broll.durationSeconds, MAX_CLIP_DURATION),
+            source: broll.source,
+            sourceCreator: broll.creator,
+            sourceUrl: broll.sourceUrl,
+            sourceQuery: broaderKeywords,
+          });
+        }
+        autoFixLog[autoFixLog.length - 1].result =
+          currentTotalDuration() >= effectiveMinDuration
+            ? `berhasil (keyword baru: "${broaderKeywords}", ~${Math.round(currentTotalDuration())}dtk)`
+            : `masih kurang (~${Math.round(currentTotalDuration())}dtk)`;
+      } catch (err) {
+        autoFixLog[autoFixLog.length - 1].result = `gagal dicoba: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    // Langkah 2: MASIH kurang setelah broaden - kalau sudah CUKUP DEKAT (>=85% target
+    // minimum ASLI), terima durasi lebih pendek drpd reject (PRD section 25: "graceful
+    // degradation drpd hard stop"). Di bawah 85% dianggap genuinely "footage tidak
+    // tersedia" (salah satu alasan reject SAH yg PRD sendiri sebutkan) - JANGAN diterima
+    // asal-asalan (video 2 menit yg harusnya 8 menit bukan degradasi wajar, itu video
+    // lain).
+    const GRACEFUL_DEGRADE_RATIO = 0.85;
+    if (currentTotalDuration() < effectiveMinDuration) {
+      const ratio = currentTotalDuration() / durationConfig.min;
+      if (ratio >= GRACEFUL_DEGRADE_RATIO) {
+        autoFixLog.push({
+          step: "footage_insufficient",
+          action: `terima durasi lebih pendek drpd reject (~${Math.round(currentTotalDuration())}dtk = ${Math.round(ratio * 100)}% dari target minimum ${durationConfig.min}dtk)`,
+          result: "diterima",
+        });
+        effectiveMinDuration = Math.floor(currentTotalDuration());
+      } else {
+        throw new Error(
+          `Footage/B-roll yg tersedia tidak cukup utk capai minimum ${durationConfig.min} detik ` +
+            `(cuma dapat ~${Math.round(currentTotalDuration())} detik, ${Math.round(ratio * 100)}% dari target - sudah dicoba broaden keyword B-roll) ` +
+            `- upload lebih banyak footage asli, atau coba ide/skrip lain.`
+        );
+      }
     }
 
     // Subtitle PRESISI (2026-08-06, permintaan Agus - "perbaiki subtitle agar presisi
@@ -833,10 +907,15 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // meleset. Render yg SUDAH JADI tapi ternyata di bawah standar tetap DIBUANG (bukan
     // dipublikasikan diam2 melanggar aturan "tidak boleh kurang dari 40 detik") - biaya
     // render yg terbuang lebih baik drpd konten yg melanggar aturan keras yg diminta Agus.
-    if (rendered.durationSeconds < durationConfig.min) {
+    // effectiveMinDuration (2026-08-12, Fase 2b) - BUKAN durationConfig.min lagi kalau
+    // Auto-Fix Ladder di atas sudah menerima durasi lebih pendek drpd reject (lihat
+    // catatan lengkap dekat definisinya) - keputusan degradasi HARUS konsisten sampai
+    // ke gerbang post-render ini, bukan cuma di cek pre-render lalu tetap ke-reject di
+    // sini dgn angka minimum ASLI yg sudah sengaja dilonggarkan.
+    if (rendered.durationSeconds < effectiveMinDuration) {
       throw new Error(
         `Video hasil render cuma ${rendered.durationSeconds} detik, di bawah minimum ` +
-          `${durationConfig.min} detik yg diwajibkan (estimasi pre-render meleset - ` +
+          `${effectiveMinDuration} detik yg diwajibkan (estimasi pre-render meleset - ` +
           `durasi nyata sumber footage beda dari metadata) - coba generate ulang.`
       );
     }
@@ -918,7 +997,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // otomatis krn TIDAK ADA pemeriksaan yg menahannya sblm status "ready". Cek di sini
     // JADI GERBANG WAJIB - gagal cek -> "failed" (BUKAN "ready"), tidak pernah tampil
     // sbg draft yg terlihat siap padahal cacat, apalagi ke-auto-publish.
-    const qualityCheck = await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, durationConfig.min, srt);
+    const qualityCheck = await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, effectiveMinDuration, srt);
     if (!qualityCheck.passed) {
       await db
         .update(projects)
@@ -927,14 +1006,30 @@ export async function processProject(id: string): Promise<ProcessResult> {
       throw new Error(`Quality Check gagal: ${qualityCheck.issues.join("; ")}`);
     }
 
-    await db.update(projects).set({ status: "ready", updatedAt: new Date() }).where(eq(projects.id, id));
+    await db
+      .update(projects)
+      .set({
+        status: "ready",
+        // Auto-Fix Ladder (2026-08-12, Fase 2b) - dicatat walau HASIL AKHIRNYA sukses,
+        // bukan cuma dicatat pas gagal. "0 attempts" (autoFixLog kosong) TIDAK ditulis
+        // apa-apa (biarkan null, konsisten dgn project lama) - cuma isi kalau genuinely
+        // ada langkah auto-fix yg dicoba.
+        ...(autoFixLog.length > 0 ? { autoFixAttempts: autoFixLog.length, autoFixLog: JSON.stringify(autoFixLog) } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(projects.id, id));
 
     return { caption, hashtags, clipCount: selected.length, structureTemplate };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await db
       .update(projects)
-      .set({ status: "failed", errorMessage: message, updatedAt: new Date() })
+      .set({
+        status: "failed",
+        errorMessage: message,
+        ...(autoFixLog.length > 0 ? { autoFixAttempts: autoFixLog.length, autoFixLog: JSON.stringify(autoFixLog) } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(projects.id, id));
     throw err;
   }

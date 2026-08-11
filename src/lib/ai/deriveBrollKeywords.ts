@@ -24,8 +24,22 @@ import { getOpenAIClient } from "./openaiClient";
 // "lifestyle" generik) + kata gerak (flying/swimming/running/close-up/slow motion) yg
 // bikin klip lebih dinamis - TETAP generik lintas brand (bukan HARDCODE "animal", brand
 // laundry/lain tetap dapat instruksi yg sama masuk akal utk subjek MEREKA sendiri).
-export async function deriveBrollKeywordsFromScript(script: string): Promise<string> {
+export async function deriveBrollKeywordsFromScript(script: string, broaden: boolean = false): Promise<string> {
   const client = getOpenAIClient();
+  // `broaden` (2026-08-12, Fase 2b PRD Animal Story & Co - auto-fix ladder utk reject
+  // point "footage tidak cukup") - dipanggil KEDUA KALINYA kalau top-up dgn keyword
+  // SEMPIT (subjek konkret spesifik, mis. nama spesies jarang) gagal capai durasi
+  // minimum krn Pexels/Pixabay genuinely kehabisan hasil utk query itu (bukan soal
+  // anti-monoton - searchPexelsVideo SUDAH toleran thd pengulangan sendiri, lihat
+  // catatan di pexels.ts). Minta keyword yg LEBIH LUAS/generik (kategori/scene-type,
+  // BUKAN nama spesies spesifik) drpd gagal total - degradasi yg PRD sendiri anggap
+  // wajar (section 25: "cheaper/fewer regenerations... drpd hard stop"), bukan reject.
+  const broadenInstruction = broaden
+    ? " IMPORTANT: a NARROW/specific search for this subject already returned too few results from stock footage " +
+      "libraries - this time, generalize to a BROADER category/scene-type instead of the exact species/subject name " +
+      "(e.g. instead of a rare species name, use its general animal family/habitat/behavior type - 'deep sea creature', " +
+      "'nocturnal predator', 'rainforest wildlife'), so stock search has more results to choose from. "
+    : "";
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
     messages: [
@@ -38,6 +52,7 @@ export async function deriveBrollKeywordsFromScript(script: string): Promise<str
           "hunt at night, prefer 'owl flying night hunting' over just 'forest night'. When the subject can " +
           "plausibly be filmed in motion, include an action/movement word (flying, swimming, running, close-up, " +
           "slow motion) so the result is dynamic footage rather than a static scenic shot. " +
+          broadenInstruction +
           "Reply with ONLY the keywords (max 8 words total), no quotes/explanation.",
       },
       { role: "user", content: script },

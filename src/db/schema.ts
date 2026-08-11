@@ -305,6 +305,18 @@ export const projects = sqliteTable("projects", {
   // relevan utk video YouTube (bukan bagian universal projects spt pillar/angle).
   youtubeMetadata: text("youtube_metadata"),
   errorMessage: text("error_message"),
+  // Auto-Fix Ladder (2026-08-12, Fase 2b PRD Animal Story & Co section 9/10/21/22/42 -
+  // "jangan reject, coba perbaiki dulu") - tiap kali sebuah reject-point mencoba
+  // strategi degradasi (broaden keyword B-roll, turunkan target durasi, dst) SEBELUM
+  // benar2 gagal, dicatat di sini. autoFixAttempts = hitungan sederhana utk dashboard
+  // ("X dari Y video hari ini butuh auto-fix"), autoFixLog = JSON array
+  // [{step, action, result}] utk detail/audit. Nullable (BUKAN notNull+default - SQLite
+  // ALTER TABLE ADD COLUMN NOT NULL di tabel 164 baris memicu drizzle-kit rebuild
+  // penuh & sempat gagal FK constraint saat dicoba - nullable = ALTER simpel, kode baca
+  // `?? 0` di titik pakai) - project lama tanpa auto-fix apa pun tetap null, bukan
+  // regresi.
+  autoFixAttempts: integer("auto_fix_attempts"),
+  autoFixLog: text("auto_fix_log"), // JSON array: [{step, action, result}]
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
