@@ -4,6 +4,19 @@ import { youtubeSeries, projects, channelProfiles } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 
+// BUG NYATA (2026-08-11, laporan Agus - "harusnya 1 di YT tapi ## tertera") - konvensi
+// project ini (lihat generateContent.ts stripHashPrefix) SELALU simpan hashtag TANPA
+// "#" di DB, "#" baru ditambahkan SEKALI saat publish (orchestrate.ts baseCaption:
+// `#${h}`). Fungsi di sini (generateLongFormMetadata/generateShortMetadata) TIDAK
+// PERNAH ikut konvensi itu - GPT balikin hashtag SUDAH pakai "#" ("#Shorts" dst), lolos
+// disimpan APA ADANYA ke DB, lalu orchestrate.ts nambah "#" LAGI di atasnya jadi
+// "##Shorts" pas benar2 di-publish ke YouTube. Fix: strip "#" di SINI (sumbernya),
+// bukan ubah orchestrate.ts (itu sudah benar mengikuti konvensi bare-hashtag yg dipakai
+// SEMUA jalur lain).
+function stripHashPrefix(tags: string[]): string[] {
+  return tags.map((t) => t.replace(/^#+/, ""));
+}
+
 // YouTube Editorial Engine (2026-08-10, PRD Agus "YouTube Long Form Content Engine" +
 // "YouTube Shorts Engine" - "jangan hanya memberi tahu Claude 'buat video YouTube'...
 // buat dia memiliki editorial policy dan YouTube growth strategy"). REUSABLE dari awal
@@ -359,7 +372,7 @@ export async function generateLongFormMetadata(
             longtail: Array.isArray(parsed.seoKeywords.longtail) ? parsed.seoKeywords.longtail : [],
           }
         : { primary: topic, secondary: [], related: [], longtail: [] },
-    hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.slice(0, 5) : [],
+    hashtags: Array.isArray(parsed.hashtags) ? stripHashPrefix(parsed.hashtags.slice(0, 5)) : [],
     tags: Array.isArray(parsed.tags) ? parsed.tags.slice(0, 25) : [],
     chapterLabels: Array.isArray(parsed.chapterLabels) && parsed.chapterLabels.length >= 3 ? parsed.chapterLabels : ["Introduction"],
   };
@@ -560,7 +573,7 @@ export async function generateShortMetadata(
         ? parsed.selectedTitleIndex
         : 0,
     seoDescription: typeof parsed.seoDescription === "string" ? parsed.seoDescription : "",
-    hashtags: Array.isArray(parsed.hashtags) && parsed.hashtags.length > 0 ? parsed.hashtags.slice(0, 5) : ["#Shorts"],
+    hashtags: Array.isArray(parsed.hashtags) && parsed.hashtags.length > 0 ? stripHashPrefix(parsed.hashtags.slice(0, 5)) : ["Shorts"],
     tags: Array.isArray(parsed.tags) ? parsed.tags.slice(0, 20) : [],
     thumbnailConcept: parsed.thumbnailConcept && typeof parsed.thumbnailConcept === "object" ? parsed.thumbnailConcept : null,
   };
