@@ -488,6 +488,12 @@ export const dailyIdeas = sqliteTable("daily_ideas", {
   // (pola SAMA PERSIS dgn contentFormat di atas).
   youtubeSeriesId: text("youtube_series_id"),
   youtubeMetadata: text("youtube_metadata"),
+  // Pillar/kategori (2026-08-12, Fase 1b - lihat catatan lengkap di youtubeSeries.category)
+  // - diisi HANYA utk ide dari youtubeEditorial.ts (jalur generik tetap null di sini,
+  // pillar-nya baru diklasifikasi belakangan saat processProject.ts memanggil
+  // generateCaptionAndHashtags - beda dari jalur YouTube yg kategorinya SUDAH diketahui
+  // dari awal saat idea dibuat, tidak perlu diklasifikasi ulang).
+  pillar: text("pillar"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -523,6 +529,16 @@ export const llmUsageLog = sqliteTable("llm_usage_log", {
   completionTokens: integer("completion_tokens"),
   totalTokens: integer("total_tokens"),
   costUsd: real("cost_usd"),
+  // Atribusi biaya per-brand/per-video (2026-08-12, Fase 1a PRD Animal Story & Co "100
+  // video/30 hari" - prasyarat cost dashboard per-brand & budget protection, section
+  // 25/38 PRD). Nullable krn (1) baris historis genuinely tidak bisa diatribusikan
+  // retroaktif (tidak backfill), (2) sebagian panggilan (mis. brand-level maintenance
+  // task) mungkin tidak punya projectId yang relevan. Diisi via
+  // src/lib/ai/usageContext.ts (AsyncLocalStorage) di openaiClient.ts, bukan
+  // diteruskan manual ke ~20 titik panggil model yang sudah ada - lihat komentar
+  // lengkap di usageContext.ts.
+  brandId: text("brand_id").references(() => brands.id),
+  projectId: text("project_id").references(() => projects.id),
 });
 
 // Platform Policy (2026-08-08, permintaan Agus - PRD "YouTube Content & Monetization
@@ -611,5 +627,13 @@ export const youtubeSeries = sqliteTable("youtube_series", {
   format: text("format", { enum: ["long", "short"] }).notNull(),
   topics: text("topics").notNull(), // JSON string[] - daftar topik episode yg direncanakan
   status: text("status", { enum: ["active", "completed", "paused"] }).notNull().default("active"),
+  // Kategori/pillar yg dipakai saat seri ini dibuat (2026-08-12, Fase 1b PRD Animal
+  // Story & Co - bug nyata ditemukan: pickNextCategory() MEMILIH kategori tapi TIDAK
+  // PERNAH menyimpannya, jadi projects.pillar SELALU null utk jalur YouTube Editorial
+  // [27/27 project nyata Animal Story & Co dicek langsung, semuanya null] - performance
+  // learning yg group-by projects.pillar TIDAK PERNAH bisa hasilkan insight utk brand
+  // ini apa pun datanya). Nullable - seri yg dibuat SEBELUM kolom ini ada tetap null,
+  // tidak direkonstruksi retroaktif (sama prinsip dgn projects.pillar lama).
+  category: text("category"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

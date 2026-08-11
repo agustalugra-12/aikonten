@@ -141,7 +141,7 @@ export async function pickNextTopic(
   socialAccountId: string,
   format: "long" | "short",
   batchClaims: Map<string, number> = new Map()
-): Promise<{ seriesId: string; seriesName: string; topic: string; episodeIndex: number }> {
+): Promise<{ seriesId: string; seriesName: string; topic: string; episodeIndex: number; category: string | null }> {
   const activeSeriesRows = await db
     .select()
     .from(youtubeSeries)
@@ -155,7 +155,9 @@ export async function pickNextTopic(
     const usedCount = dbUsedCount + claimedInBatch;
     if (usedCount < topics.length) {
       batchClaims.set(series.id, claimedInBatch + 1);
-      return { seriesId: series.id, seriesName: series.name, topic: topics[usedCount], episodeIndex: usedCount };
+      // series.category (2026-08-12, Fase 1b) - null utk seri LAMA (dibuat sebelum
+      // kolom ini ada, tidak direkonstruksi retroaktif), terisi utk seri baru.
+      return { seriesId: series.id, seriesName: series.name, topic: topics[usedCount], episodeIndex: usedCount, category: series.category };
     }
     if (claimedInBatch === 0) {
       // Cuma tandai "completed" kalau BENAR2 abis di DB (bukan cuma abis krn diklaim
@@ -188,10 +190,10 @@ export async function pickNextTopic(
   const { name, topics } = await generateSeriesTopics(channelProfile, category, format, existingTopics);
   const seriesId = newId("ytseries");
   await db.insert(youtubeSeries).values({
-    id: seriesId, socialAccountId, name, format, topics: JSON.stringify(topics), status: "active", createdAt: new Date(),
+    id: seriesId, socialAccountId, name, format, topics: JSON.stringify(topics), status: "active", category, createdAt: new Date(),
   });
   batchClaims.set(seriesId, 1); // klaim episode 0 SEKARANG - lihat catatan batchClaims di atas
-  return { seriesId, seriesName: name, topic: topics[0], episodeIndex: 0 };
+  return { seriesId, seriesName: name, topic: topics[0], episodeIndex: 0, category };
 }
 
 async function generateSeriesTopics(
@@ -450,8 +452,8 @@ export async function generateLongFormPackage(
   socialAccountId: string,
   recentScripts: string[],
   batchClaims: Map<string, number> = new Map()
-): Promise<{ script: string; youtubeSeriesId: string; youtubeMetadata: YoutubeMetadata }> {
-  const { seriesId, topic } = await pickNextTopic(channelProfile, socialAccountId, "long", batchClaims);
+): Promise<{ script: string; youtubeSeriesId: string; youtubeMetadata: YoutubeMetadata; pillar: string | null }> {
+  const { seriesId, topic, category } = await pickNextTopic(channelProfile, socialAccountId, "long", batchClaims);
   const script = await generateLongFormScript(channelProfile, topic, recentScripts);
   const metadata = await generateLongFormMetadata(channelProfile, topic, script);
   const factCheckFlags = await reviewScriptFactualRisk(script);
@@ -459,6 +461,7 @@ export async function generateLongFormPackage(
   return {
     script,
     youtubeSeriesId: seriesId,
+    pillar: category,
     youtubeMetadata: {
       titles: metadata.titles,
       selectedTitleIndex: metadata.selectedTitleIndex,
@@ -586,14 +589,15 @@ export async function generateShortPackage(
   socialAccountId: string,
   recentScripts: string[],
   batchClaims: Map<string, number> = new Map()
-): Promise<{ script: string; youtubeSeriesId: string; youtubeMetadata: YoutubeMetadata }> {
-  const { seriesId, topic } = await pickNextTopic(channelProfile, socialAccountId, "short", batchClaims);
+): Promise<{ script: string; youtubeSeriesId: string; youtubeMetadata: YoutubeMetadata; pillar: string | null }> {
+  const { seriesId, topic, category } = await pickNextTopic(channelProfile, socialAccountId, "short", batchClaims);
   const script = await generateShortScript(channelProfile, topic, recentScripts);
   const metadata = await generateShortMetadata(channelProfile, topic, script);
 
   return {
     script,
     youtubeSeriesId: seriesId,
+    pillar: category,
     youtubeMetadata: {
       titles: metadata.titles,
       selectedTitleIndex: metadata.selectedTitleIndex,
@@ -699,6 +703,7 @@ export type YoutubeDailyIdea = {
   contentFormat: "youtube_shorts" | null;
   youtubeSeriesId: string | null;
   youtubeMetadata: YoutubeMetadata;
+  pillar: string | null;
 };
 
 export async function generateYoutubeDailyIdeas(
@@ -716,18 +721,19 @@ export async function generateYoutubeDailyIdeas(
   // dalam batch yg sama, sebelum project-nya benar2 tersimpan ke DB.
   const batchClaims = new Map<string, number>();
 
-  const longPackages: Array<{ script: string; title: string }> = [];
+  const longPackages: Array<{ script: string; title: string; pillar: string | null }> = [];
   for (let i = 0; i < longCount; i++) {
     const pkg = await generateLongFormPackage(channelProfile, socialAccountId, usedScripts, batchClaims);
     usedScripts.push(pkg.script);
     const title = pkg.youtubeMetadata.titles[pkg.youtubeMetadata.selectedTitleIndex] || pkg.youtubeMetadata.titles[0] || "";
-    longPackages.push({ script: pkg.script, title });
+    longPackages.push({ script: pkg.script, title, pillar: pkg.pillar });
     results.push({
       idea: pkg.script,
       contentType: "video",
       contentFormat: null,
       youtubeSeriesId: pkg.youtubeSeriesId,
       youtubeMetadata: pkg.youtubeMetadata,
+      pillar: pkg.pillar,
     });
   }
 
@@ -744,6 +750,9 @@ export async function generateYoutubeDailyIdeas(
         contentFormat: "youtube_shorts",
         youtubeSeriesId: null,
         youtubeMetadata: r.youtubeMetadata,
+        // Short repurposed dari video long-form ini - pillar-nya WARISAN dari induknya
+        // (bukan rotasi seri Shorts sendiri, jadi tidak ada category sendiri di titik ini).
+        pillar: longPkg.pillar,
       });
       shortsRemaining--;
     }
@@ -757,6 +766,7 @@ export async function generateYoutubeDailyIdeas(
       contentFormat: "youtube_shorts",
       youtubeSeriesId: pkg.youtubeSeriesId,
       youtubeMetadata: pkg.youtubeMetadata,
+      pillar: pkg.pillar,
     });
     shortsRemaining--;
   }

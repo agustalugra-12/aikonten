@@ -1,0 +1,6 @@
+[Unit]
+Description=KontenPilot AI - cek & refresh proaktif token OAuth YouTube native semua brand
+
+[Service]
+Type=oneshot
+ExecStart=/root/kontenpilot-ai/scripts/cron/call-endpoint.sh /api/cron/youtube-token-health

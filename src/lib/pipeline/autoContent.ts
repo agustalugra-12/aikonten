@@ -54,7 +54,13 @@ export async function runAutoContent(
   // youtubeMetadata utk isi chapters (butuh durasi render asli) & pakai script APA
   // ADANYA sbg naskah (skrip dokumenter lengkap, bukan brief singkat spt ide biasa).
   youtubeSeriesId?: string | null,
-  youtubeMetadata?: string | null
+  youtubeMetadata?: string | null,
+  // Pillar/kategori (2026-08-12, Fase 1b) - dari daily_ideas.pillar kalau ide ini datang
+  // dari youtubeEditorial.ts, diteruskan apa adanya ke projects.pillar. Beda dari
+  // youtubeSeriesId/youtubeMetadata (khusus type="video" YouTube) - pillar field UMUM
+  // yg juga dipakai jalur generik (walau jalur generik isi ini belakangan lewat
+  // generateCaptionAndHashtags di processProject.ts, bukan di sini).
+  pillar?: string | null
 ): Promise<{ projectId: string; script: string; fromBroll: boolean } & ProcessResult> {
   let script = scriptOverride;
 
@@ -99,6 +105,7 @@ export async function runAutoContent(
       contentFormat = unused.contentFormat;
       youtubeSeriesId = unused.youtubeSeriesId;
       youtubeMetadata = unused.youtubeMetadata;
+      pillar = unused.pillar;
       await markDailyIdeaUsed(unused.id);
     } else {
       const recentProjects = await db
@@ -271,6 +278,11 @@ export async function runAutoContent(
     contentFormat: type === "video" ? contentFormat ?? null : null,
     youtubeSeriesId: type === "video" ? youtubeSeriesId ?? null : null,
     youtubeMetadata: type === "video" ? youtubeMetadata ?? null : null,
+    // pillar (2026-08-12, Fase 1b) - dari daily_ideas.pillar utk jalur YouTube Editorial
+    // (Animal Story & Co dkk); null utk jalur generik (diisi belakangan di
+    // processProject.ts). TIDAK di-gate ke type==="video" spt 3 field di atas - pillar
+    // field UMUM, bukan spesifik YouTube.
+    pillar: pillar ?? null,
     status: "uploaded",
     script,
     transcript: null,

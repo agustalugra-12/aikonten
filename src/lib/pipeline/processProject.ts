@@ -37,6 +37,7 @@ import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { distributeChapters, type YoutubeMetadata } from "@/lib/ai/youtubeEditorial";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { newId } from "@/lib/ids";
+import { runWithUsageContext } from "@/lib/ai/usageContext";
 
 export type ProcessResult = {
   caption: string;
@@ -93,6 +94,10 @@ export async function processProject(id: string): Promise<ProcessResult> {
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
   if (!project) throw new Error("Project tidak ditemukan");
 
+  // Atribusi biaya (2026-08-12, Fase 1a) - SEMUA panggilan model di dalam try/catch di
+  // bawah ini (langsung maupun via fungsi lain yang dipanggil dari sini) otomatis
+  // ke-tag brandId/projectId lewat AsyncLocalStorage, lihat usageContext.ts.
+  return runWithUsageContext({ brandId: project.brandId, projectId: id }, async () => {
   try {
     if (!project.script) throw new Error("Project belum punya script/brief");
 
@@ -171,7 +176,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
       // gabung manualKnowledge + fetch otomatis PMS Pelangi/Harmoni (lihat catatan
       // stripInvalidPrices di atas) - poster Pelangi/Harmoni jg divalidasi thd harga
       // REAL-TIME PMS, bukan cuma teks manual yg bisa basi.
-      const posterCopy = await generatePosterCopy(brand?.name || "Brand", project.script, knowledgeUsed);
+      const posterCopy = await generatePosterCopy(brand?.name || "Brand", project.script, knowledgeUsed, pillar);
       // Full AI-Generate (2026-08-11, permintaan Agus - lihat allowAiGeneratedPhotos di
       // schema.ts) - photoUrls KOSONG artinya autoContent.ts SENGAJA tidak menemukan
       // foto asli relevan & brand ini py toggle full-AI diaktifkan (lihat autoContent.ts
@@ -430,7 +435,16 @@ export async function processProject(id: string): Promise<ProcessResult> {
       brollKeywords = await deriveBrollKeywordsFromScript(project.script);
       thumbnailText = youtubeMeta.thumbnailConcepts[0]?.text || null;
       structureTemplate = youtubeMeta.parentVideoTitle ? "YoutubeShort-Repurposed" : project.contentFormat === "youtube_shorts" ? "YoutubeShort" : "YoutubeDocumentary";
-      pillar = null;
+      // (2026-08-12, Fase 1b - bug nyata ditemukan: projects.pillar SELALU null utk
+      // SEMUA project YouTube Editorial [27/27 project Animal Story & Co dicek langsung
+      // ke DB], krn baris ini dulu HARDCODE null tanpa syarat, MENIMPA nilai yg sudah
+      // benar diisi autoContent.ts saat insert dari daily_ideas.pillar [lihat
+      // pickNextCategory/pickNextTopic di youtubeEditorial.ts, yg SUDAH memilih kategori
+      // tapi dulu tidak pernah disimpan sampai ke sini]. Akibatnya performanceLearning.ts
+      // yg group-by projects.pillar TIDAK PERNAH bisa hasilkan insight utk brand ini apa
+      // pun data analytics yg terkumpul - kunci grouping-nya permanen null. Fix: PAKAI
+      // nilai yg sudah di-insert (project.pillar), jangan timpa dgn null lagi.
+      pillar = project.pillar;
       angle = null;
       targetKeyword = null;
       keywordLevel = null;
@@ -924,4 +938,5 @@ export async function processProject(id: string): Promise<ProcessResult> {
       .where(eq(projects.id, id));
     throw err;
   }
+  });
 }

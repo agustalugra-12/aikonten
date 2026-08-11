@@ -5,6 +5,7 @@ import { suggestScoredContentIdeas, todayDateKeyWita } from "./researchTopics";
 import { syncBrandPerformance } from "./performanceLearning";
 import { getChannelProfile, generateYoutubeDailyIdeas } from "./youtubeEditorial";
 import { newId } from "@/lib/ids";
+import { runWithUsageContext } from "./usageContext";
 
 // AI Content Planner (2026-08-05, permintaan Agus, PRD "AI Content Brain" modul 10 -
 // "setiap pagi AI membuat 10 ide"). Digenerate SEKALI per hari (lazy - saat pertama
@@ -33,9 +34,13 @@ export type DailyIdea = {
   contentFormat: string | null;
   youtubeSeriesId: string | null;
   youtubeMetadata: string | null;
+  pillar: string | null;
 };
 
 export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {
+  // Atribusi biaya (2026-08-12, Fase 1a) - projectId belum ada di titik ini (ide belum
+  // jadi project), cukup brandId - lihat usageContext.ts.
+  return runWithUsageContext({ brandId }, async () => {
   const today = todayDateKeyWita();
 
   const existing = await db
@@ -48,6 +53,7 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
         id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning,
         contentType: r.contentType, contentFormat: r.contentFormat,
         youtubeSeriesId: r.youtubeSeriesId, youtubeMetadata: r.youtubeMetadata,
+        pillar: r.pillar,
       }))
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
@@ -108,6 +114,7 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
       contentFormat: yi.contentFormat,
       youtubeSeriesId: yi.youtubeSeriesId,
       youtubeMetadata: JSON.stringify(yi.youtubeMetadata),
+      pillar: yi.pillar,
       createdAt: now,
     }));
     if (rows.length > 0) {
@@ -117,6 +124,7 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
       id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning,
       contentType: r.contentType, contentFormat: r.contentFormat,
       youtubeSeriesId: r.youtubeSeriesId, youtubeMetadata: r.youtubeMetadata,
+      pillar: r.pillar,
     }));
   }
   // Duplicate Checker, Content Pillar, & Keyword Priority NYATA (2026-08-05) - kirim
@@ -191,7 +199,12 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     id: r.id, idea: r.idea, used: r.used, score: r.score, reasoning: r.reasoning,
     contentType: r.contentType, contentFormat: r.contentFormat,
     youtubeSeriesId: null, youtubeMetadata: null,
+    // Jalur generik: pillar BELUM diklasifikasi di tahap ide (baru diklasifikasi
+    // processProject.ts->generateCaptionAndHashtags saat project benar2 diproses) -
+    // null di sini konsisten dgn perilaku lama, BUKAN regresi.
+    pillar: null,
   }));
+  });
 }
 
 export async function forceRegenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {

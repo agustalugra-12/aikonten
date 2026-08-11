@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { db } from "@/db";
 import { llmUsageLog } from "@/db/schema";
 import { newId } from "@/lib/ids";
+import { getCurrentUsageContext } from "./usageContext";
 
 // Client OpenAI TERPUSAT (2026-08-06, permintaan Agus - "cek ai blok dan ai konten juga
 // agar transparan") - SEBELUM ini tiap file (generateContent.ts, researchTopics.ts,
@@ -48,6 +49,7 @@ export async function logOpenAIUsage(
   try {
     const [priceIn, priceOut] = lookupPricing(model);
     const costUsd = (promptTokens / 1_000_000) * priceIn + (completionTokens / 1_000_000) * priceOut;
+    const ctx = getCurrentUsageContext();
     await db.insert(llmUsageLog).values({
       id: newId("usage"),
       ts: new Date(),
@@ -57,6 +59,8 @@ export async function logOpenAIUsage(
       completionTokens,
       totalTokens: promptTokens + completionTokens,
       costUsd,
+      brandId: ctx?.brandId ?? null,
+      projectId: ctx?.projectId ?? null,
     });
   } catch (err) {
     console.error("[openaiClient] gagal catat usage:", err);
@@ -68,6 +72,7 @@ export async function logOpenAIUsage(
 // sendiri (masing2 tahu harga per-unit-nya), fungsi ini cuma tulis ke DB yg sama.
 export async function logNonTokenUsage(model: string, costUsd: number): Promise<void> {
   try {
+    const ctx = getCurrentUsageContext();
     await db.insert(llmUsageLog).values({
       id: newId("usage"),
       ts: new Date(),
@@ -77,6 +82,8 @@ export async function logNonTokenUsage(model: string, costUsd: number): Promise<
       completionTokens: null,
       totalTokens: null,
       costUsd,
+      brandId: ctx?.brandId ?? null,
+      projectId: ctx?.projectId ?? null,
     });
   } catch (err) {
     console.error("[openaiClient] gagal catat usage (non-token):", err);

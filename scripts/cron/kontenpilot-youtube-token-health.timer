@@ -1,0 +1,12 @@
+[Unit]
+Description=Jadwal harian cek token OAuth YouTube native (07:00 WITA)
+
+[Timer]
+# Server VPS ini jalan di WIB (Asia/Jakarta) - WITA SELALU 1 jam lebih cepat dari WIB.
+# Target 07:00 WITA = 06:00 WIB. Sengaja sebelum jam sibuk cron lain (auto-generate/
+# auto-publish) - kalau token mati, Agus dapat alert PAGI, bukan di tengah batch.
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
