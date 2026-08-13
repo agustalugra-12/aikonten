@@ -9,7 +9,13 @@ import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/ai/logoOverlay";
 import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN } from "./subtitleDesign";
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
-import { buildXfadeFilterComplex, type TransitionType } from "./transitions";
+import {
+  computeClipSequencePlan,
+  planTreeMerge,
+  TRANSITION_DURATION_SECONDS,
+  type ClipRef,
+  type TransitionType,
+} from "./transitions";
 import { buildProgressBarFilter } from "./overlayEngine";
 import { buildSubscribeButtonFilterStages, getBellAssetPath, SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS } from "./subscribeButton";
 import { getStickerAssetPath, buildStickerFilterStages } from "./stickerOverlay";
@@ -84,14 +90,39 @@ const LOUDNORM_FILTER = "loudnorm=I=-16:TP=-1.5:LRA=11";
 //    ffmpeg TIDAK numpang ke budget yang sama dgn thread web-serving Next.js, jadi 1
 //    render berat/macet tidak bisa lagi menyeret turun kemampuan situs jawab request sama
 //    sekali (paling parah cuma render ITU yang gagal, bukan seluruh VPS ikut down).
-const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000; // 20 menit - generous utk render berat legit, tetap membatasi blast radius kalau macet
+// 40 menit (2026-08-14, dinaikkan dari 20 - bug nyata ditemukan pas migrasi Animal
+// Story & Co: overlay final long-form [logo+subtitle+lower third+musik+loudnorm, ~222dtk
+// output, filter chain berat] cuma sanggup speed=0.174x realtime di preset veryfast,
+// genuinely butuh ~21-22 menit utk kasus terberat - 20 menit SEBELUMNYA memotong render
+// yg sedang jalan normal [bukan macet/thrashing], bukan cuma jaring pengaman kasus
+// macet spt niat awal). Tetap ADA batas (bukan dihapus) - render yg BENERAN macet masih
+// dihentikan, cuma kasih ruang lebih utk render berat yg legit lambat.
+const FFMPEG_TIMEOUT_MS = 40 * 60 * 1000;
 let _ffmpegRunCounter = 0;
+
+// Configurable via env (2026-08-13, bug nyata ditemukan pas migrasi Animal Story & Co ke
+// VPS baru) - hardcode 1000M SEBELUMNYA ternyata tidak cukup utk render long-form banyak
+// klip (46-47 klip xfade, kebutuhan nyata mendekati 3GB per insiden hari ini di komentar
+// atas) - cgroup OOM-kill ffmpeg-nya sendiri (aman, tidak menjatuhkan VPS) TAPI rendernya
+// jadi SELALU gagal utk brand long-form berat. VPS lama (dipakai bareng PMS/MongoDB/AI
+// Chat Bot, 3.8GB) TETAP butuh batas rendah spt 1000M supaya render berat tidak menekan
+// layanan lain - VPS baru (didedikasikan khusus Animal Story & Co, 3.8GB tanpa tetangga)
+// bisa diberi jatah jauh lebih besar. Default tetap 1000M (perilaku VPS lama tidak
+// berubah kalau env tidak diisi), override lewat FFMPEG_MEMORY_MAX di .env per server.
+const FFMPEG_MEMORY_MAX = process.env.FFMPEG_MEMORY_MAX || "1000M";
+
+// Sama alasan/pola dgn FFMPEG_MEMORY_MAX (2026-08-14) - default "150%" (perilaku lama,
+// aman utk VPS lama yg berbagi 2 core dgn PMS/MongoDB/AI Chat Bot - render TIDAK boleh
+// monopoli CPU sampai layanan lain lemot). VPS baru DIDEDIKASIKAN (tidak ada tetangga),
+// override via FFMPEG_CPU_QUOTA supaya ffmpeg bisa pakai kedua core penuh - langsung
+// mempercepat render berat drpd cuma menunggu lebih lama di timeout yg sama.
+const FFMPEG_CPU_QUOTA = process.env.FFMPEG_CPU_QUOTA || "150%";
 
 async function run(cmd: string, args: string[]): Promise<void> {
   const unit = `kontenpilot-ffmpeg-${process.pid}-${Date.now()}-${_ffmpegRunCounter++}`;
   const scopedArgs = [
     "--scope", "--quiet", "--unit", unit,
-    "-p", "MemoryMax=1000M", "-p", "CPUQuota=150%", "--",
+    "-p", `MemoryMax=${FFMPEG_MEMORY_MAX}`, "-p", `CPUQuota=${FFMPEG_CPU_QUOTA}`, "--",
     cmd, ...args,
   ];
   try {
@@ -176,6 +207,58 @@ function parseSrt(srt: string): Array<{ start: string; end: string; text: string
   return entries;
 }
 
+
+// Gabung klip via TREE (divide & conquer, 2026-08-14 - ganti skema sequential
+// [mergeClipsIncrementally] yg O(N^2): akumulator makin panjang tiap langkah bikin
+// render 44 klip >2 jam. Rencana LENGKAP [urutan operasi, keputusan transisi, offset]
+// sudah dihitung MURNI tanpa ffmpeg di planTreeMerge (transitions.ts) - fungsi ini
+// tinggal MENJALANKAN rencana itu apa adanya, tidak mengambil keputusan visual apa pun
+// sendiri. Properti OOM-safety TETAP: tiap panggilan ffmpeg cuma 2 input, sama seperti
+// skema sequential sebelumnya - cuma cara mengelompokkan operasinya yg berubah
+// (pohon, bukan rantai lurus), total kerja re-encode turun dari O(N x durasi) jadi
+// O(log N x durasi).
+async function mergeClipsTree(
+  clipPaths: string[],
+  clipDurations: number[],
+  transitions: TransitionType[],
+  outputPath: string,
+  workDir: string
+): Promise<void> {
+  const steps = planTreeMerge(clipDurations, transitions);
+  const stepPaths: string[] = [];
+
+  const resolvePath = (ref: ClipRef): string =>
+    ref.kind === "leaf" ? clipPaths[ref.clipIndex] : stepPaths[ref.stepIndex];
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const isRoot = i === steps.length - 1;
+    const stepOutput = isRoot ? outputPath : path.join(workDir, `merge_step_${i}.mp4`);
+
+    const filter = step.isTransition
+      ? `[0:v][1:v]xfade=transition=${step.transitionType}:duration=${TRANSITION_DURATION_SECONDS}:offset=${step.offsetSeconds.toFixed(3)}[vout]`
+      : `[0:v][1:v]concat=n=2:v=1:a=0[vout]`;
+
+    // "ultrafast" utk step ANTARA - file ini SEGERA di-decode ulang di step berikutnya
+    // (induknya di pohon), kompresi efisien tidak relevan buat file yg langsung
+    // dibuang. Step TERAKHIR (root, jadi `concatenated.mp4`) tetap "veryfast" - satu2nya
+    // file dari fungsi ini yg kualitas/ukurannya benar2 dipakai lebih lanjut (overlay
+    // final + diukur ulang durasinya).
+    await run("ffmpeg", [
+      "-y",
+      "-i", resolvePath(step.left),
+      "-i", resolvePath(step.right),
+      "-filter_complex", filter,
+      "-map", "[vout]",
+      "-c:v", "libx264",
+      "-preset", isRoot ? "veryfast" : "ultrafast",
+      "-crf", "23",
+      stepOutput,
+    ]);
+
+    stepPaths.push(stepOutput);
+  }
+}
 
 export async function renderFinalVideo(opts: {
   projectId: string;
@@ -312,7 +395,7 @@ export async function renderFinalVideo(opts: {
     // BUKAN lagi concat demuxer polos "-c copy". WAJIB re-encode di sini (xfade tidak
     // bisa stream-copy), lebih lambat drpd demuxer tapi hasilnya ada transisi
     // sungguhan, bukan cuma hard-cut).
-    const { filterComplex, outputLabel, totalDurationSeconds: estimatedDuration, clipStartOffsets } = buildXfadeFilterComplex(
+    const { totalDurationSeconds: estimatedDuration, clipStartOffsets } = computeClipSequencePlan(
       normalizedDurations,
       opts.transitions || []
     );
@@ -320,17 +403,7 @@ export async function renderFinalVideo(opts: {
     if (normalizedPaths.length === 1) {
       await run("ffmpeg", ["-y", "-i", normalizedPaths[0], "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", concatenatedPath]);
     } else {
-      const inputArgs = normalizedPaths.flatMap((p) => ["-i", p]);
-      await run("ffmpeg", [
-        "-y",
-        ...inputArgs,
-        "-filter_complex", filterComplex,
-        "-map", `[${outputLabel}]`,
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "23",
-        concatenatedPath,
-      ]);
+      await mergeClipsTree(normalizedPaths, normalizedDurations, opts.transitions || [], concatenatedPath, workDir);
     }
     void estimatedDuration; // dihitung ulang dari file ASLI di bawah (lebih akurat drpd estimasi filter chain)
     const videoDurationSeconds = await getDurationSeconds(concatenatedPath);
