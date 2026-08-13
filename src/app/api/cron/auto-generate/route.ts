@@ -26,7 +26,20 @@ export async function POST(req: NextRequest) {
   const unauthorized = verifyCronSecret(req);
   if (unauthorized) return unauthorized;
 
-  const allBrands = await db.select().from(brands);
+  // Filter brandIds opsional (2026-08-12, permintaan Agus langsung - "pelangi dan laundry
+  // jam 11 malam saja dan animal story jam 2.15 pagi, jeda yang aman") - insiden nyata hari
+  // ini: render Animal Story & Co (long-form, banyak klip) pakai ~3GB RAM di VPS 3.8GB yg
+  // sama dgn PMS+MongoDB, sempat bikin MongoDB tidak terjangkau (PMS ikut down). Batch
+  // besar (Animal Story & Co, long-form berat) sekarang dipisah jamnya dari batch ringan
+  // (Pelangi/Laundry, short-form) via 2 timer terpisah yg panggil endpoint SAMA ini dgn
+  // query param brandIds beda (lihat scripts/cron/) - jeda ~3 jam supaya beban CPU/memori
+  // tidak saling tumpuk. Tidak diisi (dipanggil manual/lama) = SEMUA brand, perilaku lama
+  // tetap jalan apa adanya, backward-compatible.
+  const brandIdsParam = req.nextUrl.searchParams.get("brandIds");
+  const onlyBrandIds = brandIdsParam ? brandIdsParam.split(",").filter(Boolean) : null;
+
+  const allBrandsRaw = await db.select().from(brands);
+  const allBrands = onlyBrandIds ? allBrandsRaw.filter((b) => onlyBrandIds.includes(b.id)) : allBrandsRaw;
   const results: Array<{ brandId: string; name: string; generated: number; failed: number }> = [];
 
   for (const brand of allBrands) {

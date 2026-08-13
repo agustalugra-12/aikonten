@@ -1,11 +1,15 @@
 [Unit]
-Description=Jadwal harian KontenPilot AI - proses konten brand auto-publish (03:15 WITA)
+Description=Jadwal harian KontenPilot AI - proses konten Pelangi Homestay + Laundry in Bali (23:00 WIB)
 
 [Timer]
-# 15 menit setelah daily-ideas (02:00 WIB) - beri jeda supaya ide hari ini sudah pasti
-# ada sebelum auto-generate mulai jalan (walau auto-generate SENDIRI juga idempotent
-# panggil getOrGenerateDailyIdeas dulu sbg jaring pengaman, urutan ini tetap lebih rapi).
-OnCalendar=*-*-* 02:15:00
+# Batch RINGAN (short-form, Pelangi+Laundry) dipisah jamnya dari batch BERAT (Animal
+# Story & Co, long-form) - 2026-08-12, permintaan Agus langsung "pelangi dan laundry
+# jam 11 malam saja dan animal story jam 2.15 pagi, jeda yang aman" - insiden nyata hari
+# ini: render long-form Animal Story & Co pakai ~3GB RAM di VPS 3.8GB yg sama dgn
+# PMS+MongoDB, sempat bikin MongoDB tidak terjangkau (PMS ikut down). Jeda ~3 jam 15
+# menit ke batch Animal Story (kontenpilot-auto-generate-animalstory.timer, 02:15)
+# supaya beban CPU/memori 2 batch tidak saling tumpuk.
+OnCalendar=*-*-* 23:00:00
 Persistent=true
 
 [Install]

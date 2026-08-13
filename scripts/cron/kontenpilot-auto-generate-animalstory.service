@@ -1,0 +1,9 @@
+[Unit]
+Description=KontenPilot AI - proses konten Animal Story & Co (batch berat, long-form)
+
+[Service]
+Type=oneshot
+# Timeout longgar - render long-form (5-8 menit/video, banyak klip broll) jauh lebih
+# lama dari short-form Pelangi/Laundry, lihat kontenpilot-auto-generate.service.
+TimeoutStartSec=10800
+ExecStart=/root/kontenpilot-ai/scripts/cron/call-endpoint.sh "/api/cron/auto-generate?brandIds=brand_Wo1tv4SSj_ac"

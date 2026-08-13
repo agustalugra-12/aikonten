@@ -1,0 +1,13 @@
+[Unit]
+Description=Jadwal harian KontenPilot AI - proses konten Animal Story & Co (02:15 WIB)
+
+[Timer]
+# Batch BERAT (long-form, banyak klip) dipisah jamnya dari batch ringan (Pelangi+Laundry,
+# 23:00 - lihat kontenpilot-auto-generate.timer) - 2026-08-12, permintaan Agus langsung.
+# 15 menit setelah daily-ideas (02:00 WIB), jeda ~3 jam 15 menit dari batch ringan supaya
+# beban CPU/memori 2 batch tidak saling tumpuk di VPS yg sama dgn PMS+MongoDB.
+OnCalendar=*-*-* 02:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

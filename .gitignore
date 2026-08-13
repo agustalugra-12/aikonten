@@ -44,6 +44,10 @@ yarn-error.log*
 # database lokal (SQLite - data nyata, jangan pernah masuk repo)
 /data/*.db
 /data/*.db-*
+# 2026-08-13 - backup migrasi Drizzle (kontenpilot.db.bak-pre-NNNN) TIDAK tertangkap pola
+# di atas (".db.bak-..." beda dari ".db-...", ada titik bukan strip sebelum "bak") -
+# ditemukan lewat git status nyata, belasan file 2-4MB nyaris ke-commit tanpa sengaja.
+/data/*.bak-*
 
 # typescript
 *.tsbuildinfo
