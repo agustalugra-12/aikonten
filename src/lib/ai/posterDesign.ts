@@ -2,6 +2,8 @@ import { fal } from "@fal-ai/client";
 import { subscribeFalWithRetry } from "./falRetry";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { logNonTokenUsage } from "./openaiClient";
+import { checkPosterQuality } from "./posterQualityCheck";
+import { LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "./logoOverlay";
 import type { PosterCopy } from "./posterCopy";
 
 function ensureFalConfigured(): void {
@@ -70,7 +72,7 @@ KONTAK: JANGAN PERNAH menambahkan nomor telepon/WhatsApp, alamat website/domain,
 
 LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified"/"certified", watermark, atau simbol apa pun yang menyerupai identitas brand - JANGAN sekalipun sekadar elemen dekoratif. Logo ASLI brand (kalau ada) ditempel TERPISAH sesudah gambar ini jadi, lewat proses lain di luar kendalimu - tugasmu HANYA desain poster tanpa logo apa pun, jangan mengisi "kekosongan" itu dengan logo karangan.
 
-ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira 16% dari sisi PENDEK gambar dan margin sekitar 4% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira 20% lebar x 20% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, atau elemen penting apa pun - boleh diisi background/langit/warna polos/blur di area itu, TAPI JANGAN taruh huruf/kata di sana sama sekali, walau cuma sebagian huruf. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo.
+ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira ${LOGO_SIZE_RATIO * 100}% dari sisi PENDEK gambar dan margin sekitar ${LOGO_MARGIN_RATIO * 100}% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% lebar x ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, logo/badge/elemen dekoratif apa pun, atau elemen penting lain - boleh diisi background/langit/warna polos/blur di area itu, TAPI JANGAN taruh huruf/kata/ikon/lambang di sana sama sekali, walau cuma sebagian. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo.
 `.trim();
 
 const REAL_PHOTO_VISUAL_RULE = `
@@ -143,6 +145,76 @@ function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undef
   );
 }
 
+async function fetchAndUploadPosterResult(opts: { brandId: string; projectId: string }, imageUrl: string): Promise<string> {
+  const res = await fetch(imageUrl);
+  if (!res.ok) throw new Error(`Gagal ambil hasil poster dari fal.ai: ${res.status}`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  // buildAssetKey SUDAH prefix timestamp sendiri (lihat storage.ts) - key tetap unik
+  // tiap panggilan (percobaan awal vs hasil perbaikan QC) walau nama filenya sama.
+  const key = buildAssetKey(opts.brandId, opts.projectId, "poster.png");
+  return uploadBuffer(key, buffer, "image/png");
+}
+
+// Perbaikan bertarget (2026-08-13, lihat catatan lengkap di posterQualityCheck.ts) -
+// BEDA dari regenerasi total dari foto asli lagi: poster yang SUDAH JADI (walau cacat)
+// dimasukkan lagi sbg `image_urls` ke nano-banana-2/edit yg SAMA, dgn instruksi
+// SPESIFIK memperbaiki HANYA masalah yg ditemukan QC - lebih murah/terarah drpd
+// generate ulang dari nol (yg bisa melahirkan cacat BARU yg beda lagi tiap percobaan)
+// & bekerja SAMA utk kedua jalur (foto asli maupun full-AI) krn inputnya poster yg
+// sudah jadi, bukan foto asli/copy lagi.
+async function applyPosterFix(opts: { brandId: string; projectId: string }, flawedPosterUrl: string, issues: string[]): Promise<string> {
+  const prompt = `Ini poster promosi yang SUDAH dibuat, tapi pemeriksaan kualitas menemukan masalah berikut yang WAJIB diperbaiki:\n${issues.map((i) => `- ${i}`).join("\n")}\n\nINSTRUKSI PERBAIKAN: perbaiki HANYA masalah di atas. JANGAN ubah elemen lain yang sudah benar (headline, layout, warna, foto, badge, CTA, dst harus tetap SAMA PERSIS kecuali yang perlu diperbaiki). Kalau masalahnya elemen logo/badge/lambang tambahan (termasuk di pojok kanan-atas) - HAPUS elemen itu sepenuhnya, biarkan areanya kosong/bersih (logo ASLI brand akan ditempel terpisah sesudah ini, jangan gambar logo apa pun sbg gantinya). Hasil akhir tetap 1 poster utuh, resolusi & rasio sama seperti sebelumnya.`;
+
+  const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
+    prompt,
+    image_urls: [flawedPosterUrl],
+    resolution: "1K",
+  });
+  const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
+  if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil perbaikan poster");
+  await logNonTokenUsage("nano-banana-2-poster-fix", NANO_BANANA_PRICE_PER_IMAGE_1K);
+  return fetchAndUploadPosterResult(opts, imageUrl);
+}
+
+// QC + 1x perbaikan otomatis (2026-08-13, permintaan Agus - laporan nyata "hasil
+// generatenya kadang ada dobel logo atau frame logo lain di pojok kanan... Sebelum
+// output final, lakukan self-check secara visual... Jika menemukan kesalahan... jangan
+// berikan hasil tersebut sebagai output final; perbaiki terlebih dahulu"). Dipakai SAMA
+// utk applyPosterDesign & generatePosterFullAi (generateInitial = closure beda sumber,
+// alur QC-nya identik) - signature fungsi publik TIDAK berubah, processProject.ts
+// (pemanggil) tidak perlu tahu/disentuh sama sekali. Maks 2 percobaan total (generate
+// awal + 1x perbaikan bertarget) - frugal, sama semangat dgn checkAndHandleDuplicate
+// (KontenPilot repo lain) yg SENGAJA dibatasi drpd retry tak terbatas.
+async function runPosterWithQualityCheck(
+  opts: { brandId: string; projectId: string },
+  generateInitial: () => Promise<string>
+): Promise<string> {
+  const url = await generateInitial();
+  let qc: { passed: boolean; issues: string[] };
+  try {
+    qc = await checkPosterQuality(url);
+  } catch (err) {
+    console.error(`[posterDesign] QC gagal dijalankan (project ${opts.projectId}), pakai hasil apa adanya:`, err);
+    return url;
+  }
+  if (qc.passed) return url;
+
+  console.warn(`[posterDesign] QC gagal percobaan awal (project ${opts.projectId}): ${qc.issues.join("; ")} - coba perbaikan otomatis`);
+  try {
+    const fixedUrl = await applyPosterFix(opts, url, qc.issues);
+    const qc2 = await checkPosterQuality(fixedUrl);
+    if (qc2.passed) return fixedUrl;
+    console.warn(
+      `[posterDesign] QC MASIH gagal setelah perbaikan (project ${opts.projectId}): ${qc2.issues.join("; ")} - ` +
+        `pakai hasil perbaikan apa adanya (sudah lebih baik dari percobaan awal), PERLU DICEK MANUAL di Draft Review.`
+    );
+    return fixedUrl;
+  } catch (err) {
+    console.error(`[posterDesign] gagal jalankan perbaikan QC (project ${opts.projectId}), pakai hasil awal apa adanya:`, err);
+    return url;
+  }
+}
+
 // Poster foto tunggal penuh (BEDA dari applyPromoOverlay yg cuma badge kecil 1 pojok) -
 // Nano Banana 2 (fal.ai, gemini-3.1-flash-image via fal-ai/nano-banana-2/edit) TANPA
 // mask - model ini sama sekali TIDAK PUNYA fitur mask biner (2026-08-05, dicek langsung
@@ -160,21 +232,17 @@ export async function applyPosterDesign(opts: {
 }): Promise<string> {
   ensureFalConfigured();
 
-  const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
-    prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "real-photo"),
-    image_urls: [opts.imageUrl],
-    resolution: "1K",
+  return runPosterWithQualityCheck(opts, async () => {
+    const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
+      prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "real-photo"),
+      image_urls: [opts.imageUrl],
+      resolution: "1K",
+    });
+    const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
+    if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil poster");
+    await logNonTokenUsage("nano-banana-2-poster", NANO_BANANA_PRICE_PER_IMAGE_1K);
+    return fetchAndUploadPosterResult(opts, imageUrl);
   });
-
-  const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
-  if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil poster");
-  await logNonTokenUsage("nano-banana-2-poster", NANO_BANANA_PRICE_PER_IMAGE_1K);
-
-  const res = await fetch(imageUrl);
-  if (!res.ok) throw new Error(`Gagal ambil hasil poster dari fal.ai: ${res.status}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  const key = buildAssetKey(opts.brandId, opts.projectId, "poster.png");
-  return uploadBuffer(key, buffer, "image/png");
 }
 
 // Poster full AI-generate, TANPA foto asli sama sekali (2026-08-11, permintaan Agus -
@@ -194,19 +262,15 @@ export async function generatePosterFullAi(opts: {
 }): Promise<string> {
   ensureFalConfigured();
 
-  const result = await subscribeFalWithRetry("fal-ai/nano-banana-2", {
-    prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "full-ai"),
-    aspect_ratio: "4:5",
-    resolution: "1K",
+  return runPosterWithQualityCheck(opts, async () => {
+    const result = await subscribeFalWithRetry("fal-ai/nano-banana-2", {
+      prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "full-ai"),
+      aspect_ratio: "4:5",
+      resolution: "1K",
+    });
+    const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
+    if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil poster full-AI");
+    await logNonTokenUsage("nano-banana-2-poster-full-ai", NANO_BANANA_PRICE_PER_IMAGE_1K);
+    return fetchAndUploadPosterResult(opts, imageUrl);
   });
-
-  const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
-  if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil poster full-AI");
-  await logNonTokenUsage("nano-banana-2-poster-full-ai", NANO_BANANA_PRICE_PER_IMAGE_1K);
-
-  const res2 = await fetch(imageUrl);
-  if (!res2.ok) throw new Error(`Gagal ambil hasil poster full-AI dari fal.ai: ${res2.status}`);
-  const buffer = Buffer.from(await res2.arrayBuffer());
-  const key = buildAssetKey(opts.brandId, opts.projectId, "poster.png");
-  return uploadBuffer(key, buffer, "image/png");
 }
