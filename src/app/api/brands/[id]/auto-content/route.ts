@@ -18,8 +18,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // sama kelas bug yang sudah diperbaiki utk jalur cron tapi belum utk jalur manual ini.
   const desiredType = body.type === "video" || body.type === "foto" || body.type === "carousel" ? body.type : undefined;
 
+  // contentFormat (2026-08-13) - trigger manual sebelumnya TIDAK BISA memaksa
+  // youtube_shorts spt jalur cron (lihat autoContent.ts: processProject.ts baca ini utk
+  // paksa portrait+<=60dtk apa pun setting brand). Diteruskan opsional, tanpa ini
+  // perilaku lama (ikut default brand) tetap sama persis.
+  const contentFormat = body.contentFormat === "youtube_shorts" ? body.contentFormat : undefined;
+
   try {
-    const result = await runAutoContent(brandId, body.script, desiredType);
+    const result = await runAutoContent(brandId, body.script, desiredType, contentFormat);
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     const status = err instanceof AutoContentError ? err.status : 500;
