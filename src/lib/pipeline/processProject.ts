@@ -578,7 +578,18 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // Top-up di sini kejar target LEBIH TINGGI dari minimum sungguhan supaya varian kecil
     // itu tidak bikin hasil akhir jatuh di bawah minimum - pengecekan akhir (setelah
     // render, lihat rendered.durationSeconds di bawah) tetap pakai angka minimum ASLI.
-    const PRE_RENDER_TARGET_SECONDS = durationConfig.min + 3;
+    // Margin PROPORSIONAL (2026-08-14, bug nyata ditemukan pas migrasi Animal Story &
+    // Co - long-form 46 klip, target min=240dtk, hasil render SUNGGUHAN cuma 223dtk
+    // [meleset 20dtk] lalu ke-reject di gerbang post-render, padahal estimasi pre-render
+    // sudah lolos +3dtk lama). Akar masalah: +3dtk FLAT tidak ikut skala jumlah klip -
+    // drift nominal-vs-file-sungguhan (lihat catatan lengkap di dekat pemakaian di
+    // bawah) terjadi PER KLIP, long-form butuh puluhan klip utk capai target vs
+    // short-form cuma beberapa, jadi drift TOTAL long-form jauh lebih besar tapi
+    // sebelumnya dikasih jaring pengaman SAMA persis. 8% dari minimum (lantai tetap
+    // 3dtk spy short-form/Shorts - yg SUDAH terbukti jalan baik - tidak berubah sama
+    // sekali) - video 240dtk skrg ditarget +19dtk (259dtk), cukup serap drift sebesar
+    // yg baru ditemukan tanpa menaikkan target short-form yg sudah cukup.
+    const PRE_RENDER_TARGET_SECONDS = durationConfig.min + Math.max(3, Math.ceil(durationConfig.min * 0.08));
 
     if (!isStockFootage && currentTotalDuration() < PRE_RENDER_TARGET_SECONDS) {
       // Tarik segmen ASLI TAMBAHAN dari pool lengkap (bukan cuma yg lolos budget/ambang
