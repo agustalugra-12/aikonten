@@ -20,7 +20,7 @@ import { MusicBankDialog } from "@/components/dashboard/MusicBankDialog";
 import { BrandSettingsSidebar } from "@/components/dashboard/BrandSettingsSidebar";
 import { AutoContentButton } from "@/components/dashboard/AutoContentButton";
 import { toast } from "sonner";
-import type { Brand, Project } from "@/types";
+import type { Brand, Project, SocialAccount } from "@/types";
 
 const LAST_BRAND_KEY = "kontenpilot_last_brand";
 
@@ -38,6 +38,11 @@ function DashboardContent() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Akun sosmed brand terpilih (2026-08-13, dibutuhkan ProjectList.tsx utk ikon
+  // platform tujuan) - fetch terpisah dari yg sudah ada di SocialAccounts.tsx/
+  // DraftReview.tsx (masing2 komponen py fetch sendiri, pola yg sudah dipakai di file
+  // ini - bukan refactor arsitektur data baru).
+  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [loading, setLoading] = useState(true);
   // Diisi kalau Agus klik salah satu "Ide Konten"/Content Planner - lihat
   // ContentIdeas.tsx/DailyContentPlanner.tsx. Dipakai sbg `key` remount
@@ -63,6 +68,11 @@ function DashboardContent() {
     setProjects(await res.json());
   }, []);
 
+  const loadAccounts = useCallback(async (brandId: string) => {
+    const res = await fetch(`/api/brands/${brandId}/social-accounts`);
+    setAccounts(res.ok ? await res.json() : []);
+  }, []);
+
   useEffect(() => {
     loadBrands();
   }, [loadBrands]);
@@ -83,8 +93,9 @@ function DashboardContent() {
     if (selectedBrandId) {
       localStorage.setItem(LAST_BRAND_KEY, selectedBrandId);
       loadProjects(selectedBrandId);
+      loadAccounts(selectedBrandId);
     }
-  }, [selectedBrandId, loadProjects]);
+  }, [selectedBrandId, loadProjects, loadAccounts]);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -177,7 +188,12 @@ function DashboardContent() {
                 <CardTitle>Konten</CardTitle>
               </CardHeader>
               <CardContent>
-                <ProjectList projects={projects} onRetry={() => selectedBrandId && loadProjects(selectedBrandId)} />
+                <ProjectList
+                  projects={projects}
+                  brand={brands.find((b) => b.id === selectedBrandId) ?? null}
+                  accounts={accounts}
+                  onRetry={() => selectedBrandId && loadProjects(selectedBrandId)}
+                />
               </CardContent>
             </Card>
 

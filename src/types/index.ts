@@ -41,6 +41,17 @@ export type Project = {
   // dibutuhkan di UI - typed longgar drpd duplikat seluruh shape YoutubeMetadata dari
   // lib/ai/youtubeEditorial.ts di sini.
   youtubeMetadata: string | null;
+  // skipAutoPublish - SUDAH ADA di DB/API (spread seluruh row) tapi belum pernah
+  // dideklarasikan di sini, sama kelas "gap" dgn youtubeMetadata di atas - dibutuhkan
+  // utk estimasi jadwal publish (ProjectList.tsx) supaya draft yg SENGAJA dikecualikan
+  // dari auto-publish tidak ikut dihitung isi slot.
+  skipAutoPublish: boolean;
+  // Preview ringkas (2026-08-13, cuma diisi GET /api/projects, BUKAN GET
+  // /api/projects/[id] - lihat catatan lengkap di route.ts) - thumbnail + durasi utk
+  // tampilan daftar konten, tanpa perlu fetch detail per baris.
+  previewUrl?: string | null;
+  previewType?: "video" | "image" | null;
+  durationSeconds?: number | null;
 };
 
 export type MediaAsset = {
