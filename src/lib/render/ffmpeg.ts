@@ -68,11 +68,51 @@ const LOUDNORM_FILTER = "loudnorm=I=-16:TP=-1.5:LRA=11";
 // JAUH keluar frame sama sekali (invisible, bukan error). Solusinya (tetap dipakai):
 // bikin file .ass EKSPLISIT dgn PlayResX/PlayResY = resolusi video SUNGGUHAN.
 
+// Batas waktu + cgroup terpisah per panggilan ffmpeg (2026-08-13, insiden nyata - render
+// Animal Story & Co 46 klip macet TOTAL 4.5 jam, habiskan semua RAM+swap VPS 2 core/
+// 3.8GB ini [dipakai bareng PMS+MongoDB+AI Chat Bot], bikin 504 di SEMUA layanan sampai
+// proses macetnya dimatikan paksa manual). MemoryHigh/MemoryMax service-level yang sudah
+// ada (systemd, ditambahkan setelah insiden OOM SEBELUMNYA) TERNYATA TIDAK CUKUP - itu
+// budget bareng utk SELURUH proses Next.js (termasuk thread yang melayani request web),
+// jadi 1 child ffmpeg yang thrashing swap tetap bisa menyeret turun kemampuan server
+// jawab request sama sekali walau service-nya sendiri tidak sampai di-OOM-kill.
+//
+// 2 lapis independen (pola sama dipakai Fase 4 Claude Code Control, PMS - proven):
+// 1) Timeout keras via `execFile`'s opsi `timeout` bawaan Node - render yang genuinely
+//    macet/thrashing (BUKAN cuma lambat) dihentikan paksa, bukan dibiarkan jalan berjam2.
+// 2) `systemd-run --scope` cgroup TERPISAH dari cgroup service utama - budget RAM/CPU
+//    ffmpeg TIDAK numpang ke budget yang sama dgn thread web-serving Next.js, jadi 1
+//    render berat/macet tidak bisa lagi menyeret turun kemampuan situs jawab request sama
+//    sekali (paling parah cuma render ITU yang gagal, bukan seluruh VPS ikut down).
+const FFMPEG_TIMEOUT_MS = 20 * 60 * 1000; // 20 menit - generous utk render berat legit, tetap membatasi blast radius kalau macet
+let _ffmpegRunCounter = 0;
+
 async function run(cmd: string, args: string[]): Promise<void> {
+  const unit = `kontenpilot-ffmpeg-${process.pid}-${Date.now()}-${_ffmpegRunCounter++}`;
+  const scopedArgs = [
+    "--scope", "--quiet", "--unit", unit,
+    "-p", "MemoryMax=1000M", "-p", "CPUQuota=150%", "--",
+    cmd, ...args,
+  ];
   try {
-    await execFileAsync(cmd, args, { maxBuffer: 1024 * 1024 * 64 });
+    await execFileAsync("systemd-run", scopedArgs, {
+      maxBuffer: 1024 * 1024 * 64,
+      timeout: FFMPEG_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+    });
   } catch (err) {
     const stderr = (err as { stderr?: string })?.stderr || "";
+    const isTimeout = (err as { killed?: boolean; signal?: string })?.killed &&
+      (err as { signal?: string })?.signal === "SIGKILL" && !stderr;
+    if (isTimeout) {
+      // best-effort - matikan seluruh process tree cgroup-nya (bukan cuma child langsung
+      // yang execFile timeout kill-nya sentuh), konsisten dgn desain Fase 4.
+      execFileAsync("systemctl", ["stop", `${unit}.scope`]).catch(() => {});
+      throw new Error(
+        `${cmd} melebihi batas waktu ${FFMPEG_TIMEOUT_MS / 60000} menit, dihentikan paksa - ` +
+        `kemungkinan render terlalu berat/macet (lihat insiden 2026-08-13, render 46 klip)`,
+      );
+    }
     throw new Error(`${cmd} gagal: ${(err as Error).message}\n${stderr.slice(-2000)}`);
   }
 }
