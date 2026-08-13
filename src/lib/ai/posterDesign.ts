@@ -123,7 +123,15 @@ function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undef
       ? `INFOGRAFISPOINTS (WAJIB tampil LENGKAP semua, lihat LAYOUT INFOGRAFIS di atas):\n${copy.infografisPoints!.map((p) => `  ${p.nomor}. ${p.teks}`).join("\n")}`
       : null,
     !isInfografis && copy.benefits.length > 0 ? `Benefit/fasilitas yang ditonjolkan: ${copy.benefits.join(", ")}` : null,
-    copy.isiTulisan ? `Isi tulisan tambahan: "${copy.isiTulisan}"` : null,
+    // 2026-08-13, bug nyata ditemukan lewat tes live: "Isi tulisan tambahan:" (nama
+    // field ini) sempat ke-render HARFIAH sbg judul/label yg tampil di poster - beda
+    // dari Headline/Subheadline/CTA yg AI sudah "paham" konvensi desainnya (jadi
+    // otomatis tidak menampilkan label field-nya), "isi tulisan tambahan" bukan istilah
+    // desain baku yg dikenali, jadi AI defaultnya menampilkan apa adanya sbg teks
+    // literal. Diperjelas eksplisit: JANGAN tampilkan nama field ini sama sekali.
+    copy.isiTulisan
+      ? `Teks pendukung tambahan (BUKAN judul terpisah - sisipkan sbg 1 baris subtext/caption kecil yg menyatu wajar dgn desain, mis. di bawah headline atau dekat CTA. JANGAN PERNAH menampilkan kata "teks pendukung"/"isi tulisan"/"tambahan" atau label apa pun di poster - TULISKAN LANGSUNG isinya saja sbg teks poster biasa, tanpa tanda kutip, tanpa nama field ini muncul sama sekali): "${copy.isiTulisan}"`
+      : null,
   ].filter((line): line is string => !!line);
 
   const profile = (brandProfile || "").trim() || FALLBACK_BRAND_PROFILE;
