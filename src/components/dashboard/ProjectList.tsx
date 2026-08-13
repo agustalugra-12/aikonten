@@ -30,26 +30,26 @@ function formatBadgeLabel(project: Project): string {
   return project.durationSeconds <= 60 ? "Video Pendek" : "Video Panjang";
 }
 
+type ScheduleChip = { primary: string; sublabel?: string } | null;
+
 // Estimasi jam publish (2026-08-13, permintaan Agus - "detil konten akan di publis jam
-// brapa"). SENGAJA dilabeli "~"/"estimasi" - logika SEBENARNYA di cron/auto-publish.ts
-// py nuansa lebih (slot yg kelewat tanpa konten ready dianggap hilang PERMANEN, bukan
+// brapa"). SENGAJA dilabeli "estimasi" - logika SEBENARNYA di cron/auto-publish.ts py
+// nuansa lebih (slot yg kelewat tanpa konten ready dianggap hilang PERMANEN, bukan
 // di-backfill) yg TIDAK direplikasi presisi di sini, cukup indikasi kasar drpd Agus
 // tidak tahu sama sekali kapan draft-nya bakal tayang.
-function estimateScheduleLabel(project: Project, brand: Brand | null, allProjects: Project[]): string {
+function scheduleChipFor(project: Project, brand: Brand | null, allProjects: Project[]): ScheduleChip {
   if (project.status === "published") {
-    return `Tayang ${new Date(project.updatedAt).toLocaleString("id-ID", {
-      day: "2-digit",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    })}`;
+    return {
+      primary: new Date(project.updatedAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
+      sublabel: "tayang",
+    };
   }
-  if (project.status === "publishing") return "Sedang dipublikasikan...";
-  if (project.status !== "ready") return "";
-  if (!brand || brand.publishMode !== "auto") return "Menunggu publikasi manual";
+  if (project.status === "publishing") return { primary: "Memproses" };
+  if (project.status !== "ready") return null;
+  if (!brand || brand.publishMode !== "auto") return { primary: "Manual", sublabel: "menunggu publikasi" };
 
   const slots: string[] = brand.autoPublishTimes ? JSON.parse(brand.autoPublishTimes) : [];
-  if (slots.length === 0) return "Menunggu publikasi manual";
+  if (slots.length === 0) return { primary: "Manual", sublabel: "menunggu publikasi" };
 
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -65,19 +65,44 @@ function estimateScheduleLabel(project: Project, brand: Brand | null, allProject
     .filter((p) => p.brandId === project.brandId && p.status === "ready" && !p.skipAutoPublish)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   const position = readyQueue.findIndex((p) => p.id === project.id);
-  if (position === -1) return "Menunggu publikasi manual"; // skipAutoPublish=true
+  if (position === -1) return { primary: "Manual", sublabel: "menunggu publikasi" };
 
   if (position >= remainingSlots.length) {
-    return `~${slots[0]} besok (estimasi)`;
+    return { primary: slots[0], sublabel: "besok · estimasi" };
   }
-  return `~${remainingSlots[position].t} (estimasi)`;
+  return { primary: remainingSlots[position].t, sublabel: "estimasi" };
+}
+
+// Pengelompokan per tanggal (2026-08-13) - "Hari Ini"/"Kemarin"/tanggal lengkap, gaya
+// Buffer Queue yg dibagi per hari drpd 1 daftar rata tanpa jeda visual.
+function dayGroupLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (sameDay(d, today)) return "Hari Ini";
+  if (sameDay(d, yesterday)) return "Kemarin";
+  return d.toLocaleDateString("id-ID", { weekday: "long", day: "2-digit", month: "long" });
+}
+
+function groupByDay(projects: Project[]): Array<{ label: string; items: Project[] }> {
+  const groups: Array<{ label: string; items: Project[] }> = [];
+  for (const p of projects) {
+    const label = dayGroupLabel(p.createdAt);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(p);
+    else groups.push({ label, items: [p] });
+  }
+  return groups;
 }
 
 // Tampilan Buffer-style (2026-08-13, permintaan Agus - "rapikan tampilan AI konten
-// sperti buffer, warna hitam putih spt sekarang saja") - list antrean per baris
-// (thumbnail + format/durasi + status + jam publish + platform tujuan), gantikan
-// tabel polos sebelumnya. Warna TETAP tokens shadcn abu-abu/hitam yg sudah ada (lihat
-// globals.css) - TIDAK ada warna baru ditambahkan, murni layout/tipografi/komposisi.
+// sperti buffer, warna hitam putih spt sekarang saja, aku mau mirip"). Elemen ciri
+// khas Buffer yg ditiru: kartu terpisah (bukan baris bergaris tipis), thumbnail besar
+// dgn badge ikon platform NEMPEL di pojok kanan-bawah thumbnail (bukan baris ikon
+// terpisah), chip jam publish yg menonjol, dikelompokkan per tanggal. Warna TETAP
+// tokens shadcn abu-abu/hitam yg sudah ada (lihat globals.css) - TIDAK ada warna baru.
 export function ProjectList({
   projects,
   brand,
@@ -117,69 +142,90 @@ export function ProjectList({
     return <p className="text-sm text-muted-foreground py-8 text-center">Belum ada konten utk brand ini.</p>;
   }
 
+  const groups = groupByDay(projects);
+
   return (
-    <div className="divide-y divide-border">
-      {projects.map((p) => {
-        const scheduleLabel = estimateScheduleLabel(p, brand, projects);
-        return (
-          <div key={p.id} className="flex items-start gap-4 py-4 first:pt-0 last:pb-0">
-            <div className="shrink-0 w-16 h-16 rounded-md overflow-hidden bg-muted flex items-center justify-center">
-              {p.previewType === "video" ? (
-                <video src={proxiedUrl(p.previewUrl!)} preload="metadata" muted className="w-full h-full object-cover" />
-              ) : p.previewType === "image" ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={proxiedUrl(p.previewUrl!)} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-[10px] text-muted-foreground text-center px-1">Belum ada aset</span>
-              )}
-            </div>
+    <div className="space-y-6">
+      {groups.map((group) => (
+        <div key={group.label} className="space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</h3>
+          <div className="space-y-3">
+            {group.items.map((p) => {
+              const chip = scheduleChipFor(p, brand, projects);
+              return (
+                <div
+                  key={p.id}
+                  className="flex items-start gap-4 rounded-xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md"
+                >
+                  <div className="relative shrink-0">
+                    <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted flex items-center justify-center ring-1 ring-border">
+                      {p.previewType === "video" ? (
+                        <video src={proxiedUrl(p.previewUrl!)} preload="metadata" muted className="w-full h-full object-cover" />
+                      ) : p.previewType === "image" ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={proxiedUrl(p.previewUrl!)} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground text-center px-1">Belum ada aset</span>
+                      )}
+                    </div>
+                    {/* Badge platform nempel di pojok thumbnail - ciri khas Buffer, ganti
+                        dari baris ikon terpisah di versi sebelumnya. */}
+                    {accounts.length > 0 && (
+                      <div className="absolute -bottom-1.5 -right-1.5 flex">
+                        {accounts.slice(0, 3).map((acc, i) => (
+                          <span
+                            key={acc.id}
+                            style={{ marginLeft: i === 0 ? 0 : -8, zIndex: accounts.length - i }}
+                            className="w-6 h-6 rounded-full bg-background border-2 border-card ring-1 ring-border flex items-center justify-center"
+                          >
+                            <PlatformIcon platform={acc.platform} className="w-3.5 h-3.5 text-foreground" />
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="outline" className="text-xs font-normal">
-                  {formatBadgeLabel(p)}
-                  {p.durationSeconds != null && p.type === "video" ? ` · ${formatDuration(p.durationSeconds)}` : ""}
-                </Badge>
-                <Badge variant={STATUS_VARIANT[p.status]} className="text-xs">
-                  {STATUS_LABEL[p.status]}
-                </Badge>
-              </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className="text-xs font-normal">
+                          {formatBadgeLabel(p)}
+                          {p.durationSeconds != null && p.type === "video" ? ` · ${formatDuration(p.durationSeconds)}` : ""}
+                        </Badge>
+                        <Badge variant={STATUS_VARIANT[p.status]} className="text-xs">
+                          {STATUS_LABEL[p.status]}
+                        </Badge>
+                      </div>
+                      {chip && (
+                        <div className="shrink-0 text-right rounded-lg bg-secondary px-2.5 py-1">
+                          <p className="text-sm font-semibold leading-tight tabular-nums">{chip.primary}</p>
+                          {chip.sublabel && <p className="text-[10px] text-muted-foreground leading-tight">{chip.sublabel}</p>}
+                        </div>
+                      )}
+                    </div>
 
-              <p className="text-sm text-foreground/90 truncate max-w-2xl">
-                {p.generatedCaption || p.script || "(belum ada caption)"}
-              </p>
+                    <p className="text-sm text-foreground/90 line-clamp-2">
+                      {p.generatedCaption || p.script || "(belum ada caption)"}
+                    </p>
 
-              {p.status === "failed" && p.errorMessage && (
-                <p className="text-xs text-destructive truncate max-w-2xl" title={p.errorMessage}>
-                  {p.errorMessage}
-                </p>
-              )}
+                    {p.status === "failed" && p.errorMessage && (
+                      <p className="text-xs text-destructive truncate" title={p.errorMessage}>
+                        {p.errorMessage}
+                      </p>
+                    )}
 
-              <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                {scheduleLabel && <span>{scheduleLabel}</span>}
-                {accounts.length > 0 && (
-                  <span className="flex items-center gap-1.5">
-                    {accounts.map((acc) => (
-                      <PlatformIcon key={acc.id} platform={acc.platform} className="w-3.5 h-3.5" />
-                    ))}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="shrink-0 flex flex-col items-end gap-2">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                {new Date(p.createdAt).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}
-              </span>
-              {p.status === "failed" && (
-                <Button size="sm" variant="outline" disabled={retrying === p.id} onClick={() => handleRetry(p.id)}>
-                  {retrying === p.id ? "Memproses…" : "Coba Lagi"}
-                </Button>
-              )}
-            </div>
+                    {p.status === "failed" && (
+                      <Button size="sm" variant="outline" disabled={retrying === p.id} onClick={() => handleRetry(p.id)}>
+                        {retrying === p.id ? "Memproses…" : "Coba Lagi"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }
