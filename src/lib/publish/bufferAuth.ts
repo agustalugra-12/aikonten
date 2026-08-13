@@ -160,6 +160,99 @@ async function tryDeletePost(id: string, token?: string | null): Promise<boolean
 // dgn cache getOrganizationId di atas: total jadi 2 call/publish sukses (turun 80%
 // dari 10), TANPA mengurangi cakupan deteksi dari 1 bug nyata yang jadi alasan
 // fitur ini dibuat.
+// verifyPublishSucceeded (2026-08-13, bug NYATA ditemukan - laporan Agus "upload 2
+// konten Pelangi+Laundry, cuma 1 yang masuk, tapi Telegram centang ✅ keduanya"). Root
+// cause: createPost() "success" (typename PostActionSuccess) cuma berarti REQUEST-nya
+// DITERIMA Buffer - publish sebenarnya diproses ASYNC di sisi Buffer, `post.status` di
+// titik itu masih "sending" (BUKAN "sent"), bisa berakhir "error" belakangan TANPA
+// sinyal apa pun balik ke aplikasi ini. buffer.ts SEBELUM ini cuma cek __typename,
+// field `status` yg sudah diminta di mutation (`post { id status }`) tidak pernah
+// dibaca sama sekali.
+//
+// DIBUKTIKAN LANGSUNG (query manual ke API Buffer asli, bukan dugaan): 1 post TikTok
+// "laundry in bali" dari kemarin (2026-08-12 21:02) status ASLINYA "error" di Buffer
+// SEKARANG, padahal publish_logs kita catat "success" & Telegram SUDAH kadung kirim ✅ -
+// kegagalan itu tidak pernah diketahui sama sekali. 2 post TikTok lain hari ini (yg
+// jadi laporan Agus) masih "sending" 15-17 menit setelah publish, jauh lebih lama drpd
+// Instagram (biasa "sent" dlm hitungan detik) - TikTok tampak platform paling rawan.
+//
+// Cek 2x (~5 menit & ~15 menit total stlh publish - jadwal BEDA dari
+// checkAndHandleDuplicate di atas, yg tujuannya beda & jadwalnya sudah dioptimasi ketat
+// utk kasusnya sendiri, jangan disatukan). Kalau status "error" di cek manapun, LANGSUNG
+// koreksi tanpa tunggu cek berikutnya. Kalau MASIH "sending" di cek TERAKHIR, tetap
+// dianggap bermasalah & dikabari (bukan definitif gagal, tapi jelas tidak normal -
+// prinsip yang sama dgn checkAndHandleDuplicate: "JANGAN diam2 gagal").
+export async function verifyPublishSucceeded(opts: {
+  postId: string;
+  publishLogId: string;
+  projectId: string;
+  brandName: string;
+  platformLabel: string;
+  token?: string | null;
+}): Promise<void> {
+  const { sendTelegramNotification } = await import("./telegram");
+  const { db } = await import("@/db");
+  const { publishLogs, projects, socialAccounts } = await import("@/db/schema");
+  const { eq, and } = await import("drizzle-orm");
+
+  const pollDelaysMs = [300_000, 600_000]; // cumulative ~5 menit & ~15 menit
+
+  for (let i = 0; i < pollDelaysMs.length; i++) {
+    await new Promise((resolve) => setTimeout(resolve, pollDelaysMs[i]));
+
+    let status: string | undefined;
+    try {
+      const data = await bufferGraphQL<{ post: { id: string; status: string } | null }>(
+        "query($input: PostInput!) { post(input: $input) { id status } }",
+        { input: { id: opts.postId } },
+        opts.token
+      );
+      status = data.post?.status;
+    } catch (err) {
+      console.error("[buffer] Gagal cek status publish:", err);
+      continue; // gagal cek TIDAK berarti gagal publish - coba lagi di poll berikutnya
+    }
+
+    if (status === "sent") return; // benar2 terbukti sukses, tidak perlu apa2 lagi
+
+    const isLastCheck = i === pollDelaysMs.length - 1;
+    if (status !== "error" && !isLastCheck) continue; // masih "sending", masih ada kesempatan cek lagi
+
+    // Koreksi publish_logs + status project - dihitung ulang pakai formula PERSIS sama
+    // dgn orchestrate.ts (jumlah akun terhubung brand vs jumlah yg sukses), bukan
+    // ditimpa manual, supaya tidak menyimpang dari satu2nya sumber kebenaran status.
+    await db
+      .update(publishLogs)
+      .set({
+        status: "failed",
+        errorMessage:
+          status === "error"
+            ? 'Buffer awalnya lapor sukses, tapi status asli akhirnya "error" (publish gagal di sisi Buffer, TIDAK pernah benar2 tayang).'
+            : `Buffer awalnya lapor sukses, tapi status asli masih "${status}" setelah ~15 menit (tidak normal - kemungkinan macet, cek manual).`,
+      })
+      .where(eq(publishLogs.id, opts.publishLogId));
+
+    const [project] = await db.select().from(projects).where(eq(projects.id, opts.projectId));
+    if (project) {
+      const connectedAccounts = await db
+        .select()
+        .from(socialAccounts)
+        .where(and(eq(socialAccounts.brandId, project.brandId), eq(socialAccounts.connected, true)));
+      const allLogs = await db.select().from(publishLogs).where(eq(publishLogs.projectId, opts.projectId));
+      const succeededCount = new Set(allLogs.filter((l) => l.status === "success").map((l) => l.socialAccountId)).size;
+      const correctedStatus = succeededCount === 0 ? "failed" : succeededCount === connectedAccounts.length ? "published" : "partial";
+      await db.update(projects).set({ status: correctedStatus, updatedAt: new Date() }).where(eq(projects.id, opts.projectId));
+    }
+
+    await sendTelegramNotification(
+      `⚠️ <b>${opts.brandName}</b> - KOREKSI: ${opts.platformLabel} SEBENARNYA ${status === "error" ? "GAGAL" : "belum pasti tayang"} ` +
+        `(sebelumnya sempat dilaporkan ✅ sukses - Buffer cuma konfirmasi REQUEST diterima, bukan konfirmasi tayang). ` +
+        `Status Buffer saat ini: "${status}". Project: ${opts.projectId}. Cek manual, mungkin perlu di-post ulang.`
+    );
+    return;
+  }
+}
+
 export async function checkAndHandleDuplicate(opts: {
   channelId: string;
   keepPostId: string;

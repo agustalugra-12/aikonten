@@ -204,6 +204,26 @@ export async function publishProject(projectId: string): Promise<void> {
       createdAt: new Date(),
     });
 
+    // Verifikasi async status publish SUNGGUHAN via Buffer (2026-08-13, bug NYATA -
+    // lihat catatan lengkap di bufferAuth.ts verifyPublishSucceeded) - createPost()
+    // "success" cuma berarti Buffer MENERIMA request, publish beneran bisa gagal
+    // belakangan (status "error") tanpa sinyal apa pun ke kita. HANYA relevan utk jalur
+    // Buffer (native publisher lain sudah sinkron/terkonfirmasi langsung) - tidak
+    // di-await (background, sama pola dgn checkAndHandleDuplicate di buffer.ts).
+    if (account.publishVia === "buffer" && result.success && result.platformPostId) {
+      const { verifyPublishSucceeded } = await import("./bufferAuth");
+      verifyPublishSucceeded({
+        postId: result.platformPostId,
+        publishLogId: logId,
+        projectId,
+        brandName,
+        platformLabel: `${account.platform} (@${account.username})`,
+        token: account.accessToken,
+      }).catch((err) => {
+        console.error("[orchestrate] Gagal verifikasi status publish:", err);
+      });
+    }
+
     notifyResults.push({
       platform: `${account.platform} (@${account.username})`,
       success: result.success,
