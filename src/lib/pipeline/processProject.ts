@@ -38,6 +38,7 @@ import { distributeChapters, type YoutubeMetadata } from "@/lib/ai/youtubeEditor
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { newId } from "@/lib/ids";
 import { runWithUsageContext } from "@/lib/ai/usageContext";
+import { tryAcquireLock, releaseLock, projectProcessLockKey, LockBusyError } from "@/lib/concurrency/locks";
 
 export type ProcessResult = {
   caption: string;
@@ -90,7 +91,7 @@ function buildYoutubeCaption(title: string, seoDescription: string, chapters: { 
 // (2026-08-04, permintaan Agus: mau bisa cek draft dulu sebelum tayang - lihat
 // DraftReview.tsx). publishProject() sekarang HANYA dipanggil manual lewat tombol
 // "Publikasikan" di draft review (POST /api/projects/[id]/publish).
-export async function processProject(id: string): Promise<ProcessResult> {
+async function processProjectInner(id: string): Promise<ProcessResult> {
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
   if (!project) throw new Error("Project tidak ditemukan");
 
@@ -1131,4 +1132,37 @@ export async function processProject(id: string): Promise<ProcessResult> {
     throw err;
   }
   });
+}
+
+// Lock per-projectId (2026-08-14, temuan #1 Lampiran D ENGINEERING_SAFETY.md / audit
+// kontenpilot §4/§6) - cegah processProject() dipanggil DOBEL utk project YANG SAMA scr
+// bersamaan (klik dobel tombol "Proses"/"Coba Lagi", atau retry manual balapan dgn cron
+// yg masih memproses project ini). Pipeline di dalam processProjectInner() SEPENUHNYA
+// berbayar (OpenAI+fal.ai+TTS+ffmpeg) - dobel proses = dobel biaya nyata + 2 render
+// ffmpeg bersaingan cgroup FFMPEG_MEMORY_MAX/CPUQuota yg sama, bukan cuma bug data.
+// Melindungi SEMUA 3 caller sekaligus krn lock dipasang DI SINI (bukan di tiap call
+// site): /api/projects/[id]/process, /api/projects/[id]/retry (cabang belum ada final
+// asset), dan runAutoContent() (autoContent.ts, dipakai cron/auto-generate + tombol
+// manual "⚡") - project BARU dari runAutoContent selalu dapat id baru jadi lock ini
+// TIDAK relevan/tidak konflik utk jalur itu (proteksi dobel-proses brand yg sama ada di
+// lock brandAutoContentLockKey terpisah, lihat cron/auto-generate/route.ts) - lock ini
+// murni menutup celah "2 panggilan utk PROJECT ID yg SAMA persis".
+//
+// REJECT jelas (LockBusyError, caller HTTP map ke 409), BUKAN skip diam2 - beda dari
+// lock brand-level di cron (skip cleanly krn itu proses background otomatis) - di sini
+// SELALU dipicu aksi manual/retry sadar, Agus/UI perlu tahu kalau panggilannya tidak
+// diproses drpd diam2 tidak terjadi apa-apa.
+export async function processProject(id: string): Promise<ProcessResult> {
+  const lockKey = projectProcessLockKey(id);
+  if (!tryAcquireLock(lockKey)) {
+    throw new LockBusyError(
+      lockKey,
+      "Project ini sedang diproses (generate/render) oleh proses lain - tunggu sampai selesai sebelum mencoba lagi."
+    );
+  }
+  try {
+    return await processProjectInner(id);
+  } finally {
+    releaseLock(lockKey);
+  }
 }

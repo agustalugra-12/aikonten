@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAutoContent, AutoContentError } from "@/lib/pipeline/autoContent";
+import { tryAcquireLock, releaseLock, brandAutoContentLockKey } from "@/lib/concurrency/locks";
 
 // "⚡ Konten Otomatis" (lihat memory proyek: "otomatis seperti AI blog") - satu klik,
 // TANPA upload apa pun. Logika inti diekstrak (2026-08-06) ke lib/pipeline/autoContent.ts
@@ -24,6 +25,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // perilaku lama (ikut default brand) tetap sama persis.
   const contentFormat = body.contentFormat === "youtube_shorts" ? body.contentFormat : undefined;
 
+  // Lock per-brand (2026-08-14, temuan #1 Lampiran D ENGINEERING_SAFETY.md) - key SAMA
+  // dgn cron/auto-generate (brandAutoContentLockKey) supaya tombol manual ini & cron
+  // saling block utk brand yg sama, bukan cuma sesama klik manual. Beda dari cron
+  // (skip diam2), di sini REJECT JELAS ke UI (409) - ini aksi manual sadar, Agus perlu
+  // tahu kalau klik-nya tidak diproses, bukan silent no-op.
+  const lockKey = brandAutoContentLockKey(brandId);
+  if (!tryAcquireLock(lockKey)) {
+    return NextResponse.json(
+      { error: "Brand ini sedang diproses (cron otomatis atau proses manual lain sedang jalan) - tunggu sampai selesai, lalu coba lagi." },
+      { status: 409 }
+    );
+  }
+
   try {
     const result = await runAutoContent(brandId, body.script, desiredType, contentFormat);
     return NextResponse.json({ ok: true, ...result });
@@ -31,5 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const status = err instanceof AutoContentError ? err.status : 500;
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status });
+  } finally {
+    releaseLock(lockKey);
   }
 }

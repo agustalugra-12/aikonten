@@ -4,6 +4,7 @@ import { mediaAssets, projects } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { processProject } from "@/lib/pipeline/processProject";
 import { publishProject } from "@/lib/publish/orchestrate";
+import { LockBusyError } from "@/lib/concurrency/locks";
 
 // "Coba Lagi" pintar (2026-08-07, permintaan Agus - konten yg SUDAH jadi videonya/
 // gambarnya sempat "tampil" [status ready] lalu "hilang lagi" krn status jatuh ke
@@ -36,6 +37,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     const result = await processProject(id);
     return NextResponse.json({ ok: true, mode: "process", ...result });
   } catch (err) {
+    // Lock per-projectId (2026-08-14, temuan #1/#2) - project ini sedang diproses/
+    // dipublikasikan proses lain (mis. cron balapan dgn retry manual), balikin 409
+    // jelas drpd 500 generik.
+    if (err instanceof LockBusyError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -25,7 +25,7 @@ import { buildStatOverlayFilterStages } from "./statOverlay";
 import { buildLowerThirdFilter, LOWER_THIRD_END_SECONDS, NARRATION_LEAD_IN_SECONDS } from "./lowerThird";
 import { buildComparisonBarFilter } from "./comparisonBar";
 import { getStatIconPath } from "./statIcons";
-import type { StatIconCategory } from "@/lib/ai/statExtractor";
+import { MAX_STATS, type StatIconCategory } from "@/lib/ai/statExtractor";
 import { getLottieFramePattern, getLottieMeta, buildLottieOverlayFilterStages } from "./lottieOverlay";
 
 const execFileAsync = promisify(execFile);
@@ -563,9 +563,21 @@ export async function renderFinalVideo(opts: {
     // statIcons.ts) - 1 input PNG per stat yg VALID (clipIndex dalam rentang), sama
     // "-loop 1" WAJIB spt logo/sticker di atas. Disimpan berpasangan dgn statOverlays
     // aslinya (bukan array index terpisah) spy urutan tidak pernah salah pasang.
-    const validStatOverlays = (opts.statOverlays || []).filter(
-      (s) => s.clipIndex >= 0 && s.clipIndex < clipStartOffsets.length
-    );
+    //
+    // Cap keras (2026-08-14, temuan #4 Lampiran D ENGINEERING_SAFETY.md / audit
+    // kontenpilot §4/§6) - fan-in ke ffmpeg call TERBESAR di codebase ini (Step 6 final
+    // overlay, sudah py video+logo+sticker/wow+bell+confetti+voiceover+musik sbg input
+    // lain) TIDAK BOLEH tumbuh tanpa batas dari 1 variabel yg tidak terkait clip count
+    // (jumlah stat overlay hasil ekstraksi GPT) - bentuk risiko SAMA dgn bug tree-merge
+    // OOM malam ini (1 proses ffmpeg pegang N input simultan), variabel beda. statExtractor.ts
+    // SUDAH cap MAX_STATS=3 di sumbernya ("Never clutter the screen") - baris `.slice`
+    // di bawah ini backstop DEFENSE-IN-DEPTH di titik fan-in-nya sendiri (bukan cuma
+    // percaya upstream selalu benar) - truncate (ambil N pertama, urutan SUDAH by
+    // positionFraction/kemunculan di narasi dari statExtractor) drpd gagalkan seluruh
+    // render kalau suatu saat ada >MAX_STATS item masuk sini.
+    const validStatOverlays = (opts.statOverlays || [])
+      .filter((s) => s.clipIndex >= 0 && s.clipIndex < clipStartOffsets.length)
+      .slice(0, MAX_STATS);
     const statIconInputIdx: number[] = [];
     for (const stat of validStatOverlays) {
       finalArgs.push("-loop", "1", "-i", getStatIconPath(stat.iconCategory));

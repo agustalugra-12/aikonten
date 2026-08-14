@@ -5,6 +5,7 @@ import { newId } from "@/lib/ids";
 import { getPublisher } from "./index";
 import { sendTelegramNotification, formatPublishSummaryNotification } from "./telegram";
 import { ensureFreshYoutubeAccessToken } from "./youtubeAuth";
+import { tryAcquireLock, releaseLock, projectPublishLockKey, LockBusyError } from "@/lib/concurrency/locks";
 
 // Publish - dulu dipanggil OTOMATIS begitu artefak AI selesai (full-auto, tanpa jeda
 // approval), TAPI sejak 2026-08-04 (permintaan Agus - mau bisa cek draft dulu) ini
@@ -13,7 +14,7 @@ import { ensureFreshYoutubeAccessToken } from "./youtubeAuth";
 // sebelumnya gagal. Notifikasi Telegram tetap dikirim tiap percobaan publish, sukses
 // maupun gagal, sbg jaring pengaman tambahan (bukan approval gate lagi - itu sudah di
 // tahap draft review).
-export async function publishProject(projectId: string): Promise<void> {
+async function publishProjectInner(projectId: string): Promise<void> {
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project) return;
 
@@ -254,4 +255,36 @@ export async function publishProject(projectId: string): Promise<void> {
     .update(projects)
     .set({ status: finalStatus, updatedAt: new Date() })
     .where(eq(projects.id, projectId));
+}
+
+// Lock per-projectId (2026-08-14, temuan #2 Lampiran D ENGINEERING_SAFETY.md / audit
+// kontenpilot §4/§6) - publishProjectInner()'s idempotency di atas (alreadySucceededAccountIds,
+// baris ~90) itu READ-THEN-ACT tanpa lock - 2 panggilan bersamaan (klik dobel tombol
+// "Publikasikan", atau retry manual balapan dgn cron auto-publish 15-menit utk project
+// yg sama) bisa SAMA-SAMA lolos cek "belum sukses" SEBELUM salah satu insert publishLogs,
+// keduanya coba publish ke akun sosial media yg SAMA -> DOBEL-PUBLISH sungguhan ke akun
+// live (TikTok/IG/YT/FB) - susah di-undo diam-diam, beda dari dobel-render (biaya doang).
+// Registry SAMA dgn lock project-process (lib/concurrency/locks.ts) tapi PREFIX KEY BEDA
+// ("project-publish:" vs "project-process:") - render & publish 2 tahap yg biasanya
+// tidak overlap (publish baru jalan stlh status "ready"), sengaja tidak disatukan supaya
+// 1 tahap tidak pernah tanpa sengaja mem-block tahap lain yg independen.
+//
+// Caller manual (publish/route.ts, retry/route.ts) map LockBusyError -> 409 jelas.
+// Caller cron (auto-publish/route.ts, 2 titik: slot publish & retryPartialPublishes)
+// SUDAH py try/catch per-project yg log & lanjut ke project berikutnya - LockBusyError
+// otomatis "skip bersih" lewat jalur itu tanpa perlu ubah kode di sana (busy = akan
+// dicoba lagi di siklus cron 15-menit berikutnya, bukan hilang).
+export async function publishProject(projectId: string): Promise<void> {
+  const lockKey = projectPublishLockKey(projectId);
+  if (!tryAcquireLock(lockKey)) {
+    throw new LockBusyError(
+      lockKey,
+      "Project ini sedang dipublikasikan oleh proses lain - tunggu sampai selesai sebelum mencoba lagi."
+    );
+  }
+  try {
+    await publishProjectInner(projectId);
+  } finally {
+    releaseLock(lockKey);
+  }
 }

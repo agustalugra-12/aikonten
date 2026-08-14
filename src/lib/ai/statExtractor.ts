@@ -33,7 +33,14 @@ export type StatOverlay = {
   iconCategory: StatIconCategory;
 };
 
-const MAX_STATS = 3; // "Never clutter the screen" - cap kecil, bukan tiap fakta jadi kartu
+// Exported (2026-08-14, temuan #4 Lampiran D ENGINEERING_SAFETY.md / audit kontenpilot
+// §4/§6) - dipakai jg sbg cap DEFENSE-IN-DEPTH di render/ffmpeg.ts (validStatOverlays)
+// supaya batas "Never clutter the screen" ini ditegakkan LAGI persis di titik fan-in
+// ffmpeg (1 input PNG per stat), bukan cuma di sini - kalau kelak ada caller lain ke
+// renderFinalVideo yg (sengaja/tidak sengaja) kirim statOverlays lebih dari batas ini,
+// render tetap aman (truncate, bukan reject/crash). SATU angka, jangan duplikasi nilai
+// di 2 tempat yg bisa menyimpang diam-diam.
+export const MAX_STATS = 3; // "Never clutter the screen" - cap kecil, bukan tiap fakta jadi kartu
 
 export async function extractStatOverlays(script: string): Promise<StatOverlay[]> {
   try {

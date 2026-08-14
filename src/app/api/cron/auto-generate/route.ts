@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyContentPlanner";
 import { todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { runAutoContent } from "@/lib/pipeline/autoContent";
+import { tryAcquireLock, releaseLock, brandAutoContentLockKey } from "@/lib/concurrency/locks";
 
 // Cron #2 - SEMUA brand, bukan cuma publishMode="auto" (2026-08-06, revisi permintaan
 // Agus - "ketika owner buat setting 5 vidio 5 foto ini akan disiapkan idenya di rencana
@@ -40,34 +41,56 @@ export async function POST(req: NextRequest) {
 
   const allBrandsRaw = await db.select().from(brands);
   const allBrands = onlyBrandIds ? allBrandsRaw.filter((b) => onlyBrandIds.includes(b.id)) : allBrandsRaw;
-  const results: Array<{ brandId: string; name: string; generated: number; failed: number }> = [];
+  const results: Array<{ brandId: string; name: string; generated: number; failed: number; skipped?: string }> = [];
 
   for (const brand of allBrands) {
-    await getOrGenerateDailyIdeas(brand.id); // idempotent - pastikan ide hari ini ada dulu
-    const today = todayDateKeyWita();
-    const todaysIdeas = await db
-      .select()
-      .from(dailyIdeas)
-      .where(and(eq(dailyIdeas.brandId, brand.id), eq(dailyIdeas.date, today), eq(dailyIdeas.used, false)));
-
-    let generated = 0;
-    let failed = 0;
-    for (const idea of todaysIdeas) {
-      try {
-        // Threading contentType asli ide (2026-08-06, fix bug "video tidak ada malah
-        // foto semua") - lihat catatan lengkap di autoContent.ts runAutoContent().
-        await runAutoContent(
-          brand.id, idea.idea, idea.contentType ?? undefined, idea.contentFormat ?? undefined,
-          idea.youtubeSeriesId ?? undefined, idea.youtubeMetadata ?? undefined, idea.pillar ?? undefined
-        );
-        await markDailyIdeaUsed(idea.id);
-        generated++;
-      } catch (err) {
-        console.error(`[cron/auto-generate] gagal proses ide "${idea.idea.slice(0, 60)}..." brand ${brand.name}:`, err);
-        failed++;
-      }
+    // Lock per-brand (2026-08-14, temuan #1 Lampiran D ENGINEERING_SAFETY.md / audit
+    // kontenpilot §4/§6) - TIDAK ADA proteksi sebelumnya thd route ini dipanggil
+    // BARENGAN (manual curl/systemctl start sementara run terjadwal masih jalan - lihat
+    // riwayat call-endpoint.sh, curl timeout 1700dtk sementara kerja server tetap jalan
+    // 1 jam penuh, skenario yg PLAUSIBLE mendorong operator re-trigger manual). Lock
+    // dipegang utk SELURUH loop ide brand ini (bukan per-idea) - kalau invocation KEDUA
+    // dtg utk brand yg SUDAH dipegang, SKIP BERSIH brand itu (log + catat di results,
+    // TIDAK error-kan seluruh request) drpd jalankan pipeline berbayar (OpenAI+fal.ai+
+    // TTS+ffmpeg) dobel utk ide yg sama. Key SAMA dipakai tombol manual "⚡" (lihat
+    // brands/[id]/auto-content/route.ts) via brandAutoContentLockKey() - keduanya saling
+    // block juga, bukan cuma dobel-cron.
+    const lockKey = brandAutoContentLockKey(brand.id);
+    if (!tryAcquireLock(lockKey)) {
+      console.warn(`[cron/auto-generate] brand "${brand.name}" (${brand.id}) sedang diproses oleh proses lain - skip run ini, bukan dobel proses.`);
+      results.push({ brandId: brand.id, name: brand.name, generated: 0, failed: 0, skipped: "brand sedang diproses proses lain" });
+      continue;
     }
-    results.push({ brandId: brand.id, name: brand.name, generated, failed });
+
+    try {
+      await getOrGenerateDailyIdeas(brand.id); // idempotent - pastikan ide hari ini ada dulu
+      const today = todayDateKeyWita();
+      const todaysIdeas = await db
+        .select()
+        .from(dailyIdeas)
+        .where(and(eq(dailyIdeas.brandId, brand.id), eq(dailyIdeas.date, today), eq(dailyIdeas.used, false)));
+
+      let generated = 0;
+      let failed = 0;
+      for (const idea of todaysIdeas) {
+        try {
+          // Threading contentType asli ide (2026-08-06, fix bug "video tidak ada malah
+          // foto semua") - lihat catatan lengkap di autoContent.ts runAutoContent().
+          await runAutoContent(
+            brand.id, idea.idea, idea.contentType ?? undefined, idea.contentFormat ?? undefined,
+            idea.youtubeSeriesId ?? undefined, idea.youtubeMetadata ?? undefined, idea.pillar ?? undefined
+          );
+          await markDailyIdeaUsed(idea.id);
+          generated++;
+        } catch (err) {
+          console.error(`[cron/auto-generate] gagal proses ide "${idea.idea.slice(0, 60)}..." brand ${brand.name}:`, err);
+          failed++;
+        }
+      }
+      results.push({ brandId: brand.id, name: brand.name, generated, failed });
+    } finally {
+      releaseLock(lockKey);
+    }
   }
 
   return NextResponse.json({ ok: true, results });
