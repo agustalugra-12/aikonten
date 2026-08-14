@@ -930,7 +930,7 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,
     // bukan estimasi pre-render) tetap >= minimum wajib. Ditemukan lewat tes nyata: durasi
     // NOMINAL klip Pexels kadang beda dari durasi FILE sungguhan yg diserve, jadi estimasi
-    // pre-render (sudah dikasih margin +3dtk, lihat PRE_RENDER_TARGET_SECONDS di atas) bisa
+    // pre-render (sudah dikasih margin, lihat PRE_RENDER_TARGET_SECONDS di atas) bisa
     // meleset. Render yg SUDAH JADI tapi ternyata di bawah standar tetap DIBUANG (bukan
     // dipublikasikan diam2 melanggar aturan "tidak boleh kurang dari 40 detik") - biaya
     // render yg terbuang lebih baik drpd konten yg melanggar aturan keras yg diminta Agus.
@@ -939,11 +939,21 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // catatan lengkap dekat definisinya) - keputusan degradasi HARUS konsisten sampai
     // ke gerbang post-render ini, bukan cuma di cek pre-render lalu tetap ke-reject di
     // sini dgn angka minimum ASLI yg sudah sengaja dilonggarkan.
-    if (rendered.durationSeconds < effectiveMinDuration) {
+    //
+    // Toleransi 120dtk (2026-08-14, keputusan bisnis Agus langsung) - SEBELUM ini gerbang
+    // ZERO tolerance (meleset walau 1dtk = reject total, buang biaya render PENUH -
+    // insiden nyata: video long-form 47 menit render, meleset cuma 4dtk dari minimum
+    // 240dtk, dibuang semua). Narasi/skrip TETAP utuh & akurat walau footage sedikit lebih
+    // pendek dari target (drift nominal-vs-file, bukan narasi terpotong) - Agus eksplisit
+    // OK durasi kurang SAMPAI 120dtk drpd terus2an reject render yg sebenarnya sudah
+    // pantas dipakai. Di atas 120dtk kurang dianggap genuinely bermasalah (bukan cuma
+    // drift wajar) - tetap reject spt sebelumnya.
+    const POST_RENDER_DURATION_TOLERANCE_SECONDS = 120;
+    if (rendered.durationSeconds < effectiveMinDuration - POST_RENDER_DURATION_TOLERANCE_SECONDS) {
       throw new Error(
         `Video hasil render cuma ${rendered.durationSeconds} detik, di bawah minimum ` +
-          `${effectiveMinDuration} detik yg diwajibkan (estimasi pre-render meleset - ` +
-          `durasi nyata sumber footage beda dari metadata) - coba generate ulang.`
+          `${effectiveMinDuration} detik (toleransi ${POST_RENDER_DURATION_TOLERANCE_SECONDS}dtk) yg diwajibkan - ` +
+          `durasi nyata sumber footage beda dari metadata - coba generate ulang.`
       );
     }
 
