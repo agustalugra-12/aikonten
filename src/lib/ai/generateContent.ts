@@ -103,6 +103,20 @@ function normalizePillar(v: unknown): string | null {
 function normalizeAngle(v: unknown): ContentAngle | null {
   return (CONTENT_ANGLES as readonly string[]).includes(v as string) ? (v as ContentAngle) : null;
 }
+// Hook Type Library (2026-08-14, PRD "AI Content Intelligence" Fase 1) - 11 kategori
+// hook TETAP (bukan per-brand spt pillar - kategori pembuka konten itu domain-agnostic,
+// beda dari pillar yg legitimately beda per bisnis). Tracking-only (dipakai deteksi
+// pengulangan di contentVariety.ts), TIDAK membatasi model menulis hook bebas apa pun -
+// klasifikasi ini SETELAH model menulis, bukan sebelum.
+export const HOOK_TYPES = [
+  "curiosity", "problem", "contrarian", "question", "story", "data", "warning",
+  "direct_benefit", "mystery", "comparison", "pattern_interrupt",
+] as const;
+export type HookType = (typeof HOOK_TYPES)[number];
+
+function normalizeHookType(v: unknown): HookType | null {
+  return (HOOK_TYPES as readonly string[]).includes(v as string) ? (v as HookType) : null;
+}
 // Keyword Priority & Search Intent (2026-08-05, PRD modul 4 & 9) - normalisasi longgar
 // (bandingkan case-insensitive) krn keyword ASLI (bukan enum ketat spt pillar/angle) -
 // GPT kadang beda kapitalisasi kecil, tetap dianggap valid selama cocok satu daftar.
@@ -127,7 +141,9 @@ function buildClassificationFragment(knowledgeSite?: string | null, customPillar
       : "";
   return (
     ` Sertakan juga pillar (WAJIB SALAH SATU PERSIS): ${pillars.map((p) => `"${p}"`).join(", ")}, ` +
-    `dan angle (WAJIB SALAH SATU PERSIS): ${CONTENT_ANGLES.map((a) => `"${a}"`).join(", ")} - ` +
+    `angle (WAJIB SALAH SATU PERSIS): ${CONTENT_ANGLES.map((a) => `"${a}"`).join(", ")}, ` +
+    `dan hookType (WAJIB SALAH SATU PERSIS): ${HOOK_TYPES.map((h) => `"${h}"`).join(", ")} - ` +
+    "klasifikasi kategori hook/pembuka yang BENAR-BENAR dipakai di skrip/caption ini - " +
     "klasifikasi ini dipakai sistem melacak variasi konten, JAWAB SEJUJURNYA sesuai isi konten ini, " +
     "bukan asal pilih." +
     keywordPart
@@ -139,6 +155,7 @@ export type GeneratedContent = {
   hashtags: string[];
   pillar: string | null;
   angle: ContentAngle | null;
+  hookType: HookType | null;
   targetKeyword: string | null;
   keywordLevel: number | null;
   // Knowledge Base MENTAH yang dipakai grounding generate ini (2026-08-08, Fact Check
@@ -349,7 +366,7 @@ export async function generateCaptionAndHashtags(
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
     buildClassificationFragment(knowledgeSite, customPillarsJson);
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "targetKeyword": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -372,6 +389,7 @@ export async function generateCaptionAndHashtags(
     structureTemplate: structureTemplate.name,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
+    hookType: normalizeHookType(parsed.hookType),
     knowledgeUsed: grounding.knowledge,
     ...normalizeTargetKeyword(parsed.targetKeyword),
   };
@@ -423,7 +441,7 @@ export async function generateCaptionForImages(
     "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
     "TIDAK menyebut harga/promo sama sekali, promoText HARUS null." +
     buildClassificationFragment(knowledgeSite, customPillarsJson);
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "...", "targetKeyword": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -449,6 +467,7 @@ export async function generateCaptionForImages(
     promoText: parsed.promoText || null,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
+    hookType: normalizeHookType(parsed.hookType),
     knowledgeUsed: grounding.knowledge,
     ...normalizeTargetKeyword(parsed.targetKeyword),
   };
