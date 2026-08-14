@@ -49,21 +49,22 @@ In `src/db/schema.ts`, immediately after the `angle` column definition (the bloc
 - [ ] **Step 2: Generate the migration**
 
 Run: `cd /root/kontenpilot-ai && npx drizzle-kit generate`
-Expected: new files appear under `drizzle/` (a `00XX_<random-name>.sql` containing 2 `ALTER TABLE projects ADD ...` statements, plus updated `drizzle/meta/_journal.json` and a new `drizzle/meta/00XX_snapshot.json`). Confirm with `git status --short drizzle/` — 3 new files, no modifications to existing migration files.
+Expected: new files appear under `drizzle/` (a `00XX_<random-name>.sql`, plus updated `drizzle/meta/_journal.json` and a new `drizzle/meta/00XX_snapshot.json`). **Known issue found 2026-08-15**: this repo's schema.ts had drifted ahead of its migration history before this plan (several columns — `daily_ideas.pillar`, `projects.auto_fix_attempts`/`auto_fix_log`, `youtube_series.category` — already exist in the live DB via past manual `push`/ad-hoc changes but were never captured in a migration file). `generate` will bundle ALL of that pre-existing drift into the new file alongside the 2 columns this task actually needs. Before proceeding: check which of the bundled statements' columns already exist (`PRAGMA table_info(<table>)` via the better-sqlite3 snippet in Step 3 below, adapted per table) and manually trim the generated `.sql` file down to only the genuinely new `ALTER TABLE projects ADD hook_type text;` / `ALTER TABLE projects ADD structure_template text;` lines — do not attempt to "fix" the older drift as part of this task, that's a separate pre-existing issue to flag, not silently resolve here. Confirm with `git status --short drizzle/` — 3 new files, no modifications to existing migration files.
 
 - [ ] **Step 3: Apply the migration to the local dev DB**
 
-Run: `npx drizzle-kit migrate`
-Expected: no errors; confirm with (this repo has no `sqlite3` CLI installed — use `better-sqlite3`, already a project dependency, directly):
+Try `npx drizzle-kit migrate` first. **Known issue found 2026-08-15**: on this repo's local dev DB, this command fails silently (exits 1, prints no error — spinner just stops). Root cause: the `__drizzle_migrations` internal journal table has `id: NULL` on every existing row (inspect via `SELECT * FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 5` through the same better-sqlite3-via-tsx pattern as below) — a pre-existing inconsistency from this repo's migration history, not something this task caused, and not something to attempt fixing here (out of scope, and repairing an internal drizzle-kit journal table without fully understanding its invariants risks making it worse). If `migrate` fails this way, apply the trimmed `.sql` file's statements directly instead:
 ```bash
 npx tsx -e "
 const Database = require('better-sqlite3');
 const db = new Database(process.env.DATABASE_PATH || './data/kontenpilot.db');
-const cols = db.prepare(\"PRAGMA table_info(projects)\").all().map(c => c.name);
+db.exec('ALTER TABLE projects ADD hook_type text;');
+db.exec('ALTER TABLE projects ADD structure_template text;');
+const cols = db.prepare('PRAGMA table_info(projects)').all().map(c => c.name);
 console.log(cols.includes('hook_type') && cols.includes('structure_template') ? 'OK: kedua kolom ada' : 'MISSING: ' + JSON.stringify(cols));
 "
 ```
-Expected output: `OK: kedua kolom ada`.
+Expected output: `OK: kedua kolom ada`. **This same fallback will very likely be needed again when deploying to the remote server** (`admin@202.10.41.72`) — same drizzle-kit version, likely the same journal inconsistency (not confirmed, but do not assume `drizzle-kit migrate` will work cleanly there either; check first, have the direct-ALTER fallback ready).
 
 - [ ] **Step 4: Type-check**
 
@@ -772,4 +773,4 @@ git commit -m "Persist hookType/structureTemplate; add bounded regeneration on r
 
 ## Post-plan: deployment note (not a task — applies once all 5 tasks above are done and reviewed)
 
-This plan only touches the local dev DB (Task 1, Step 3). Before this is live for real content generation, the same migration must be applied to **both** production servers per this repo's existing 2-server deploy convention (see Global Constraints above and `docs/superpowers/plans/2026-08-14-render-tree-merge.md` for the exact command sequence: `scp` changed files → remote `npm run build` → `npx drizzle-kit migrate` on the remote DB path → `systemctl restart kontenpilot-backend.service` on each server). Do this as an explicit, confirmed step with Agus present for the production restart — not silently as part of finishing this plan.
+This plan only touches the local dev DB (Task 1, Step 3). Before this is live for real content generation, the same 2 columns must be added to **both** production servers per this repo's existing 2-server deploy convention (see Global Constraints above and `docs/superpowers/plans/2026-08-14-render-tree-merge.md` for the exact `scp`/`npm run build`/`systemctl restart` sequence). For the DB change itself, use the direct-ALTER fallback documented in Task 1 Step 3 (`db.exec("ALTER TABLE projects ADD hook_type text;")` etc. via better-sqlite3), not `npx drizzle-kit migrate` — that command was found broken on the local dev DB during this plan's execution (pre-existing `__drizzle_migrations` journal corruption, `id: NULL` on every row) and should not be assumed to work on either production server without checking first. Do this as an explicit, confirmed step with Agus present for the production restart — not silently as part of finishing this plan.

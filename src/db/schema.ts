@@ -243,6 +243,17 @@ export const projects = sqliteTable("projects", {
   angle: text("angle", {
     enum: ["harga", "lokasi", "fasilitas", "suasana", "target_tamu", "momen", "faq", "perbandingan"],
   }),
+  // Hook Type & Structure Rotation (2026-08-14, PRD "AI Content Intelligence" Fase 1 -
+  // lihat spec docs/superpowers/specs/2026-08-14-content-diversity-engine-design.md).
+  // hookType: klasifikasi kategori hook/pembuka (11 nilai tetap, lihat HOOK_TYPES di
+  // generateContent.ts) - TEXT polos sama pola dgn pillar/angle di atas, tracking-only,
+  // tidak membatasi generation. structureTemplate: nama template narasi yg dipakai
+  // (lihat VIDEO_STRUCTURE_TEMPLATES/LONG_FORM_STRUCTURE_TEMPLATES) - field ini SUDAH
+  // digenerate sejak 2026-08-05 tapi TIDAK PERNAH disimpan sampai sekarang (dibuang
+  // begitu processProject.ts selesai memakainya sekali) - kolom ini menutup gap itu,
+  // dibutuhkan supaya contentVariety.ts bisa membaca histori pemakaian struktur.
+  hookType: text("hook_type"),
+  structureTemplate: text("structure_template"),
   // Keyword Priority & Search Intent Engine (2026-08-05, PRD modul 4 & 9, permintaan
   // Agus) - keyword TARGET SEO (dari daftar prioritas Level 1/2/3 persis PRD, lihat
   // keywordPriority.ts) yg paling didukung konten ini, diklasifikasi bareng

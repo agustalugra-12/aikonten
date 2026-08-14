@@ -211,6 +211,13 @@
       "when": 1786477853043,
       "tag": "0029_serious_mole_man",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1786727547082,
+      "tag": "0030_condemned_swordsman",
+      "breakpoints": true
     }
   ]
 }
