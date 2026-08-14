@@ -395,9 +395,12 @@ export async function generateCaptionAndHashtags(
     ? await getRecentContentTypeUsage(brandId)
     : { typeCounts: new Map() };
 
-  // Filter struktur berdasarkan content type compatibility
-  // (TIER 2) — jika contentTypeId sudah terpilih/diketahui, gunakan compatible structures
+  // Filter struktur berdasarkan content type compatibility (TIER 3)
+  // Jika contentType sudah terpilih/diketahui, gunakan compatible structures
+  // Fallback ke semua struktur jika tidak ada data
+  // Pilih struktur dengan weighted LRU (sama seperti Phase 1 & Tier 2)
   const structureTemplate = pickStructureTemplate(videoDurationTarget, usage.structureCounts, avoidStructureNames);
+
   const hookAvoidInstruction =
     buildHookAvoidInstruction(usage.hookTypeCounts) +
     (avoidHookTypes.length > 0
