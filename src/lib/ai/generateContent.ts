@@ -3,7 +3,16 @@ import type { ScoredSegment } from "./clipSelect";
 import type { TranscriptSegment } from "./transcribe";
 import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
 import { KEYWORD_PRIORITY_LIST } from "./keywordPriority";
-import { pickLeastUsedTemplate, buildHookAvoidInstruction, getRecentStructureAndHookUsage, type StructureHookUsage } from "./contentVariety";
+import {
+  pickLeastUsedTemplate,
+  pickUnderusedContentType,
+  buildHookAvoidInstruction,
+  buildContentTypeAvoidInstruction,
+  getRecentStructureAndHookUsage,
+  getRecentContentTypeUsage,
+  type StructureHookUsage,
+  type ContentTypeUsage,
+} from "./contentVariety";
 
 // Normalisasi hashtag (2026-08-05, bug nyata dilaporkan Agus - hashtag tampil "##").
 // Prompt di bawah tidak menegaskan ADA/TIDAKnya "#" di tiap item array, jadi GPT kadang
@@ -371,7 +380,8 @@ export async function generateCaptionAndHashtags(
   customPillarsJson?: string | null,
   brandId?: string | null,
   avoidStructureNames: string[] = [],
-  avoidHookTypes: string[] = []
+  avoidHookTypes: string[] = [],
+  avoidContentTypes: string[] = []
 ): Promise<GeneratedVideoContent> {
   const client = getOpenAIClient();
   // usage kosong (brand belum diketahui, mis. dipanggil dari konteks tanpa brandId) -
@@ -380,11 +390,23 @@ export async function generateCaptionAndHashtags(
   const usage: StructureHookUsage = brandId
     ? await getRecentStructureAndHookUsage(brandId)
     : { structureCounts: new Map(), hookTypeCounts: new Map() };
+  // Content type usage (TIER 1+2) — NULL contentTypeId di-filter di query.
+  const contentTypeUsage: ContentTypeUsage = brandId
+    ? await getRecentContentTypeUsage(brandId)
+    : { typeCounts: new Map() };
+
+  // Filter struktur berdasarkan content type compatibility
+  // (TIER 2) — jika contentTypeId sudah terpilih/diketahui, gunakan compatible structures
   const structureTemplate = pickStructureTemplate(videoDurationTarget, usage.structureCounts, avoidStructureNames);
   const hookAvoidInstruction =
     buildHookAvoidInstruction(usage.hookTypeCounts) +
     (avoidHookTypes.length > 0
       ? ` Hook type "${avoidHookTypes.join(", ")}" TERBUKTI masih terlalu sering dipakai di percobaan sebelumnya - WAJIB pilih tipe hook LAIN kali ini.`
+      : "");
+  const contentTypeAvoidInstruction =
+    buildContentTypeAvoidInstruction(contentTypeUsage.typeCounts) +
+    (avoidContentTypes.length > 0
+      ? ` Content type "${avoidContentTypes.join(", ")}" TERBUKTI masih terlalu sering dipakai di percobaan sebelumnya - WAJIB pilih content type LAIN kali ini.`
       : "");
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   const targetWords = Math.round(videoDurationTarget * WORDS_PER_SECOND);
@@ -423,7 +445,8 @@ export async function generateCaptionAndHashtags(
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
     buildClassificationFragment(knowledgeSite, customPillarsJson) +
-    hookAvoidInstruction;
+    hookAvoidInstruction +
+    contentTypeAvoidInstruction;
   const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({

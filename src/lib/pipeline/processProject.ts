@@ -10,7 +10,7 @@ import {
   getDurationConfig,
 } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt, buildSrtFromTranscriptSegments, type ContentAngle } from "@/lib/ai/generateContent";
-import { getRecentStructureAndHookUsage, isStructureOverused, isHookTypeOverused } from "@/lib/ai/contentVariety";
+import { getRecentStructureAndHookUsage, isStructureOverused, isHookTypeOverused, getRecentContentTypeUsage, isContentTypeOverused } from "@/lib/ai/contentVariety";
 import { generateVoiceover } from "@/lib/ai/dubbing";
 // Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
@@ -466,46 +466,51 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       targetKeyword = null;
       keywordLevel = null;
       knowledgeUsed = "";
-    } else {
-      // Regenerasi terbatas (2026-08-14, PRD "AI Content Intelligence" Fase 1) - kalau
-      // struktur/hook yg dipilih TERBUKTI masih overused stlh generate, coba SEKALI
-      // lagi dgn instruksi eksplisit menghindari itu. Maks 2 percobaan TOTAL (bukan
-      // retry tak terbatas) - brand dgn pillar/topik yg genuinely sempit akan WAJAR
-      // mengulang struktur kadang, memaksa retry tanpa batas cuma membakar biaya OpenAI
-      // tanpa jaminan hasil beda (pool struktur terbatas, 5-7 opsi saja).
-      const MAX_REGEN_ATTEMPTS = 2;
-      const usageForRegenCheck = await getRecentStructureAndHookUsage(project.brandId);
-      let avoidStructureNames: string[] = [];
-      let avoidHookTypes: string[] = [];
-      let attempt = 0;
-      let generated: Awaited<ReturnType<typeof generateCaptionAndHashtags>>;
-      do {
-        generated = await generateCaptionAndHashtags(
-          brand?.name || "Brand",
-          project.script,
-          selectedText,
-          brand?.knowledgeSite,
-          brand?.manualKnowledge,
-          durationConfig.target,
-          brand?.contentPillars,
-          project.brandId,
-          avoidStructureNames,
-          avoidHookTypes
-        );
-        attempt += 1;
-        const overused =
-          isStructureOverused(generated.structureTemplate, usageForRegenCheck) ||
-          isHookTypeOverused(generated.hookType, usageForRegenCheck);
-        if (!overused || attempt >= MAX_REGEN_ATTEMPTS) break;
-        console.warn(
-          `[processProject] struktur "${generated.structureTemplate}" / hook "${generated.hookType}" ` +
-          `masih overused (percobaan ${attempt}/${MAX_REGEN_ATTEMPTS}), regenerate...`
-        );
-        avoidStructureNames = [...avoidStructureNames, generated.structureTemplate];
-        if (generated.hookType) avoidHookTypes = [...avoidHookTypes, generated.hookType];
-        // eslint-disable-next-line no-constant-condition
-      } while (true);
-      ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed } = generated);
+  } else {
+    // Regenerasi terbatas (2026-08-14, PRD "AI Content Intelligence" Fase 1 - TIER 2) - kalau
+    // struktur/hook/contentType yg dipilih TERBUKTI masih overused stlh generate, coba SEKALI
+    // lagi dgn instruksi eksplisit menghindari itu. Maks 2 percobaan TOTAL (bukan
+    // retry tak terbatas) - brand dgn pillar/topik yg genuinely sempit akan WAJAR
+    // mengulang struktur kadang, memaksa retry tanpa batas cuma membakar biaya OpenAI
+    // tanpa jaminan hasil beda (pool struktur terbatas, 5-7 opsi saja).
+    const MAX_REGEN_ATTEMPTS = 2;
+    const usageForRegenCheck = await getRecentStructureAndHookUsage(project.brandId);
+    const contentTypeUsageForRegenCheck = await getRecentContentTypeUsage(project.brandId);
+    let avoidStructureNames: string[] = [];
+    let avoidHookTypes: string[] = [];
+    let avoidContentTypes: string[] = [];
+    let attempt = 0;
+    let generated: Awaited<ReturnType<typeof generateCaptionAndHashtags>>;
+    do {
+      generated = await generateCaptionAndHashtags(
+        brand?.name || "Brand",
+        project.script,
+        selectedText,
+        brand?.knowledgeSite,
+        brand?.manualKnowledge,
+        durationConfig.target,
+        brand?.contentPillars,
+        project.brandId,
+        avoidStructureNames,
+        avoidHookTypes,
+        avoidContentTypes
+      );
+      attempt += 1;
+      const overused =
+        isStructureOverused(generated.structureTemplate, usageForRegenCheck) ||
+        isHookTypeOverused(generated.hookType, usageForRegenCheck) ||
+        (generated.contentType && isContentTypeOverused(generated.contentType, contentTypeUsageForRegenCheck));
+      if (!overused || attempt >= MAX_REGEN_ATTEMPTS) break;
+      console.warn(
+        `[processProject] struktur "${generated.structureTemplate}" / hook "${generated.hookType}" / content type "${generated.contentType}" ` +
+        `masih overused (percobaan ${attempt}/${MAX_REGEN_ATTEMPTS}), regenerate...`
+      );
+      avoidStructureNames = [...avoidStructureNames, generated.structureTemplate];
+      if (generated.hookType) avoidHookTypes = [...avoidHookTypes, generated.hookType];
+      if (generated.contentType) avoidContentTypes = [...avoidContentTypes, generated.contentType];
+      // eslint-disable-next-line no-constant-condition
+    } while (true);
+    ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed } = generated);
     }
     // Price Source of Truth (2026-08-11, permintaan Agus - lihat priceValidator.ts &
     // catatan sama di jalur carousel di atas) - caption (jadi naskah voiceover, lihat

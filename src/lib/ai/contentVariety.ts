@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { projects } from "@/db/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { projects, contentTypes } from "@/db/schema";
+import { and, eq, desc, isNotNull } from "drizzle-orm";
 
 // Anti-monoton utk struktur video & tipe hook (2026-08-14, PRD "AI Content
 // Intelligence" Fase 1, permintaan Agus - lihat spec doc utk detail lengkap). Window
@@ -17,11 +17,43 @@ const RECENT_PROJECTS_WINDOW = 8;
 // pola jadi dominan di window, bukan sesudah). Lihat spec doc utk pertimbangan lengkap.
 const STRUCTURE_REPEAT_THRESHOLD = 2;
 const HOOK_REPEAT_THRESHOLD = 3;
+const CONTENT_TYPE_REPEAT_THRESHOLD = 2;
+// Pool content types lebih kecil (16 types) - threshold 2 berarti 25% dari window 8.
+// Flag SEBELIKTNYA type jadi dominan (lebih from 25% usage).
 
 export type StructureHookUsage = {
   structureCounts: Map<string, number>;
   hookTypeCounts: Map<string, number>;
 };
+
+// Content Type Usage (2026-08-14, TIER 1+2) - extensible content types (bukan enum hardcode)
+export type ContentTypeUsage = {
+  typeCounts: Map<string, number>;
+};
+
+// Fungsi MURNI (2026-08-14) - tally content type usage dari rows
+export function tallyContentTypeUsage(
+  rows: { contentTypeId: string | null }[]
+): ContentTypeUsage {
+  const typeCounts = new Map<string, number>();
+  for (const r of rows) {
+    if (r.contentTypeId) {
+      typeCounts.set(r.contentTypeId, (typeCounts.get(r.contentTypeId) || 0) + 1);
+    }
+  }
+  return { typeCounts };
+}
+
+// Get recent content type usage dari DB (window 8 projects)
+export async function getRecentContentTypeUsage(brandId: string): Promise<ContentTypeUsage> {
+  const rows = await db
+    .select({ contentTypeId: projects.contentTypeId })
+    .from(projects)
+    .where(and(eq(projects.brandId, brandId), isNotNull(projects.contentTypeId)))
+    .orderBy(desc(projects.createdAt))
+    .limit(RECENT_PROJECTS_WINDOW);
+  return tallyContentTypeUsage(rows);
+}
 
 // Fungsi MURNI (2026-08-14) - dipisah dari query DB supaya bisa di-unit-test tanpa DB
 // sama sekali (pola sama dgn ai-chat-bot's "ekstrak guard jadi fungsi murni", CLAUDE.md
@@ -78,6 +110,10 @@ export function isHookTypeOverused(hookType: string | null, usage: StructureHook
   return (usage.hookTypeCounts.get(hookType) ?? 0) > HOOK_REPEAT_THRESHOLD;
 }
 
+export function isContentTypeOverused(contentTypeId: string, usage: ContentTypeUsage): boolean {
+  return (usage.typeCounts.get(contentTypeId) ?? 0) > CONTENT_TYPE_REPEAT_THRESHOLD;
+}
+
 // Instruksi "hindari" utk disuntik ke prompt LLM (2026-08-14) - soft steer, BUKAN hard
 // constraint (model tetap boleh pilih tipe yg sudah sering dipakai kalau itu benar2
 // paling cocok - pickLeastUsedTemplate & isStructureOverused/isHookTypeOverused di atas
@@ -90,4 +126,26 @@ export function buildHookAvoidInstruction(hookTypeCounts: Map<string, number>): 
   if (overused.length === 0) return "";
   const list = overused.map(([type, count]) => `${type} (${count}x)`).join(", ");
   return ` Hook type yang SUDAH sering dipakai belakangan (hindari kalau memungkinkan, cari sudut lain): ${list}.`;
+}
+
+// Instruksi "hindari" untuk content type (2026-08-14) - soft steer, BUKAN hard constraint
+export function buildContentTypeAvoidInstruction(typeCounts: Map<string, number>): string {
+  const overused = [...typeCounts.entries()]
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1]);
+  if (overused.length === 0) return "";
+  const list = overused.map(([type, count]) => `${type} (${count}x)`).join(", ");
+  return ` Content type yang SUDAH sering dipakai belakangan (hindari kalau memungkinkan, variasi dengan type lain): ${list}.`;
+}
+
+// Weighted pick untuk content type ID (2026-08-14) - beda dari pickLeastUsedTemplate
+// karena content types tidak punya property 'name' atau 'id' standard.
+export function pickUnderusedContentType<T extends { id: string }>(
+  pool: T[],
+  usageCounts: Map<string, number>
+): T {
+  const counted = pool.map((item) => ({ item, count: usageCounts.get(item.id) ?? 0 }));
+  const minCount = Math.min(...counted.map((c) => c.count));
+  const candidates = counted.filter((c) => c.count === minCount).map((c) => c.item);
+  return candidates[Math.floor(Math.random() * candidates.length)];
 }
