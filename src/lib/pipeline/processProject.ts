@@ -10,6 +10,7 @@ import {
   getDurationConfig,
 } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt, buildSrtFromTranscriptSegments, type ContentAngle } from "@/lib/ai/generateContent";
+import { getRecentStructureAndHookUsage, isStructureOverused, isHookTypeOverused } from "@/lib/ai/contentVariety";
 import { generateVoiceover } from "@/lib/ai/dubbing";
 // Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
@@ -147,7 +148,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     if (project.type === "carousel") {
       const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
       // eslint-disable-next-line prefer-const
-      let { caption, hashtags, promoText, pillar, angle, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionForImages(
+      let { caption, hashtags, promoText, pillar, angle, hookType, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionForImages(
         brand?.name || "Brand",
         project.script,
         photoUrls,
@@ -271,6 +272,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           generatedHashtags: JSON.stringify(hashtags),
           pillar,
           angle,
+          hookType,
           targetKeyword,
           keywordLevel,
           captionEmbedding: similarity ? JSON.stringify(similarity.embedding) : null,
@@ -435,7 +437,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
 
     let caption: string, hashtags: string[], brollKeywords: string | null, thumbnailText: string | null,
       structureTemplate: string, pillar: string | null, angle: ContentAngle | null,
-      targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string;
+      hookType: string | null, targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string;
 
     if (youtubeMeta) {
       const title = youtubeMeta.titles[youtubeMeta.selectedTitleIndex] || youtubeMeta.titles[0] || project.script.slice(0, 80);
@@ -455,19 +457,53 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       // nilai yg sudah di-insert (project.pillar), jangan timpa dgn null lagi.
       pillar = project.pillar;
       angle = null;
+      // hookType null (2026-08-14) - konten YouTube Editorial py penamaan struktur
+      // sendiri yg fixed/non-AI-classified (bukan dari VIDEO_STRUCTURE_TEMPLATES pool),
+      // sama alasan angle/targetKeyword di bawah juga null di cabang ini.
+      hookType = null;
       targetKeyword = null;
       keywordLevel = null;
       knowledgeUsed = "";
     } else {
-      ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionAndHashtags(
-        brand?.name || "Brand",
-        project.script,
-        selectedText,
-        brand?.knowledgeSite,
-        brand?.manualKnowledge,
-        durationConfig.target,
-        brand?.contentPillars
-      ));
+      // Regenerasi terbatas (2026-08-14, PRD "AI Content Intelligence" Fase 1) - kalau
+      // struktur/hook yg dipilih TERBUKTI masih overused stlh generate, coba SEKALI
+      // lagi dgn instruksi eksplisit menghindari itu. Maks 2 percobaan TOTAL (bukan
+      // retry tak terbatas) - brand dgn pillar/topik yg genuinely sempit akan WAJAR
+      // mengulang struktur kadang, memaksa retry tanpa batas cuma membakar biaya OpenAI
+      // tanpa jaminan hasil beda (pool struktur terbatas, 5-7 opsi saja).
+      const MAX_REGEN_ATTEMPTS = 2;
+      const usageForRegenCheck = await getRecentStructureAndHookUsage(project.brandId);
+      let avoidStructureNames: string[] = [];
+      let avoidHookTypes: string[] = [];
+      let attempt = 0;
+      let generated: Awaited<ReturnType<typeof generateCaptionAndHashtags>>;
+      do {
+        generated = await generateCaptionAndHashtags(
+          brand?.name || "Brand",
+          project.script,
+          selectedText,
+          brand?.knowledgeSite,
+          brand?.manualKnowledge,
+          durationConfig.target,
+          brand?.contentPillars,
+          project.brandId,
+          avoidStructureNames,
+          avoidHookTypes
+        );
+        attempt += 1;
+        const overused =
+          isStructureOverused(generated.structureTemplate, usageForRegenCheck) ||
+          isHookTypeOverused(generated.hookType, usageForRegenCheck);
+        if (!overused || attempt >= MAX_REGEN_ATTEMPTS) break;
+        console.warn(
+          `[processProject] struktur "${generated.structureTemplate}" / hook "${generated.hookType}" ` +
+          `masih overused (percobaan ${attempt}/${MAX_REGEN_ATTEMPTS}), regenerate...`
+        );
+        avoidStructureNames = [...avoidStructureNames, generated.structureTemplate];
+        if (generated.hookType) avoidHookTypes = [...avoidHookTypes, generated.hookType];
+        // eslint-disable-next-line no-constant-condition
+      } while (true);
+      ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, targetKeyword, keywordLevel, knowledgeUsed } = generated);
     }
     // Price Source of Truth (2026-08-11, permintaan Agus - lihat priceValidator.ts &
     // catatan sama di jalur carousel di atas) - caption (jadi naskah voiceover, lihat
@@ -801,6 +837,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         generatedHashtags: JSON.stringify(hashtags),
         pillar,
         angle,
+        hookType,
+        structureTemplate,
         targetKeyword,
         keywordLevel,
         captionEmbedding: similarity ? JSON.stringify(similarity.embedding) : null,
