@@ -400,6 +400,8 @@ export async function generateCaptionAndHashtags(
   // Fallback ke semua struktur jika tidak ada data
   // Pilih struktur dengan weighted LRU (sama seperti Phase 1 & Tier 2)
   const structureTemplate = pickStructureTemplate(videoDurationTarget, usage.structureCounts, avoidStructureNames);
+  // weighted LRU content type selection (TIER 3)
+  // pickUnderusedContentType dipanggil di processProject.ts bounded regeneration loop
 
   const hookAvoidInstruction =
     buildHookAvoidInstruction(usage.hookTypeCounts) +
