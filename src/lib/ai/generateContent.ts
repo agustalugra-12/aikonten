@@ -3,6 +3,7 @@ import type { ScoredSegment } from "./clipSelect";
 import type { TranscriptSegment } from "./transcribe";
 import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
 import { KEYWORD_PRIORITY_LIST } from "./keywordPriority";
+import { pickLeastUsedTemplate, buildHookAvoidInstruction, getRecentStructureAndHookUsage, type StructureHookUsage } from "./contentVariety";
 
 // Normalisasi hashtag (2026-08-05, bug nyata dilaporkan Agus - hashtag tampil "##").
 // Prompt di bawah tidak menegaskan ADA/TIDAKnya "#" di tiap item array, jadi GPT kadang
@@ -303,10 +304,18 @@ const LONG_FORM_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
   },
 ];
 
-function pickStructureTemplate(target: number): { name: string; guide: string } {
+function pickStructureTemplate(
+  target: number,
+  structureCounts: Map<string, number>,
+  avoidNames: string[] = []
+): { name: string; guide: string } {
   // >=180dtk (3 menit) dianggap long-form - lihat catatan LONG_FORM_STRUCTURE_TEMPLATES.
-  const pool = target >= 180 ? LONG_FORM_STRUCTURE_TEMPLATES : VIDEO_STRUCTURE_TEMPLATES;
-  return pool[Math.floor(Math.random() * pool.length)];
+  const fullPool = target >= 180 ? LONG_FORM_STRUCTURE_TEMPLATES : VIDEO_STRUCTURE_TEMPLATES;
+  // Regenerasi (2026-08-14, lihat processProject.ts) bisa minta struktur TERTENTU
+  // dikecualikan (yg baru saja terbukti overused percobaan sebelumnya) - fallback ke
+  // pool penuh kalau exclude menghabiskan semua opsi (jangan pernah pool kosong).
+  const pool = fullPool.filter((t) => !avoidNames.includes(t.name));
+  return pickLeastUsedTemplate(pool.length > 0 ? pool : fullPool, structureCounts);
 }
 
 // Kecepatan bicara TTS acuan ~150 kata/menit (2,5 kata/detik) - dipakai kasih target
@@ -325,10 +334,24 @@ export async function generateCaptionAndHashtags(
   knowledgeSite?: string | null,
   manualKnowledge?: string | null,
   videoDurationTarget: number = 60,
-  customPillarsJson?: string | null
+  customPillarsJson?: string | null,
+  brandId?: string | null,
+  avoidStructureNames: string[] = [],
+  avoidHookTypes: string[] = []
 ): Promise<GeneratedVideoContent> {
   const client = getOpenAIClient();
-  const structureTemplate = pickStructureTemplate(videoDurationTarget);
+  // usage kosong (brand belum diketahui, mis. dipanggil dari konteks tanpa brandId) -
+  // fallback aman: semua count 0, pickLeastUsedTemplate/buildHookAvoidInstruction tetap
+  // jalan normal (random di antara SEMUA template, tidak ada avoid-instruction).
+  const usage: StructureHookUsage = brandId
+    ? await getRecentStructureAndHookUsage(brandId)
+    : { structureCounts: new Map(), hookTypeCounts: new Map() };
+  const structureTemplate = pickStructureTemplate(videoDurationTarget, usage.structureCounts, avoidStructureNames);
+  const hookAvoidInstruction =
+    buildHookAvoidInstruction(usage.hookTypeCounts) +
+    (avoidHookTypes.length > 0
+      ? ` Hook type "${avoidHookTypes.join(", ")}" TERBUKTI masih terlalu sering dipakai di percobaan sebelumnya - WAJIB pilih tipe hook LAIN kali ini.`
+      : "");
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   const targetWords = Math.round(videoDurationTarget * WORDS_PER_SECOND);
   const isLongForm = videoDurationTarget >= 180;
@@ -365,7 +388,8 @@ export async function generateCaptionAndHashtags(
     "Sertakan juga thumbnailText: teks hook SANGAT singkat (2-5 kata, Bahasa Indonesia, " +
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
-    buildClassificationFragment(knowledgeSite, customPillarsJson);
+    buildClassificationFragment(knowledgeSite, customPillarsJson) +
+    hookAvoidInstruction;
   const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
