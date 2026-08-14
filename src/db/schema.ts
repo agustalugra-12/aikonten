@@ -254,6 +254,16 @@ export const projects = sqliteTable("projects", {
   // dibutuhkan supaya contentVariety.ts bisa membaca histori pemakaian struktur.
   hookType: text("hook_type"),
   structureTemplate: text("structure_template"),
+  // Content Type Taxonomy (2026-08-14, PRD "AI Content Intelligence" Fase 1 - TIER 1,
+  // lihat docs/TIER_0_VERIFICATION_REPORT.md & spec) - TERPISAH dari pillar (business
+  // topic) & angle (content angle). Type = format/structure konten (Educational, How-to,
+  // Listicle, dst) - dipakai diversity engine supaya tidak monoton (mis. 10 Educational
+  // berturut walau pillar beda). Nullable - existing 210 projects tetap valid NULL, new
+  // projects diklasifikasi GPT bareng pillar/angle/hookType (1 call, no extra cost).
+  // FK ke content_types (extensible table, bukan enum hardcode - type baru bisa ditambah
+  // tanpa code change, lihat seed-content-types.ts). normalizeContentType() fail-soft
+  // (null kalau invalid) - TIDAK mengganggu pillar/angle/hookType classification lain.
+  contentTypeId: text("content_type_id").references(() => contentTypes.id),
   // Keyword Priority & Search Intent Engine (2026-08-05, PRD modul 4 & 9, permintaan
   // Agus) - keyword TARGET SEO (dari daftar prioritas Level 1/2/3 persis PRD, lihat
   // keywordPriority.ts) yg paling didukung konten ini, diklasifikasi bareng
@@ -643,6 +653,42 @@ export const channelProfiles = sqliteTable("channel_profiles", {
 // series dibuat (lihat youtubeEditorial.ts) - progres "sudah sampai episode berapa"
 // DIHITUNG dari COUNT projects.youtubeSeriesId = seri ini (bukan kolom counter
 // terpisah yang bisa in bisa nyimpang dari kenyataan).
+// Content Type Taxonomy (2026-08-14, TIER 1 - PRD "AI Content Intelligence" Fase 1)
+// EXTENSIBLE table, bukan enum hardcode - type baru bisa ditambah tanpa code change
+// (INSERT row baru). Seeded dgn 16 system types (Educational, How-to, Listicle, dst),
+// tapi architecture support custom/additional types ke depan. Metadata fields support
+// future Content Planning Engine & Performance Analytics (TIER 2/3) - field boleh null
+// kalau belum digunakan, schema extensible.
+export const contentTypes = sqliteTable("content_types", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  
+  // Strategic metadata (future Content Planning Engine - TIER 2+)
+  objective: text("objective"), // "educate", "convert", "engage", "entertain", "support"
+  funnelStage: text("funnel_stage"), // "awareness", "consideration", "decision", "retention"
+  audienceIntent: text("audience_intent"), // "learn", "compare", "decide", "explore", "solve"
+  
+  // Platform & format guidance
+  suitablePlatforms: text("suitable_platforms"), // JSON array: ["instagram", "tiktok", "youtube"]
+  
+  // Content characteristics (future integration with Content Diversity Engine)
+  recommendedHookFamilies: text("recommended_hook_families"), // JSON: ["curiosity", "problem", "question"]
+  compatibleStructures: text("compatible_structures"), // JSON: structure template names
+  ctaTendencies: text("cta_tendencies"), // "soft", "medium", "hard"
+  promotionalIntensity: integer("promotional_intensity"), // 0-100
+  
+  // Lifecycle characteristics
+  evergreenSuitability: integer("evergreen_suitability", { mode: "boolean" }).default(true),
+  trendSuitability: integer("trend_suitability", { mode: "boolean" }).default(false),
+  
+  // Catalog metadata
+  category: text("category"), // "informational", "promotional", "engagement", "support"
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export const youtubeSeries = sqliteTable("youtube_series", {
   id: text("id").primaryKey(),
   socialAccountId: text("social_account_id").notNull().references(() => socialAccounts.id),

@@ -148,7 +148,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     if (project.type === "carousel") {
       const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
       // eslint-disable-next-line prefer-const
-      let { caption, hashtags, promoText, pillar, angle, hookType, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionForImages(
+      let { caption, hashtags, promoText, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionForImages(
         brand?.name || "Brand",
         project.script,
         photoUrls,
@@ -273,6 +273,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           pillar,
           angle,
           hookType,
+          contentTypeId: contentType,
           targetKeyword,
           keywordLevel,
           captionEmbedding: similarity ? JSON.stringify(similarity.embedding) : null,
@@ -437,7 +438,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
 
     let caption: string, hashtags: string[], brollKeywords: string | null, thumbnailText: string | null,
       structureTemplate: string, pillar: string | null, angle: ContentAngle | null,
-      hookType: string | null, targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string;
+      hookType: string | null, contentType: string | null, targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string;
 
     if (youtubeMeta) {
       const title = youtubeMeta.titles[youtubeMeta.selectedTitleIndex] || youtubeMeta.titles[0] || project.script.slice(0, 80);
@@ -461,6 +462,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       // sendiri yg fixed/non-AI-classified (bukan dari VIDEO_STRUCTURE_TEMPLATES pool),
       // sama alasan angle/targetKeyword di bawah juga null di cabang ini.
       hookType = null;
+      contentType = null;
       targetKeyword = null;
       keywordLevel = null;
       knowledgeUsed = "";
@@ -503,7 +505,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         if (generated.hookType) avoidHookTypes = [...avoidHookTypes, generated.hookType];
         // eslint-disable-next-line no-constant-condition
       } while (true);
-      ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, targetKeyword, keywordLevel, knowledgeUsed } = generated);
+      ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed } = generated);
     }
     // Price Source of Truth (2026-08-11, permintaan Agus - lihat priceValidator.ts &
     // catatan sama di jalur carousel di atas) - caption (jadi naskah voiceover, lihat
@@ -838,6 +840,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         pillar,
         angle,
         hookType,
+        contentTypeId: contentType,
         structureTemplate,
         targetKeyword,
         keywordLevel,

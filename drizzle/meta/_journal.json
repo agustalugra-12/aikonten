@@ -218,6 +218,13 @@
       "when": 1786727547082,
       "tag": "0030_condemned_swordsman",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1786737429819,
+      "tag": "0031_nappy_bloodaxe",
+      "breakpoints": true
     }
   ]
 }

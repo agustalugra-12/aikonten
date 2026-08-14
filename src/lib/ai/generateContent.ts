@@ -118,6 +118,23 @@ export type HookType = (typeof HOOK_TYPES)[number];
 function normalizeHookType(v: unknown): HookType | null {
   return (HOOK_TYPES as readonly string[]).includes(v as string) ? (v as HookType) : null;
 }
+
+// Content Type validation (2026-08-14, TIER 1) - TIDAK validasi ke daftar tetap seperti
+// HOOK_TYPES/CONTENT_ANGLES, krn content_types adalah TABLE extensible (bisa INSERT type
+// baru tanpa code change). Validasi cuma format: string non-kosong yg match pattern ID
+// "ct_*". Caller (processProject.ts) akan verify FK existence saat persist ke DB - kalau
+// GPT return ID yg tidak exist di content_types table, INSERT akan gagal & caught, project
+// tetap lanjut dgn contentTypeId=null (fail-soft, tidak ganggu pillar/angle/hookType).
+function normalizeContentType(v: unknown): string | null {
+  if (typeof v !== "string" || !v.trim()) return null;
+  // Accept any string that looks like a content type ID (ct_*)
+  // DB FK constraint will enforce actual existence
+  const normalized = v.trim();
+  if (normalized.startsWith("ct_") && normalized.length > 3) {
+    return normalized;
+  }
+  return null;
+}
 // Keyword Priority & Search Intent (2026-08-05, PRD modul 4 & 9) - normalisasi longgar
 // (bandingkan case-insensitive) krn keyword ASLI (bukan enum ketat spt pillar/angle) -
 // GPT kadang beda kapitalisasi kecil, tetap dianggap valid selama cocok satu daftar.
@@ -140,6 +157,21 @@ function buildClassificationFragment(knowledgeSite?: string | null, customPillar
         "atau null kalau konten ini tidak spesifik menargetkan salah satu keyword itu (JANGAN " +
         "dipaksakan kalau memang tidak relevan)."
       : "";
+  // Content Type classification (2026-08-14, TIER 1) - FORMAT konten (Educational, How-to,
+  // Listicle, dst), BUKAN business topic (itu pillar). Sistem types: ct_educational,
+  // ct_howto, ct_listicle, ct_storytelling, ct_problem_solution, ct_myth_fact, ct_comparison,
+  // ct_case_study, ct_behind_scenes, ct_product_showcase, ct_testimonial, ct_faq, ct_trend,
+  // ct_ugc, ct_promotional, ct_community. OPSIONAL (boleh null kalau genuinely tidak cocok
+  // kategori mana pun) - TIDAK memblokir generation kalau tidak yakin.
+  const contentTypeHint =
+    " Sertakan juga contentType: ID salah satu dari ct_educational (konten edukatif), " +
+    "ct_howto (tutorial langkah-demi-langkah), ct_listicle (daftar/tips), ct_storytelling (cerita/narasi), " +
+    "ct_problem_solution (identifikasi masalah & solusi), ct_myth_fact (bongkar mitos), " +
+    "ct_comparison (bandingkan opsi), ct_case_study (contoh nyata/hasil), ct_behind_scenes (proses/persiapan), " +
+    "ct_product_showcase (tampilkan produk/layanan), ct_testimonial (review/testimoni), ct_faq (jawab pertanyaan umum), " +
+    "ct_trend (ikuti/respons tren), ct_ugc (gaya user-generated), ct_promotional (promosi langsung), " +
+    "ct_community (bangun komunitas/engagement), atau null kalau tidak cocok kategori mana pun.";
+  
   return (
     ` Sertakan juga pillar (WAJIB SALAH SATU PERSIS): ${pillars.map((p) => `"${p}"`).join(", ")}, ` +
     `angle (WAJIB SALAH SATU PERSIS): ${CONTENT_ANGLES.map((a) => `"${a}"`).join(", ")}, ` +
@@ -147,6 +179,7 @@ function buildClassificationFragment(knowledgeSite?: string | null, customPillar
     "klasifikasi kategori hook/pembuka yang BENAR-BENAR dipakai di skrip/caption ini - " +
     "klasifikasi ini dipakai sistem melacak variasi konten, JAWAB SEJUJURNYA sesuai isi konten ini, " +
     "bukan asal pilih." +
+    contentTypeHint +
     keywordPart
   );
 }
@@ -157,6 +190,7 @@ export type GeneratedContent = {
   pillar: string | null;
   angle: ContentAngle | null;
   hookType: HookType | null;
+  contentType: string | null; // Content Type ID (ct_*), TIER 1 - nullable, fail-soft
   targetKeyword: string | null;
   keywordLevel: number | null;
   // Knowledge Base MENTAH yang dipakai grounding generate ini (2026-08-08, Fact Check
@@ -390,7 +424,7 @@ export async function generateCaptionAndHashtags(
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
     buildClassificationFragment(knowledgeSite, customPillarsJson) +
     hookAvoidInstruction;
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "targetKeyword": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -414,6 +448,7 @@ export async function generateCaptionAndHashtags(
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
     hookType: normalizeHookType(parsed.hookType),
+    contentType: normalizeContentType(parsed.contentType),
     knowledgeUsed: grounding.knowledge,
     ...normalizeTargetKeyword(parsed.targetKeyword),
   };
@@ -465,7 +500,7 @@ export async function generateCaptionForImages(
     "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
     "TIDAK menyebut harga/promo sama sekali, promoText HARUS null." +
     buildClassificationFragment(knowledgeSite, customPillarsJson);
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "targetKeyword": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -492,6 +527,7 @@ export async function generateCaptionForImages(
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
     hookType: normalizeHookType(parsed.hookType),
+    contentType: normalizeContentType(parsed.contentType),
     knowledgeUsed: grounding.knowledge,
     ...normalizeTargetKeyword(parsed.targetKeyword),
   };
