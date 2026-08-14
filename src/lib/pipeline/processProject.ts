@@ -585,11 +585,19 @@ export async function processProject(id: string): Promise<ProcessResult> {
     // drift nominal-vs-file-sungguhan (lihat catatan lengkap di dekat pemakaian di
     // bawah) terjadi PER KLIP, long-form butuh puluhan klip utk capai target vs
     // short-form cuma beberapa, jadi drift TOTAL long-form jauh lebih besar tapi
-    // sebelumnya dikasih jaring pengaman SAMA persis. 8% dari minimum (lantai tetap
-    // 3dtk spy short-form/Shorts - yg SUDAH terbukti jalan baik - tidak berubah sama
-    // sekali) - video 240dtk skrg ditarget +19dtk (259dtk), cukup serap drift sebesar
-    // yg baru ditemukan tanpa menaikkan target short-form yg sudah cukup.
-    const PRE_RENDER_TARGET_SECONDS = durationConfig.min + Math.max(3, Math.ceil(durationConfig.min * 0.08));
+    // sebelumnya dikasih jaring pengaman SAMA persis.
+    //
+    // ITERASI KE-2 (2026-08-14, sama hari) - 8% (target 259dtk) TERNYATA masih kurang:
+    // render nyata ke-2 hasilnya 236dtk (meleset tipis, 4dtk). 2 titik data nyata
+    // (target 243->aktual 223 [drift 20dtk]; target 259->aktual 236 [drift 24dtk])
+    // nunjukkin drift TIDAK terlalu proporsional ke besar target - lebih dekat ke
+    // KONSTAN utk skala klip yg sama (~44-46 klip long-form ini), jadi menaikkan target
+    // sedikit tidak banyak mengurangi drift absolut. Naikkan ke 15% (lantai tetap 3dtk,
+    // short-form/Shorts tidak berubah) - target 240dtk jadi 276dtk, ksh ~12dtk buffer di
+    // atas drift terburuk yg pernah diamati (24dtk). BELUM tervalidasi ulang dgn render
+    // nyata ke-3 - kalau masih kurang, pertimbangkan pendekatan beda sama sekali
+    // (mis. margin berdasar ESTIMASI jumlah klip, bukan persentase durasi target).
+    const PRE_RENDER_TARGET_SECONDS = durationConfig.min + Math.max(3, Math.ceil(durationConfig.min * 0.15));
 
     if (!isStockFootage && currentTotalDuration() < PRE_RENDER_TARGET_SECONDS) {
       // Tarik segmen ASLI TAMBAHAN dari pool lengkap (bukan cuma yg lolos budget/ambang
