@@ -10,9 +10,11 @@ import {
   buildContentTypeAvoidInstruction,
   getRecentStructureAndHookUsage,
   getRecentContentTypeUsage,
+  isContentTypeOverused,
   type StructureHookUsage,
   type ContentTypeUsage,
 } from "./contentVariety";
+import { getActiveContentTypes, getCompatibleStructures } from "./contentTypeUtils";
 
 // Normalisasi hashtag (2026-08-05, bug nyata dilaporkan Agus - hashtag tampil "##").
 // Prompt di bawah tidak menegaskan ADA/TIDAKnya "#" di tiap item array, jadi GPT kadang
@@ -350,15 +352,23 @@ const LONG_FORM_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
 function pickStructureTemplate(
   target: number,
   structureCounts: Map<string, number>,
-  avoidNames: string[] = []
+  avoidNames: string[] = [],
+  compatibleNames: string[] = []
 ): { name: string; guide: string } {
   // >=180dtk (3 menit) dianggap long-form - lihat catatan LONG_FORM_STRUCTURE_TEMPLATES.
   const fullPool = target >= 180 ? LONG_FORM_STRUCTURE_TEMPLATES : VIDEO_STRUCTURE_TEMPLATES;
+  // TIER 3 - filter struktur oleh compatibility content type (dari content_types
+  // table metadata) kalau tersedia. Fallback ke pool penuh kalau compatible kosong
+  // (mis. metadata belum diisi / pool structure kecil) - jangan pernah pool kosong.
+  const compatPool = compatibleNames.length > 0
+    ? fullPool.filter((t) => compatibleNames.includes(t.name))
+    : fullPool;
+  const usable = compatPool.length > 0 ? compatPool : fullPool;
   // Regenerasi (2026-08-14, lihat processProject.ts) bisa minta struktur TERTENTU
   // dikecualikan (yg baru saja terbukti overused percobaan sebelumnya) - fallback ke
   // pool penuh kalau exclude menghabiskan semua opsi (jangan pernah pool kosong).
-  const pool = fullPool.filter((t) => !avoidNames.includes(t.name));
-  return pickLeastUsedTemplate(pool.length > 0 ? pool : fullPool, structureCounts);
+  const pool = usable.filter((t) => !avoidNames.includes(t.name));
+  return pickLeastUsedTemplate(pool.length > 0 ? pool : usable, structureCounts);
 }
 
 // Kecepatan bicara TTS acuan ~150 kata/menit (2,5 kata/detik) - dipakai kasih target
@@ -395,13 +405,29 @@ export async function generateCaptionAndHashtags(
     ? await getRecentContentTypeUsage(brandId)
     : { typeCounts: new Map() };
 
-  // Filter struktur berdasarkan content type compatibility (TIER 3)
-  // Jika contentType sudah terpilih/diketahui, gunakan compatible structures
-  // Fallback ke semua struktur jika tidak ada data
-  // Pilih struktur dengan weighted LRU (sama seperti Phase 1 & Tier 2)
-  const structureTemplate = pickStructureTemplate(videoDurationTarget, usage.structureCounts, avoidStructureNames);
-  // weighted LRU content type selection (TIER 3)
-  // pickUnderusedContentType dipanggil di processProject.ts bounded regeneration loop
+  // TIER 3 - Weighted content type selection (bukan Math.random).
+  // Pilih content type yg paling underused/least-used dari daftar ACTIVE types
+  // (extensible dari content_types table, bukan enum hardcode). Exclude yang sudah
+  // di-avoid (terbukti overused di percobaan regen sebelumnya). Kalau semua overused
+  // (brand dgn topik sempit), fallback ke semua active types - TIDAK pernah kosong.
+  let preferredContentType: string | null = null;
+  if (brandId) {
+    const activeTypes = await getActiveContentTypes();
+    if (activeTypes.length > 0) {
+      const eligible = activeTypes.filter((t) => !avoidContentTypes.includes(t.id) && !isContentTypeOverused(t.id, contentTypeUsage));
+      const pool = eligible.length > 0 ? eligible : activeTypes;
+      const picked = pickUnderusedContentType(pool, contentTypeUsage.typeCounts);
+      preferredContentType = picked.id;
+    }
+  }
+
+  // TIER 3 - Struktur difilter oleh kompatibilitas content type yg dipilih di atas
+  // (metadata compatible_structures di content_types). Fallback ke semua struktur
+  // kalau metadata kosong / struktur tidak compatible.
+  const compatibleNames = preferredContentType
+    ? await getCompatibleStructures(preferredContentType)
+    : [];
+  const structureTemplate = pickStructureTemplate(videoDurationTarget, usage.structureCounts, avoidStructureNames, compatibleNames);
 
   const hookAvoidInstruction =
     buildHookAvoidInstruction(usage.hookTypeCounts) +
@@ -412,6 +438,9 @@ export async function generateCaptionAndHashtags(
     buildContentTypeAvoidInstruction(contentTypeUsage.typeCounts) +
     (avoidContentTypes.length > 0
       ? ` Content type "${avoidContentTypes.join(", ")}" TERBUKTI masih terlalu sering dipakai di percobaan sebelumnya - WAJIB pilih content type LAIN kali ini.`
+      : "") +
+    (preferredContentType
+      ? ` Untuk menjaga variasi konten, prioritaskan content type ${preferredContentType} KALAU memang cocok dgn isi konten ini (jangan dipaksakan kalau benar2 tidak pas).`
       : "");
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   const targetWords = Math.round(videoDurationTarget * WORDS_PER_SECOND);
