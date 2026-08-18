@@ -11,6 +11,7 @@ import { ProjectList } from "@/components/dashboard/ProjectList";
 import { DraftReview } from "@/components/dashboard/DraftReview";
 import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
+import { WeeklyReport } from "@/components/dashboard/WeeklyReport";
 import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { DailyContentPlanner } from "@/components/dashboard/DailyContentPlanner";
@@ -237,6 +238,8 @@ function DashboardContent() {
                 <MusicBankDialog brandId={selectedBrandId} />
               </CardContent>
             </Card>
+          ) : activeView === "laporan" ? (
+            <WeeklyReport brandId={selectedBrandId} />
           ) : (
             <Card>
               <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">

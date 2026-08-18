@@ -1,10 +1,10 @@
 "use client";
 
-import { LayoutDashboard, GalleryHorizontal, Lightbulb, FolderOpen, Music, Settings } from "lucide-react";
+import { LayoutDashboard, GalleryHorizontal, Lightbulb, FolderOpen, Music, Settings, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Brand } from "@/types";
 
-export type DashboardView = "overview" | "konten" | "ide" | "footage" | "musik" | "pengaturan";
+export type DashboardView = "overview" | "konten" | "ide" | "footage" | "musik" | "laporan" | "pengaturan";
 
 const NAV_ITEMS: { view: DashboardView; label: string; icon: typeof LayoutDashboard }[] = [
   { view: "overview", label: "Dashboard", icon: LayoutDashboard },
@@ -12,6 +12,7 @@ const NAV_ITEMS: { view: DashboardView; label: string; icon: typeof LayoutDashbo
   { view: "ide", label: "Ide Konten", icon: Lightbulb },
   { view: "footage", label: "Footage Bank", icon: FolderOpen },
   { view: "musik", label: "Music Bank", icon: Music },
+  { view: "laporan", label: "Laporan Mingguan", icon: BarChart3 },
   { view: "pengaturan", label: "Pengaturan Brand", icon: Settings },
 ];
 
