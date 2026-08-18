@@ -82,6 +82,19 @@ belum tersentuh sama sekali oleh siapa pun:
   keputusan bisnis Agus**: cara ambil data kompetitor (API berbayar recurring cost vs input
   manual staf vs AI browsing kualitas rendah) — JANGAN pilih sendiri tanpa tanya Agus dulu,
   ini sama kelasnya dgn "integrasi pihak ketiga baru" yg biasanya perlu izin eksplisit.
+- **Content Planning Engine** (PRD §22-23) — **UPDATE 2026-08-19, dikerjakan Claude Code
+  (commit `c5dad80`), scope DIKURANGI**: PRD asli minta planning berbasis SWOT+Competitor+
+  Audience+Content Goal+Historical Performance+Content Diversity - 2 input pertama masih
+  blocked (lihat poin di atas), jadi versi ini murni VIEW read-only: tab baru "Rencana
+  Konten" (`ContentPlan.tsx` + `GET /api/brands/[id]/content-plan`), tabel kronologis
+  gabungan `dailyIdeas` (belum diproduksi) + `projects` (sudah/sedang diproduksi), kolom
+  Date/Jenis/Tipe Konten/Pilar/Topik-Hook/Struktur/Status. TIDAK menyentuh pipeline
+  generate/produksi sama sekali - resiko rendah, murni presentasi data yang sudah ada.
+  Diverifikasi ke DB lokal (data real). **Belum di-deploy** ke server mana pun (sama
+  seperti pola sebelumnya - kode siap, tinggal jendela restart aman).
+  **BELUM ADA di versi ini** (kalau SWOT/Competitor sudah tidak blocked lagi ke depan):
+  planning PROAKTIF (AI usulkan rencana ke depan berbasis SWOT/Competitor/Content Goal),
+  saat ini cuma cerminan data yang SUDAH terjadi/di-generate sistem lama (`dailyIdeas`).
 - **Analytics/Reporting penuh** (PRD §25-34) — **UPDATE 2026-08-19, dikerjakan Claude Code,
   Agus konfirmasi SEMUA sub-bagian penting (ranking/tren/ringkasan/PDF), dikerjakan
   bertahap krn scope besar:**
