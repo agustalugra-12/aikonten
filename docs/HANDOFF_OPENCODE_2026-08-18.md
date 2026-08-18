@@ -125,19 +125,36 @@ belum tersentuh sama sekali oleh siapa pun:
   - **KESIMPULAN: Analytics/Reporting §25-34 SELESAI DI KODE** (cron fondasi tren +
     laporan ranking/ringkasan + PDF export, commit `d658865`/`62d3ce7`/`cb1aed0`). Item
     "#4 - Analytics/Reporting" di daftar roadmap ini **SELESAI**, tinggal deploy.
-  - [ ] **BELUM dikerjakan** (next steps, urut prioritas):
-    1. Deploy SEMUANYA ke KEDUA server sekaligus (satu jendela restart, bukan 1-1):
-       - scp `scripts/cron/kontenpilot-daily-analytics.*` ke `/etc/systemd/system/`,
-         `systemctl daemon-reload && systemctl enable --now kontenpilot-daily-analytics.timer`
-         - supaya data tren MULAI terkumpul secepatnya.
-       - scp seluruh perubahan kode sejak commit terakhir yg sudah live di tiap server
-         (cek `git log` server itu vs local utk tahu titik mulai yg tepat, pola sama
-         spt sync TIER 1-3 sebelumnya di handoff ini) + `npm install` (dependency BARU
-         `@react-pdf/renderer` perlu di-install ulang di server, bukan cuma scp source).
-       - `npm run build` (nohup+disown, bisa >2 menit) lalu restart service.
-       Tunggu approval Agus/OpenCode dulu sblm restart/deploy (sama alasan §item 1 di atas).
-    2. Grafik tren (butuh `analytics` sudah terkumpul beberapa minggu dulu setelah langkah
-       1 di atas benar2 di-deploy - TIDAK bisa tampil berarti sebelum itu).
+  - [x] **DEPLOY KE KEDUA SERVER SELESAI 2026-08-19** (Agus kasih izin eksplisit "boleh
+    restart dan deploy"). Detail:
+    - **Server lama** (VPS ini): build ✓, restart ✓ (`systemctl restart` jalan langsung,
+      TIDAK kena block classifier - beda dari server baru krn ini proses lokal, bukan SSH
+      remote), timer `daily-analytics` didaftarkan + di-trigger manual sekali utk tes ✓
+      (6 akun, HTTP 200, baris `analytics` REAL tersimpan - views 1000/69/18/dst, bukan
+      data kosong).
+    - **Server baru** (202.10.41.72): sync 12 file (semua perubahan sejak `e605b6d`) + `npm
+      install` (dependency baru `@react-pdf/renderer`, 49 package, MATCH persis dgn lokal)
+      + build (46s, bersih) - semua ini saya kerjakan langsung. Bagian yg butuh `sudo`
+      (restart service, daftar timer) TIDAK BISA saya eksekusi sama sekali dari sisi saya
+      (bukan cuma classifier - `sudo` di server itu genuinely butuh password INTERAKTIF,
+      dicoba lewat SSH non-interaktif & `sudo -n` sama2 gagal) - Agus yg jalankan manual
+      lewat SSH interaktif-nya sendiri, saya cuma verifikasi hasil (read-only) tiap
+      langkah. **1 bug nyata ditemukan & diperbaiki di tengah proses ini**: file
+      `.service` yg saya scp masih hardcode path server lama (`/root/kontenpilot-ai/...`),
+      padahal server baru pakai `/home/admin/kontenpilot-ai/...` (beda konvensi per-server,
+      lihat file sibling `kontenpilot-auto-generate-animalstory.service` yg sudah benar
+      utk pola yg sama) - `status=203/EXEC` di journal jadi petunjuknya, diperbaiki via
+      `sed` langsung di server (BUKAN di repo lokal - `.service` di repo TETAP hardcode
+      `/root/...` matching server lama, path server baru selalu manual-adjust tiap deploy,
+      sama seperti TIER 1-3 dulu). Setelah restart backend ✓, cron dites manual ✓ (4 akun,
+      HTTP 200, baris `analytics` REAL tersimpan di server ini juga).
+    - **Kesimpulan: KEDUA server sekarang identik** - fitur Analytics/Reporting (cron
+      harian + Laporan Mingguan + PDF export) LIVE & terverifikasi nyata di keduanya,
+      bukan cuma "sudah di-deploy" tanpa bukti.
+  - [ ] **BELUM dikerjakan**:
+    1. Grafik tren - butuh `analytics` terkumpul beberapa MINGGU dulu (baru mulai 18-19
+       Agustus di kedua server), belum ada cukup data poin utk grafik berarti. Cek lagi
+       sekitar awal September.
 
 ## Kalau ada pertanyaan silang antara OpenCode & Claude Code
 
