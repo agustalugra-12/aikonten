@@ -111,20 +111,33 @@ belum tersentuh sama sekali oleh siapa pun:
     nyata Pelangi Homestay 90 hari, angka performa asli). `npx tsc --noEmit` + `npm run
     build` lokal bersih, route baru muncul di manifest. **Belum di-deploy ke server mana
     pun** (cuma di repo lokal ini, sama seperti langkah lain yg nunggu restart approval).
+  - [x] **Langkah 3 (PDF export) SELESAI (commit `cb1aed0`)**: tombol "Unduh PDF" di
+    halaman Laporan Mingguan. Library: `@react-pdf/renderer` (React 19 didukung resmi,
+    dicek peer dep dulu SEBELUM install) - dipilih drpd puppeteer krn tidak butuh browser
+    terpisah (VPS ini pernah insiden RAM habis krn 1 proses render berat, hindari kelas
+    resiko yg sama). Logic data diekstrak ke `src/lib/reports/weeklyReportData.ts` - DIPAKAI
+    BERSAMA endpoint JSON (`weekly-report/route.ts`) & endpoint PDF
+    (`weekly-report/pdf/route.ts`), satu sumber kebenaran. **Diverifikasi NYATA** (bukan
+    cuma compile check) - generate PDF sungguhan dari data brand asli (90 hari, Pelangi
+    Homestay), hasil file valid (`%PDF-1.3`, dicek via `file` command, bukan cuma "tidak
+    error"). `npx tsc --noEmit` + `npm run build` bersih (2.3 menit, agak lebih lama dari
+    biasa krn dependency baru, masih wajar), kedua route baru muncul di manifest.
+  - **KESIMPULAN: Analytics/Reporting §25-34 SELESAI DI KODE** (cron fondasi tren +
+    laporan ranking/ringkasan + PDF export, commit `d658865`/`62d3ce7`/`cb1aed0`). Item
+    "#4 - Analytics/Reporting" di daftar roadmap ini **SELESAI**, tinggal deploy.
   - [ ] **BELUM dikerjakan** (next steps, urut prioritas):
-    1. Deploy cron `daily-analytics` KE KEDUA server (scp `.service`/`.timer` ke
-       `/etc/systemd/system/`, `systemctl daemon-reload && systemctl enable --now
-       kontenpilot-daily-analytics.timer`) - supaya data tren MULAI terkumpul secepatnya.
+    1. Deploy SEMUANYA ke KEDUA server sekaligus (satu jendela restart, bukan 1-1):
+       - scp `scripts/cron/kontenpilot-daily-analytics.*` ke `/etc/systemd/system/`,
+         `systemctl daemon-reload && systemctl enable --now kontenpilot-daily-analytics.timer`
+         - supaya data tren MULAI terkumpul secepatnya.
+       - scp seluruh perubahan kode sejak commit terakhir yg sudah live di tiap server
+         (cek `git log` server itu vs local utk tahu titik mulai yg tepat, pola sama
+         spt sync TIER 1-3 sebelumnya di handoff ini) + `npm install` (dependency BARU
+         `@react-pdf/renderer` perlu di-install ulang di server, bukan cuma scp source).
+       - `npm run build` (nohup+disown, bisa >2 menit) lalu restart service.
        Tunggu approval Agus/OpenCode dulu sblm restart/deploy (sama alasan §item 1 di atas).
-       **Halaman Laporan Mingguan (langkah 2) juga ikut nunggu deploy ini** supaya bisa
-       dipakai Agus sungguhan - kodenya sudah siap, tinggal nunggu jendela restart aman.
-    2. Grafik tren (butuh `analytics` sudah terkumpul beberapa minggu dulu, TIDAK bisa
-       tampil berarti sebelum langkah 1 di-deploy & jalan beberapa minggu).
-    3. PDF export - belum ada library PDF generation di `package.json` (`pdf-parse` yg ada
-       itu utk BACA pdf, bukan bikin) - pilih library dulu (mis. `@react-pdf/renderer` utk
-       React-native PDF, atau puppeteer utk HTML-to-PDF - trade-off: puppeteer lebih berat
-       [insiden ffmpeg/RAM masih diingat, hati2 resource], @react-pdf/renderer lebih ringan
-       tapi styling lebih terbatas).
+    2. Grafik tren (butuh `analytics` sudah terkumpul beberapa minggu dulu setelah langkah
+       1 di atas benar2 di-deploy - TIDAK bisa tampil berarti sebelum itu).
 
 ## Kalau ada pertanyaan silang antara OpenCode & Claude Code
 
