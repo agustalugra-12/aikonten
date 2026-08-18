@@ -22,21 +22,54 @@ re-explore ulang apa yang sudah terjadi di sesi Claude Code sebelumnya.
    (`npm run build` sukses), tapi **service belum di-restart** — sengaja ditahan Claude
    Code karena OpenCode masih aktif kerja bersamaan, supaya tidak race. Restart kapan pun
    OpenCode/Agus bilang sudah aman (titik henti yang stabil).
-2. **Server baru** (`admin@202.10.41.72`, VPS agustapstudio.com): baru punya file Fase 1
-   Claude Code dari 2026-08-14 (`schema.ts`, `contentVariety.ts`, `generateContent.ts`,
-   `processProject.ts`) — **belum punya TIER 1-3 sama sekali**. DB kolom `hook_type`/
-   `structure_template` sudah ada di server itu (sudah di-ALTER TABLE langsung), tapi kolom
-   utk TIER 1-3 (content_types dkk) kemungkinan belum. Perlu full re-sync (scp semua file
-   yg berubah sejak `3a55181`) + migrasi kolom baru + build + restart, BUKAN cuma restart
-   dgn file lama.
-   - **Catatan penting**: `npx drizzle-kit migrate` TERBUKTI RUSAK di server lama (journal
-     `__drizzle_migrations` punya `id: NULL` di semua baris, migrate gagal diam-diam exit 1
-     tanpa pesan error). Kemungkinan besar sama di server baru. Jangan asumsikan migrate
-     jalan bersih — cek dulu, siapkan fallback ALTER TABLE langsung via `better-sqlite3`
-     kalau perlu (lihat detail workaround di plan doc Task 1 Step 3).
-   - Kredensial SSH sudah pernah dipakai sesi ini (lihat
-     `docs/superpowers/plans/2026-08-14-render-tree-merge.md` utk pola lengkap
-     scp/build/restart), tidak diulang di sini.
+2. **Server baru** (`admin@202.10.41.72`, VPS agustapstudio.com, service
+   `kontenpilot-backend.service`) — **UPDATE 2026-08-19, dikerjakan Claude Code**:
+   - [x] DB di-backup dulu (`data/kontenpilot.db.backup-20260818210227`).
+   - [x] Konfirmasi `npx drizzle-kit migrate` MEMANG rusak di server ini juga (jurnal
+     `__drizzle_migrations` ada 3 baris `id NULL`, sama persis pola server lama) - dipakai
+     fallback DDL langsung via `sqlite3` CLI, BUKAN drizzle-kit migrate.
+   - [x] Migrasi 0031 diterapkan manual: `CREATE TABLE content_types` + `ALTER TABLE
+     projects ADD content_type_id` - dijalankan LANGSUNG oleh Agus sendiri (aksi ini kena
+     block permission classifier Claude Code 2x berturut, diserahkan ke Agus lewat `!`).
+     Terverifikasi: `sqlite3 data/kontenpilot.db '.tables'` menampilkan `content_types`.
+   - [x] File TIER 1-3 di-scp ke server baru (path sama semua, `/home/admin/kontenpilot-ai/`):
+     `src/db/schema.ts`, `src/lib/ai/contentTypeUtils.ts`, `src/lib/ai/contentVariety.ts`,
+     `src/lib/ai/generateContent.ts`, `src/lib/pipeline/processProject.ts`,
+     `scripts/seed-content-types.ts`, `drizzle/0031_nappy_bloodaxe.sql`,
+     `drizzle/meta/0031_snapshot.json`, `drizzle/meta/_journal.json`. (Tidak ikut disync:
+     `scripts/verify-locks.spec.ts` - file test, tidak dibutuhkan di server produksi.)
+   - [x] Seed 16 system content type: `PATH=/home/admin/.nvm/versions/node/v20.20.2/bin:$PATH
+     npx tsx scripts/seed-content-types.ts` - **16/16 INSERTED**, 0 skipped, 0 error.
+   - [x] Build: `npm run build` sukses, "Compiled successfully", nol error di log
+     (`/tmp/kontenpilot_build.log` di server itu, belum dibersihkan - aman dihapus kapan saja).
+   - [x] **RESTART SERVICE - SELESAI 2026-08-19 00:25 WIB** (dijalankan manual oleh Agus,
+     `sudo` butuh password interaktif jadi tidak bisa dieksekusi Claude Code langsung).
+     Terverifikasi: `ActiveEnterTimestamp` baru (`Wed 2026-08-19 00:25:29 WIB`), PID baru
+     (`1614518`, beda dari PID lama `174954`), `systemctl is-active` = `active`, `curl
+     localhost:3100` = `HTTP 307` (redirect normal, bukan error). Log startup (journalctl)
+     TIDAK sempat dicek langsung (user `admin` tidak masuk grup `adm`/`systemd-journal`,
+     butuh sudo interaktif juga) - tapi build sebelumnya sudah "Compiled successfully" nol
+     error & service tidak crash-loop (masih `active` beberapa menit setelah restart), jadi
+     dianggap cukup sehat. **Verifikasi susulan dicoba 2026-08-19**: 3 project terbaru di
+     DB semua `content_type_id` masih NULL - TAPI setelah timestamp-nya dikonversi,
+     ketiganya dari 18 Agustus 06:16 WIB, JAUH SEBELUM restart (19 Agustus 00:25 WIB).
+     Jadi ini BUKAN tanda gagal, cuma belum ada project baru yang diproses SETELAH
+     restart (cron `kontenpilot-auto-generate-animalstory.timer` berikutnya baru jam
+     02:15 WIB). **Masih perlu dicek ulang setelah project pertama pasca-restart selesai
+     diproses** - kalau project itu JUGA NULL, baru layak dicurigai ada masalah nyata
+     (kemungkinan classification GPT gagal fail-soft ke NULL, atau field tidak
+     ke-passing ke insert). Command cek: `sqlite3 data/kontenpilot.db "SELECT id,
+     content_type_id, created_at FROM projects ORDER BY created_at DESC LIMIT 3;"`.
+   - **KESIMPULAN: Server baru sekarang SUDAH SEJAJAR dengan server lama untuk TIER 1-3**
+     (kode + DB + seed + restart semua selesai). Item "#2 - server baru belum full re-sync"
+     di HANDOFF ini **SELESAI**.
+   - **Catatan umum yang masih berlaku**: `npx drizzle-kit migrate` TERBUKTI RUSAK di KEDUA
+     server (jurnal `__drizzle_migrations` `id: NULL`) - migrasi berikutnya JANGAN asumsikan
+     drizzle-kit migrate jalan bersih, langsung siapkan fallback SQL manual dari awal.
+     `npx`/`npm`/`node` TIDAK ada di PATH default sesi SSH non-interaktif user `admin` di
+     server baru - selalu prefix `PATH=/home/admin/.nvm/versions/node/v20.20.2/bin:$PATH`
+     (lihat isi `systemctl cat kontenpilot-backend.service` utk PATH persis yang dipakai
+     service asli, supaya konsisten).
 
 ## Roadmap sisanya (PRD asli "AI Content Intelligence v2.0", di luar TIER 1-3)
 
