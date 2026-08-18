@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 
 type TopContent = {
   id: string;
@@ -52,17 +53,26 @@ export function WeeklyReport({ brandId }: { brandId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        {WINDOW_OPTIONS.map((opt) => (
-          <Button
-            key={opt.days}
-            variant={days === opt.days ? "default" : "outline"}
-            size="sm"
-            onClick={() => setDays(opt.days)}
-          >
-            {opt.label}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          {WINDOW_OPTIONS.map((opt) => (
+            <Button
+              key={opt.days}
+              variant={days === opt.days ? "default" : "outline"}
+              size="sm"
+              onClick={() => setDays(opt.days)}
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+        {/* Download PDF (2026-08-19) - <a download> langsung ke endpoint PDF, bukan fetch+
+            blob di client - lebih sederhana & browser yg urus proses download-nya sendiri. */}
+        <a href={`/api/brands/${brandId}/weekly-report/pdf?days=${days}`} download>
+          <Button variant="outline" size="sm" className="gap-1.5">
+            <Download className="w-3.5 h-3.5" /> Unduh PDF
           </Button>
-        ))}
+        </a>
       </div>
 
       {loading || !data ? (
