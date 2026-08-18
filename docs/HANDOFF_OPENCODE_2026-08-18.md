@@ -164,6 +164,20 @@ belum tersentuh sama sekali oleh siapa pun:
     - **Kesimpulan: KEDUA server sekarang identik** - fitur Analytics/Reporting (cron
       harian + Laporan Mingguan + PDF export) LIVE & terverifikasi nyata di keduanya,
       bukan cuma "sudah di-deploy" tanpa bukti.
+  - [x] **Laporan Bulanan SELESAI (commit `999bd96`)**: executive summary (total konten/
+    views/engagement, best/worst content) + breakdown performa 4 dimensi (Content Type/
+    Pillar/Hook/Structure - 5 dimensi lain dari PRD §32 [CTA/Footage/Posting Time/
+    Platform] TIDAK ADA sumber data terverifikasi, sengaja tidak difabrikasi) +
+    rekomendasi strategis dari AI (Continue/Reduce/Stop/Increase/Test, gpt-4.1-mini,
+    fail-soft kalau JSON invalid, guard data-terlalu-sedikit). PDF export juga ada. Tab
+    "Laporan" sekarang toggle Mingguan/Bulanan. **Diverifikasi ke API OpenAI ASLI**
+    (bukan simulasi) - 85 konten/10557 views nyata, AI hasilkan rekomendasi menyebut
+    nama pilar asli dari data. `§34 Monthly SWOT Update` TIDAK dibangun (blocked, sama
+    alasan Competitor Intelligence). **Belum di-cache** (biaya nyata tiap load AI, tapi
+    laporan bulanan wajar jarang dibuka - tambahkan cache pola `socialAccounts.
+    cachedMetrics` KALAU ke depan terbukti sering dibuka & biaya jadi masalah nyata,
+    jangan bangun cache preemptif tanpa bukti perlu). **Belum di-deploy** (sama pola -
+    kode siap, tinggal jendela restart aman kedua server).
   - [ ] **BELUM dikerjakan**:
     1. Grafik tren - butuh `analytics` terkumpul beberapa MINGGU dulu (baru mulai 18-19
        Agustus di kedua server), belum ada cukup data poin utk grafik berarti. Cek lagi
