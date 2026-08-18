@@ -82,12 +82,44 @@ belum tersentuh sama sekali oleh siapa pun:
   keputusan bisnis Agus**: cara ambil data kompetitor (API berbayar recurring cost vs input
   manual staf vs AI browsing kualitas rendah) — JANGAN pilih sendiri tanpa tanya Agus dulu,
   ini sama kelasnya dgn "integrasi pihak ketiga baru" yg biasanya perlu izin eksplisit.
-- **Analytics/Reporting penuh** (PRD §25-34): `performanceLearning.ts` + `analytics` table
-  SUDAH ada fondasi nyata (sync views/engagement per-post dari Buffer GraphQL, sudah
-  dipakai feedback ke scoring ide harian) — TAPI belum ada weekly/monthly report generation,
-  PDF export, atau dashboard. Verifikasi dulu metrik apa yg BENAR-BENAR tersedia dari Buffer
-  GraphQL `Post.metrics` (saves/retention-per-detik dkk mungkin tidak ada) sebelum janji ke
-  Agus fitur itu bisa dibangun.
+- **Analytics/Reporting penuh** (PRD §25-34) — **UPDATE 2026-08-19, dikerjakan Claude Code,
+  Agus konfirmasi SEMUA sub-bagian penting (ranking/tren/ringkasan/PDF), dikerjakan
+  bertahap krn scope besar:**
+  - [x] Audit: `performanceLearning.ts` (per-post views/engagement dari Buffer, field
+    `projects.performanceViews`/`performanceEngagementRate`) SUDAH ada & jalan. Endpoint
+    dashboard 30-hari (`/api/brands/[id]/analytics`) SUDAH ada & teruji ke API asli.
+    Metrik aggregated yg TERVERIFIKASI nyata (introspeksi API, lihat `AnalyticsSummary.tsx`):
+    `views`/`reach`/`reactions`/`shares`/`engagementRate` - **TIDAK ADA** field "likes"
+    literal (istilah Buffer = "reactions") atau "saves"/"retention" apa pun, jangan janjikan
+    metrik itu ke Agus sampai diverifikasi ulang lewat introspeksi API asli.
+  - [x] **Gap kritis ditemukan**: tabel `analytics` (snapshot harian per akun, field
+    penting utk grafik TREN dari waktu ke waktu) sudah ada di schema sejak lama TAPI TIDAK
+    PERNAH DIISI kode mana pun (nol insert). Histori tidak bisa direkonstruksi mundur.
+  - [x] **Fondasi tren dibangun** (commit `d658865`): cron baru
+    `src/app/api/cron/daily-analytics/route.ts` isi `analytics.views`/`.likes` (dari
+    `reactions`) harian per akun, reuse `getAggregatedMetrics` yg sudah teruji, idempotent
+    (aman di-retry). `followers` sengaja NULL - belum ada query Buffer yg terverifikasi
+    expose follower count, JANGAN ditebak/fabrikasi kalau lanjutkan ini. File
+    `.service`/`.timer` sudah dibuat (`scripts/cron/kontenpilot-daily-analytics.*`), pola
+    identik cron lain, jadwal 02:30 WIB - **BELUM didaftarkan ke systemd di server manapun**
+    (belum di-deploy, cuma ada di repo).
+  - [ ] **BELUM dikerjakan** (next steps, urut prioritas):
+    1. Deploy cron ini ke KEDUA server (scp `.service`/`.timer` ke
+       `/etc/systemd/system/`, `systemctl daemon-reload && systemctl enable --now
+       kontenpilot-daily-analytics.timer`) - supaya data tren MULAI terkumpul secepatnya.
+       Tunggu approval Agus/OpenCode dulu sblm restart/deploy (sama alasan §item 1 di atas).
+    2. Halaman laporan mingguan in-app: ranking 5 konten terbaik (pakai
+       `performanceViews`/`performanceEngagementRate` yg SUDAH ADA datanya sekarang, tidak
+       perlu nunggu `analytics` terisi) + jumlah post per brand/pillar minggu itu (dari
+       `publishLogs`+`projects`, juga sudah ada datanya). **Bisa mulai SEKARANG, tidak
+       blocked oleh langkah 1.**
+    3. Grafik tren (butuh `analytics` sudah terkumpul beberapa minggu dulu, TIDAK bisa
+       tampil berarti sebelum langkah 1 di-deploy & jalan beberapa minggu).
+    4. PDF export - belum ada library PDF generation di `package.json` (`pdf-parse` yg ada
+       itu utk BACA pdf, bukan bikin) - pilih library dulu (mis. `@react-pdf/renderer` utk
+       React-native PDF, atau puppeteer utk HTML-to-PDF - trade-off: puppeteer lebih berat
+       [insiden ffmpeg/RAM masih diingat, hati2 resource], @react-pdf/renderer lebih ringan
+       tapi styling lebih terbatas).
 
 ## Kalau ada pertanyaan silang antara OpenCode & Claude Code
 
