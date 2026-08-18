@@ -13,7 +13,7 @@ const NAV_ITEMS: { view: DashboardView; label: string; icon: typeof LayoutDashbo
   { view: "rencana", label: "Rencana Konten", icon: CalendarDays },
   { view: "footage", label: "Footage Bank", icon: FolderOpen },
   { view: "musik", label: "Music Bank", icon: Music },
-  { view: "laporan", label: "Laporan Mingguan", icon: BarChart3 },
+  { view: "laporan", label: "Laporan", icon: BarChart3 },
   { view: "pengaturan", label: "Pengaturan Brand", icon: Settings },
 ];
 

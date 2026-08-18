@@ -13,6 +13,7 @@ import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
 import { WeeklyReport } from "@/components/dashboard/WeeklyReport";
 import { ContentPlan } from "@/components/dashboard/ContentPlan";
+import { MonthlyReport } from "@/components/dashboard/MonthlyReport";
 import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { DailyContentPlanner } from "@/components/dashboard/DailyContentPlanner";
@@ -51,6 +52,7 @@ function DashboardContent() {
   // Sidebar navigasi (2026-08-13, permintaan Agus - konsep dashboard baru gaya app
   // musik) - switch VIEW client-side, BUKAN routing Next.js baru (lihat Sidebar.tsx).
   const [activeView, setActiveView] = useState<DashboardView>("overview");
+  const [laporanTab, setLaporanTab] = useState<"mingguan" | "bulanan">("mingguan");
   // Diisi kalau Agus klik salah satu "Ide Konten"/Content Planner - lihat
   // ContentIdeas.tsx/DailyContentPlanner.tsx. Dipakai sbg `key` remount
   // NewProjectDialog di bawah biar initialScript-nya benar2 baru.
@@ -242,7 +244,21 @@ function DashboardContent() {
               </CardContent>
             </Card>
           ) : activeView === "laporan" ? (
-            <WeeklyReport brandId={selectedBrandId} />
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Button variant={laporanTab === "mingguan" ? "default" : "outline"} size="sm" onClick={() => setLaporanTab("mingguan")}>
+                  Laporan Mingguan
+                </Button>
+                <Button variant={laporanTab === "bulanan" ? "default" : "outline"} size="sm" onClick={() => setLaporanTab("bulanan")}>
+                  Laporan Bulanan
+                </Button>
+              </div>
+              {laporanTab === "mingguan" ? (
+                <WeeklyReport brandId={selectedBrandId} />
+              ) : (
+                <MonthlyReport brandId={selectedBrandId} />
+              )}
+            </div>
           ) : (
             <Card>
               <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">
