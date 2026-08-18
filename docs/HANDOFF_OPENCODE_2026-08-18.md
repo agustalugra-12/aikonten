@@ -103,19 +103,24 @@ belum tersentuh sama sekali oleh siapa pun:
     `.service`/`.timer` sudah dibuat (`scripts/cron/kontenpilot-daily-analytics.*`), pola
     identik cron lain, jadwal 02:30 WIB - **BELUM didaftarkan ke systemd di server manapun**
     (belum di-deploy, cuma ada di repo).
+  - [x] **Langkah 2 SELESAI (commit `62d3ce7`)**: halaman "Laporan Mingguan" (tab baru di
+    Sidebar) - ranking 5 konten terbaik by views + badge jumlah post per pillar, window
+    7/30/90 hari (toggle). Endpoint `GET /api/brands/[id]/weekly-report` READ-ONLY, agregasi
+    SQL (`MIN(publishLogs.publishedAt)` per project, join `projects`), TIDAK panggil Buffer
+    API sama sekali (murah, cepat). Diverifikasi query-nya langsung ke DB lokal (85 hasil
+    nyata Pelangi Homestay 90 hari, angka performa asli). `npx tsc --noEmit` + `npm run
+    build` lokal bersih, route baru muncul di manifest. **Belum di-deploy ke server mana
+    pun** (cuma di repo lokal ini, sama seperti langkah lain yg nunggu restart approval).
   - [ ] **BELUM dikerjakan** (next steps, urut prioritas):
-    1. Deploy cron ini ke KEDUA server (scp `.service`/`.timer` ke
+    1. Deploy cron `daily-analytics` KE KEDUA server (scp `.service`/`.timer` ke
        `/etc/systemd/system/`, `systemctl daemon-reload && systemctl enable --now
        kontenpilot-daily-analytics.timer`) - supaya data tren MULAI terkumpul secepatnya.
        Tunggu approval Agus/OpenCode dulu sblm restart/deploy (sama alasan §item 1 di atas).
-    2. Halaman laporan mingguan in-app: ranking 5 konten terbaik (pakai
-       `performanceViews`/`performanceEngagementRate` yg SUDAH ADA datanya sekarang, tidak
-       perlu nunggu `analytics` terisi) + jumlah post per brand/pillar minggu itu (dari
-       `publishLogs`+`projects`, juga sudah ada datanya). **Bisa mulai SEKARANG, tidak
-       blocked oleh langkah 1.**
-    3. Grafik tren (butuh `analytics` sudah terkumpul beberapa minggu dulu, TIDAK bisa
+       **Halaman Laporan Mingguan (langkah 2) juga ikut nunggu deploy ini** supaya bisa
+       dipakai Agus sungguhan - kodenya sudah siap, tinggal nunggu jendela restart aman.
+    2. Grafik tren (butuh `analytics` sudah terkumpul beberapa minggu dulu, TIDAK bisa
        tampil berarti sebelum langkah 1 di-deploy & jalan beberapa minggu).
-    4. PDF export - belum ada library PDF generation di `package.json` (`pdf-parse` yg ada
+    3. PDF export - belum ada library PDF generation di `package.json` (`pdf-parse` yg ada
        itu utk BACA pdf, bukan bikin) - pilih library dulu (mis. `@react-pdf/renderer` utk
        React-native PDF, atau puppeteer utk HTML-to-PDF - trade-off: puppeteer lebih berat
        [insiden ffmpeg/RAM masih diingat, hati2 resource], @react-pdf/renderer lebih ringan
