@@ -1,0 +1,12 @@
+[Unit]
+Description=Jadwal harian KontenPilot AI - snapshot analitik (02:30 WIB)
+
+[Timer]
+# Setelah daily-ideas (02:00 WIB) & auto-generate-animalstory (02:15 WIB) - snapshot
+# "aktivitas kemarin" paling akurat diambil setelah lewat tengah malam, tidak rebutan
+# jam sibuk dgn cron lain (lihat pola sama di kontenpilot-daily-ideas.timer).
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
