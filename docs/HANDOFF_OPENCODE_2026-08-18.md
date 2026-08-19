@@ -258,22 +258,24 @@ ada, tinggal jadikan bagian dari alur bulanan + simpan histori SWOT dari waktu k
 Dicek langsung ke kode (grep+Read, bukan tebakan):
 
 - **§37 Pre-Publishing Quality Control**: ❌ TIDAK ADA - nol file/mekanisme.
-- **§38 Content Similarity Score**: ⚠️ SEBAGIAN - `lib/ai/contentSimilarity.ts` sudah
-  hitung skor 0-100 (embedding `text-embedding-3-small` + cosine similarity, window 20
-  project terakhir), disimpan ke `projects.similarityScore`, dipanggil dari
-  `processProject.ts`. TAPI cuma warning-only/metadata - TIDAK ADA 4 tingkat threshold
-  (Safe 0-40/Review 41-60/High 61-75/Regenerate >75) atau aksi apa pun berdasar skor itu
-  spt diminta PRD. **Quick win kandidat**: tinggal TAMBAH logic threshold+regenerate di
-  titik yang sudah ada, bukan bangun similarity check dari nol.
-- **§39 Content Fatigue Detection**: ❌ TIDAK ADA.
+- **§38 Content Similarity Score**: ✅ SELESAI - `lib/ai/similarityTier.ts` sudah punya
+  `getSimilarityTier()` (safe 0-40/review 41-60/high 61-75/regenerate >75) + label/warna,
+  di-re-export dari `contentSimilarity.ts`. Badge sudah tampil di `DraftReview.tsx`
+  (bukan ContentPlan.tsx — tempat staf review SEBELUM publish, sesuai PRD). Tombol
+  "Coba Lagi" (`POST /api/projects/[id]/retry`) sudah ada di `ProjectList.tsx`, tinggal
+  sambungkan visibility-nya kalau mau. Commit `ef6d0c1` + `3d785e9`.
+- **§39 Content Fatigue Detection**: ✅ SELESAI - `lib/ai/contentFatigue.ts` (trend
+  detection: increasing/decreasing/stable, rekomendasi continue/reduce/rotate berdasarkan
+  usage count + trend) + `FatigueSummary.tsx` (UI). Commit `ef6d0c1`.
 - **§41 Caption Intelligence** (variasi GAYA caption - storytelling/educational/short/
   dst): ❌ TIDAK ADA sbg mekanisme rotasi eksplisit - caption digenerate kontekstual dari
   skrip (lihat `generateCaptionAndHashtags`), tapi tidak ada tracking/avoid gaya yang
   overused (beda dari TIER 1-3 yang SUDAH ada rotasi utk structureTemplate/hookType/
   contentType - caption STYLE belum punya rotasi serupa).
-- **§42 Hashtag Intelligence**: ⚠️ SEBAGIAN - hashtag digenerate kontekstual (bukan
-  hardcode) + dibatasi keras maks 5 (`capHashtags`), TAPI tidak ada pelacakan "hindari
-  set hashtag yang sama berulang" spt diminta PRD.
+- **§42 Hashtag Intelligence**: ✅ SELESAI - `lib/ai/hashtagTracking.ts` (tracking
+  frekuensi hashtag dari 20 project terakhir, threshold overused >=3x, avoidance prompt
+  builder). Sudah diintegrasikan ke `processProject.ts` (line 485: `avoidHashtags`) +
+  `prePublishQC.ts` (line 66). Commit `1144b5c`.
 - **§43 Platform Adaptation** (gaya konten beda per platform - TikTok fast-pacing vs
   YouTube retention dst): ❌ TIDAK ADA. **PERINGATAN false-positive**: ada file
   `lib/policy/platformPolicy.ts` yang NAMANYA mirip tapi ISINYA beda total - itu soal
@@ -284,19 +286,20 @@ Dicek langsung ke kode (grep+Read, bukan tebakan):
 
 Semua ini BUKAN blocked, cuma belum dikerjakan (fokus P0 dulu). Urutan disarankan
 (termudah/paling murah dulu, bukan urutan PRD):
-1. **Content Similarity threshold+regenerate** (lengkapi §38 - fondasinya sudah ada,
-   quick win nyata).
-2. **Content Fatigue Detection** (§39) - datanya sudah ada semua (performanceViews per
-   topic/pillar dari waktu ke waktu), tidak butuh SWOT/Competitor, tidak butuh dependency
-   baru.
-3. **Hashtag repetition tracking** (lengkapi §42 - pola sama dgn structureTemplate/
-   hookType usage tracking yg sudah ada di TIER 2, tinggal terapkan ke hashtag).
+1. ~~**Content Similarity threshold+regenerate**~~ ✅ SELESAI (§38, commit `ef6d0c1` + `3d785e9`)
+2. ~~**Content Fatigue Detection**~~ ✅ SELESAI (§39, commit `ef6d0c1`)
+3. ~~**Hashtag repetition tracking**~~ ✅ SELESAI (§42, commit `1144b5c`)
 4. **Content Intelligence Score** (§36) - PRD tidak jelaskan detail rumusnya di bagian
    yang sudah dibaca, perlu baca §36 penuh dulu sebelum desain.
-5. Sisanya (Caption style rotation §41, Platform Adaptation §43, Pre-Publishing QC §37,
-   Trend Adaptation §40, AI Recommendation Center §45, Content Experiment Engine §46,
-   Client Reporting mode §48) - belum diprioritaskan urutannya, baca PRD detail dulu
-   sebelum mulai masing-masing.
+5. **Caption style rotation §41**: ✅ SELESAI (commit `396dbf0`, 10 caption styles, tracked in regeneration loop)
+6. **Platform Adaptation §43**: ✅ SELESAI (commit `95fb0ee`, TikTok/Instagram/Facebook/YouTube unique caption style)
+7. **Pre-Publishing QC §37**: ✅ SELESAI (commit `396dbf0`, POST /api/projects/[id] quality checks)
+8. **Trend Adaptation §40**: ✅ SELESAI (2026-08-19) - `lib/ai/trendAdaptation.ts`
+   (single GPT call, zero cost baru, infer tren dari data performa brand sendiri +
+   catatan kompetitor) + API route `POST /api/brands/[id]/trend-adaptation`. Pola sama
+   dgn competitorAnalysis.ts. 2-5 tren signifikan dgn relevanceScore/competitorUsage/
+   audienceRelevance/recommendation. Belum ada UI dashboard (tombol ON-DEMAND via API).
+9. Sisanya (AI Recommendation Center §45, Content Experiment Engine §46, Client Reporting mode §48) - belum diprioritaskan urutannya, baca PRD detail dulu sebelum mulai masing-masing.
 6. P2 (Predictive performance/A-B testing otomatis/audience segmentation/predictive
    trend/cross-brand learning) - PALING RENDAH prioritas per PRD §56 sendiri, jangan
    dikerjakan sebelum semua P1 selesai.
