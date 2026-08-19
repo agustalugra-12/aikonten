@@ -6,6 +6,7 @@ import { getPublisher } from "./index";
 import { sendTelegramNotification, formatPublishSummaryNotification } from "./telegram";
 import { ensureFreshYoutubeAccessToken } from "./youtubeAuth";
 import { tryAcquireLock, releaseLock, projectPublishLockKey, LockBusyError } from "@/lib/concurrency/locks";
+import { adaptCaptionForPlatform, type Platform } from "@/lib/ai/platformAdaptation";
 
 // Publish - dulu dipanggil OTOMATIS begitu artefak AI selesai (full-auto, tanpa jeda
 // approval), TAPI sejak 2026-08-04 (permintaan Agus - mau bisa cek draft dulu) ini
@@ -157,10 +158,20 @@ async function publishProjectInner(projectId: string): Promise<void> {
     // otomatis kedeteksi TANPA tag ini juga - #Shorts di sini cuma sinyal TAMBAHAN yg
     // umum dipakai kreator utk bantu algoritma/discovery Shorts, HANYA relevan utk akun
     // YouTube (bukan platform lain yg dpt caption SAMA di loop ini).
-    const outCaption =
-      account.platform === "youtube" && project.contentFormat === "youtube_shorts" && !baseCaption.includes("#Shorts")
+    //
+    // Platform Adaptation (PRD §43) - adapt caption ke gaya platform berbeda.
+    // TikTok: hook + retention + fast pacing, Instagram: visual + saves, dst.
+    const platformKey = (account.platform || "instagram").toLowerCase() as Platform;
+    let outCaption: string;
+    if (platformKey === "youtube") {
+      // YouTube: tambahkan #Shorts kalau konten shorts (simple rule, tidak perlu AI)
+      outCaption = project.contentFormat === "youtube_shorts" && !baseCaption.includes("#Shorts")
         ? `${baseCaption}\n\n#Shorts`
         : baseCaption;
+    } else {
+      // Platform lain: adapt via AI
+      outCaption = await adaptCaptionForPlatform(baseCaption, platformKey, brandName);
+    }
 
     // YouTube title/categoryId (2026-08-10, ditemukan lewat INTROSPEKSI GraphQL Buffer
     // - metadata.youtube.title & categoryId "Required on create", lihat catatan lengkap
