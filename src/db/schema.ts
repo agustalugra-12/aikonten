@@ -706,3 +706,21 @@ export const youtubeSeries = sqliteTable("youtube_series", {
   category: text("category"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+// Competitor Intelligence (2026-08-19, PRD §5-8, permintaan Agus - "kerjakan tanpa API
+// berbayar"). TIDAK ADA API kompetitor apa pun di sini (bukan sekadar belum diintegrasi -
+// SENGAJA tidak ada, sesuai keputusan Agus soal biaya) - staf yang input observasi
+// KOMPETITOR SENDIRI secara manual (nama, catatan bebas: frekuensi posting yg diamati,
+// jenis konten, kira-kira followers, kekuatan/kelemahan yg terlihat). AI TIDAK PERNAH
+// diminta mengarang angka/fakta kompetitor - AI cuma menganalisis/merangkum catatan staf
+// ini + data performa brand sendiri jadi Content Gap & SWOT (lihat
+// lib/ai/competitorAnalysis.ts) - prinsip sama dgn seluruh laporan lain di app ini: AI
+// merangkum data ASLI, tidak pernah jadi sumber fakta.
+export const competitors = sqliteTable("competitors", {
+  id: text("id").primaryKey(),
+  brandId: text("brand_id").notNull().references(() => brands.id),
+  name: text("name").notNull(),
+  notes: text("notes"), // catatan bebas staf - platform, frekuensi posting, tipe konten, dst
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});

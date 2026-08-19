@@ -13,6 +13,7 @@ import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
 import { WeeklyReport } from "@/components/dashboard/WeeklyReport";
 import { ContentPlan } from "@/components/dashboard/ContentPlan";
+import { CompetitorIntelligence } from "@/components/dashboard/CompetitorIntelligence";
 import { MonthlyReport } from "@/components/dashboard/MonthlyReport";
 import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
@@ -223,6 +224,8 @@ function DashboardContent() {
             </div>
           ) : activeView === "rencana" ? (
             <ContentPlan brandId={selectedBrandId} />
+          ) : activeView === "kompetitor" ? (
+            <CompetitorIntelligence brandId={selectedBrandId} />
           ) : activeView === "footage" ? (
             <Card>
               <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">
