@@ -4,6 +4,8 @@ import {
   isStructureOverused,
   isHookTypeOverused,
   buildHookAvoidInstruction,
+  isPillarOverused,
+  buildPillarAvoidInstruction,
   type StructureHookUsage,
 } from "../src/lib/ai/contentVariety";
 
@@ -107,6 +109,66 @@ function assertTrue(actual: boolean, msg: string) {
   assertTrue(withUsage.includes("curiosity (3x)"), "buildHookAvoidInstruction: menyebut curiosity 3x");
   assertTrue(withUsage.includes("data (2x)"), "buildHookAvoidInstruction: menyebut data 2x");
   assertTrue(!withUsage.includes("problem"), "buildHookAvoidInstruction: TIDAK menyebut problem (cuma 1x, di bawah ambang tampil)");
+}
+
+// isPillarOverused / buildPillarAvoidInstruction (2026-08-19, PILLAR TARGET ENFORCEMENT
+// - bug nyata Agus "Pelangi 100% numpuk 1 pilar, 0% Edukasi")
+{
+  const target = { "Pelangi Homestay": 35, "Edukasi": 15, "Wisata Sekitar": 20 };
+  // Kasus nyata Pelangi persis: 8/8 window "Pelangi Homestay" (100%), target 35%.
+  const usage = new Map([["Pelangi Homestay", 8]]);
+  assertTrue(
+    isPillarOverused("Pelangi Homestay", usage, target, 8),
+    "isPillarOverused: kasus nyata Pelangi 100% vs target 35% - HARUS overused"
+  );
+  assertEqual(
+    isPillarOverused("Edukasi", usage, target, 8),
+    false,
+    "isPillarOverused: pilar 0x TIDAK overused (belum tentu buruk, cuma belum pernah dipakai)"
+  );
+  assertEqual(
+    isPillarOverused("Pilar Tidak Dikenal", usage, target, 8),
+    false,
+    "isPillarOverused: pilar di luar daftar target - jangan diblokir (fail-open, bukan fail-closed)"
+  );
+}
+{
+  // Batas toleransi - dalam margin (target+15) belum overused, sedikit di luar margin baru overused
+  const target = { "A": 25 };
+  assertEqual(
+    isPillarOverused("A", new Map([["A", 3]]), target, 8), // 3/8=37.5%, target 25%+15=40% -> masih dalam toleransi
+    false,
+    "isPillarOverused: 37.5% vs target 25%+margin15=40% - masih dalam toleransi, BELUM overused"
+  );
+  assertTrue(
+    isPillarOverused("A", new Map([["A", 4]]), target, 8), // 4/8=50%, > 40% -> overused
+    "isPillarOverused: 50% vs target 25%+margin15=40% - MELEBIHI toleransi, overused"
+  );
+}
+{
+  assertEqual(
+    buildPillarAvoidInstruction(new Map(), {}, 0),
+    "",
+    "buildPillarAvoidInstruction: tanpa target pillar (brand tanpa override) -> string kosong"
+  );
+  const instr = buildPillarAvoidInstruction(
+    new Map([["Pelangi Homestay", 8]]),
+    { "Pelangi Homestay": 35, "Edukasi": 15 },
+    8
+  );
+  assertTrue(
+    instr.includes("Pelangi Homestay") && instr.includes("target cuma 35%"),
+    "buildPillarAvoidInstruction: menyebut pilar overused & target aslinya"
+  );
+  assertTrue(!instr.includes("Edukasi"), "buildPillarAvoidInstruction: TIDAK menyebut pilar yg belum overused (Edukasi)");
+}
+{
+  // windowSize=0 (brand baru, belum ada riwayat pillar sama sekali) - jangan pernah overused
+  assertEqual(
+    isPillarOverused("A", new Map(), { "A": 25 }, 0),
+    false,
+    "isPillarOverused: windowSize 0 (brand baru) - tidak pernah overused"
+  );
 }
 
 if (failed) {

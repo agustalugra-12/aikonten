@@ -155,7 +155,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         photoUrls,
         brand?.knowledgeSite,
         brand?.manualKnowledge,
-        brand?.contentPillars
+        brand?.contentPillars,
+        project.brandId
       );
       // Price Source of Truth (2026-08-11, permintaan Agus - lihat priceValidator.ts) -
       // caption/promoText dibersihkan dari klaim harga yg TIDAK cocok persis dgn

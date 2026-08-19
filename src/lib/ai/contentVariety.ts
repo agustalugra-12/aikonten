@@ -164,3 +164,77 @@ export function pickUnderusedContentType<T extends { id: string }>(
   const candidates = counted.filter((c) => c.count === minCount).map((c) => c.item);
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
+
+// Pillar Target Enforcement (2026-08-19, bug nyata ditemukan Agus - "Pelangi 100%
+// numpuk 1 pilar, 0% Edukasi" walau brands.contentPillars sudah set target 35%/15%/dst).
+// Root cause: pillarTargetPercentForSite() (generateContent.ts) DIHITUNG tapi HANYA
+// dipakai researchTopics.ts (bias saran IDE) - saat konten SUNGGUHAN diklasifikasi
+// pilarnya di sini, tidak ada mekanisme "hindari pilar yg sudah kelebihan target" sama
+// sekali, beda dari hookType/structureTemplate/contentType yg SUDAH py itu (fungsi2 di
+// atas). Fungsi2 di bawah menutup celah itu, pola SAMA persis dgn buildHookAvoidInstruction
+// - dipakai generateContent.ts, TIDAK mengubah pillarsForSite/pillarTargetPercentForSite
+// yg sudah ada (itu tetap sumber DAFTAR pilar & TARGET-nya, cuma sekarang ada penegak
+// tambahan saat klasifikasi final).
+// windowSize DIKEMBALIKAN eksplisit (2026-08-19, bukan diasumsikan = RECENT_PROJECTS_WINDOW
+// konstan) - brand baru/topik sempit bisa py < 8 project berpilar dalam riwayatnya, kalau
+// dianggap tetap 8 maka persentase realisasi jadi UNDERESTIMATE (mis. 1 dari 3 project asli
+// dihitung 1/8=12.5% padahal sebenarnya 33%) - caller (generateContent.ts) WAJIB pakai
+// windowSize ini, bukan konstanta terpisah, utk isPillarOverused/buildPillarAvoidInstruction.
+export async function getRecentPillarUsage(brandId: string): Promise<{ counts: Map<string, number>; windowSize: number }> {
+  const rows = await db
+    .select({ pillar: projects.pillar })
+    .from(projects)
+    .where(and(eq(projects.brandId, brandId), isNotNull(projects.pillar)))
+    .orderBy(desc(projects.createdAt))
+    .limit(RECENT_PROJECTS_WINDOW);
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    if (r.pillar) counts.set(r.pillar, (counts.get(r.pillar) || 0) + 1);
+  }
+  return { counts, windowSize: rows.length };
+}
+
+// Toleransi 15 poin persentase DI ATAS target (2026-08-19) - window cuma 8 project,
+// realisasi persentase WAJAR berfluktuasi cukup lebar dari target jangka panjang tanpa
+// itu benar2 berarti "melenceng" (mis. target 15% dari window 8 = ~1.2 - sekali post
+// ekstra saja sudah lompat ke 25%). Baru diflag kalau MELEBIHI target scr jelas, bukan
+// sedikit di atasnya - kasus nyata Pelangi (0% Edukasi target 15%, 100% "Pelangi
+// Homestay" target 35%) jauh melewati margin ini, jadi tetap tertangkap.
+const PILLAR_OVERUSE_MARGIN_PERCENT = 15;
+
+export function isPillarOverused(
+  pillar: string,
+  usage: Map<string, number>,
+  targetPercent: Record<string, number>,
+  windowSize: number
+): boolean {
+  if (windowSize === 0) return false;
+  const target = targetPercent[pillar];
+  if (target === undefined) return false; // pilar di luar daftar target dikenal - jangan halangi
+  const count = usage.get(pillar) ?? 0;
+  const actualPercent = (count / windowSize) * 100;
+  return actualPercent > target + PILLAR_OVERUSE_MARGIN_PERCENT;
+}
+
+// Instruksi "hindari" untuk pilar (2026-08-19) - soft steer sama filosofi dgn hook/
+// content type di atas (model tetap boleh pilih kalau BENAR-BENAR paling cocok, ini
+// backstop kode di isPillarOverused yg sesungguhnya menegakkan).
+export function buildPillarAvoidInstruction(
+  usage: Map<string, number>,
+  targetPercent: Record<string, number>,
+  windowSize: number
+): string {
+  if (windowSize === 0 || Object.keys(targetPercent).length === 0) return "";
+  const overused = Object.keys(targetPercent).filter((p) =>
+    isPillarOverused(p, usage, targetPercent, windowSize)
+  );
+  if (overused.length === 0) return "";
+  const list = overused
+    .map((p) => {
+      const count = usage.get(p) ?? 0;
+      const pct = Math.round((count / windowSize) * 100);
+      return `${p} (dipakai ${pct}% belakangan, target cuma ${targetPercent[p]}%)`;
+    })
+    .join(", ");
+  return ` Pilar berikut SUDAH MELEBIHI target porsinya belakangan (hindari kalau memungkinkan, condongkan ke pilar lain yang masih di bawah target): ${list}.`;
+}

@@ -8,8 +8,10 @@ import {
   pickUnderusedContentType,
   buildHookAvoidInstruction,
   buildContentTypeAvoidInstruction,
+  buildPillarAvoidInstruction,
   getRecentStructureAndHookUsage,
   getRecentContentTypeUsage,
+  getRecentPillarUsage,
   isContentTypeOverused,
   type StructureHookUsage,
   type ContentTypeUsage,
@@ -456,6 +458,16 @@ export async function generateCaptionAndHashtags(
     avoidCaptionStyles.length > 0
       ? ` Caption style "${avoidCaptionStyles.join(", ")}" sudah terlalu sering dipakai - WAJIB pilih gaya caption LAIN kali ini.`
       : "";
+  // Pillar Target Enforcement (2026-08-19, bug nyata ditemukan Agus - "Pelangi 100%
+  // numpuk 1 pilar, 0% Edukasi" walau targetPercent sudah dikonfigurasi) - lihat catatan
+  // lengkap di contentVariety.ts. pillarTargetPercentForSite SUDAH ada & dipanggil
+  // researchTopics.ts (bias saran ide), TAPI baru sekarang JUGA dipakai di titik
+  // klasifikasi FINAL ini - itu celah yg ditutup di sini, bukan bikin mekanisme baru.
+  const { counts: pillarUsageCounts, windowSize: pillarWindowSize } = brandId
+    ? await getRecentPillarUsage(brandId)
+    : { counts: new Map<string, number>(), windowSize: 0 };
+  const pillarTargetPercent = pillarTargetPercentForSite(knowledgeSite, customPillarsJson);
+  const pillarAvoidInstruction = buildPillarAvoidInstruction(pillarUsageCounts, pillarTargetPercent, pillarWindowSize);
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   const targetWords = Math.round(videoDurationTarget * WORDS_PER_SECOND);
   const isLongForm = videoDurationTarget >= 180;
@@ -496,6 +508,7 @@ export async function generateCaptionAndHashtags(
     hookAvoidInstruction +
     contentTypeAvoidInstruction +
     captionStyleAvoidInstruction +
+    pillarAvoidInstruction +
     (avoidHashtags.length > 0
       ? `\n\nIMPORTANT: The following hashtags have been used TOO FREQUENTLY recently and MUST be AVOIDED: ${avoidHashtags.join(", ")}. Generate DIFFERENT, fresh hashtags.`
       : "");
@@ -542,9 +555,18 @@ export async function generateCaptionForImages(
   imageUrls: string[],
   knowledgeSite?: string | null,
   manualKnowledge?: string | null,
-  customPillarsJson?: string | null
+  customPillarsJson?: string | null,
+  brandId?: string | null
 ): Promise<GeneratedImageContent> {
   const client = getOpenAIClient();
+  // Pillar Target Enforcement (2026-08-19) - sama pola & alasan dgn generateCaptionAndHashtags
+  // di atas, lihat catatan lengkap di sana & di contentVariety.ts. Jalur foto/carousel ini
+  // SEBELUMNYA tidak punya brandId sama sekali (tidak bisa cek usage), ditambahkan di sini.
+  const { counts: pillarUsageCounts, windowSize: pillarWindowSize } = brandId
+    ? await getRecentPillarUsage(brandId)
+    : { counts: new Map<string, number>(), windowSize: 0 };
+  const pillarTargetPercent = pillarTargetPercentForSite(knowledgeSite, customPillarsJson);
+  const pillarAvoidInstruction = buildPillarAvoidInstruction(pillarUsageCounts, pillarTargetPercent, pillarWindowSize);
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   // imageUrls KOSONG (2026-08-11) - jalur full AI-generate poster (allowAiGeneratedPhotos,
   // lihat posterDesign.ts) TIDAK PUNYA foto asli sama sekali (visual dibuat SETELAH
@@ -575,7 +597,8 @@ export async function generateCaptionForImages(
     "(mis. \"Rp175.000\" atau \"Promo 20%\") di field promoText - ini akan ditempel " +
     "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
     "TIDAK menyebut harga/promo sama sekali, promoText HARUS null." +
-    buildClassificationFragment(knowledgeSite, customPillarsJson);
+    buildClassificationFragment(knowledgeSite, customPillarsJson) +
+    pillarAvoidInstruction;
   const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
