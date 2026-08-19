@@ -194,9 +194,72 @@ belum tersentuh sama sekali oleh siapa pun:
     1. Grafik tren - butuh `analytics` terkumpul beberapa MINGGU dulu (baru mulai 18-19
        Agustus di kedua server), belum ada cukup data poin utk grafik berarti. Cek lagi
        sekitar awal September.
-    2. Competitor Intelligence + SWOT (§5-8) - masih 100% blocked keputusan bisnis Agus
-       (lihat poin di atas). Kalau ini akhirnya diputuskan, Content Planning Engine &
-       Monthly SWOT Update (§34) baru bisa dilengkapi ke versi penuh PRD.
+
+## Competitor Intelligence + SWOT — SELESAI 2026-08-19 (TIDAK LAGI BLOCKED)
+
+Agus putuskan eksplisit: **"kerjakan tanpa API berbayar"**. Commit `e4264c2`. Desain:
+TIDAK ADA scraping/API kompetitor apa pun (sengaja, bukan gap) - staf input observasi
+kompetitor MANUAL (nama + catatan bebas) via tab baru "Kompetitor", AI (gpt-4.1-mini,
+biaya sudah ada, bukan baru) HANYA menganalisis catatan itu + performa brand sendiri
+jadi Content Gap + SWOT (tombol "Generate Analisis", on-demand bukan auto). Diverifikasi
+NYATA dgn insert data test realistis - AI benar menganalisis catatan asli, tidak
+mengarang. Tabel baru `competitors` (migrasi 0032). **Belum di-deploy ke server manapun**
+- butuh migrasi DB lagi di kedua server (pola sama spt TIER1: backup dulu, DDL manual via
+better-sqlite3/sqlite3 CLI krn drizzle-kit migrate tetap rusak, BUKAN drizzle-kit migrate).
+
+**Sekarang UNBLOCKED, bisa dikerjakan kalau ada waktu**: Content Planning Engine versi
+PENUH (§22, sekarang bisa pakai SWOT+Competitor sbg input planning, bukan cuma view
+read-only) & Monthly SWOT Update (§34, "Previous SWOT + New Performance + New Competitor
+Data + Market Changes = Updated SWOT" - fondasinya [generateCompetitorIntelligence] sudah
+ada, tinggal jadikan bagian dari alur bulanan + simpan histori SWOT dari waktu ke waktu).
+
+## Audit 5 Bagian PRD yang Belum Jelas (2026-08-19, diminta Agus "biar PRD lengkap")
+
+Dicek langsung ke kode (grep+Read, bukan tebakan):
+
+- **§37 Pre-Publishing Quality Control**: ❌ TIDAK ADA - nol file/mekanisme.
+- **§38 Content Similarity Score**: ⚠️ SEBAGIAN - `lib/ai/contentSimilarity.ts` sudah
+  hitung skor 0-100 (embedding `text-embedding-3-small` + cosine similarity, window 20
+  project terakhir), disimpan ke `projects.similarityScore`, dipanggil dari
+  `processProject.ts`. TAPI cuma warning-only/metadata - TIDAK ADA 4 tingkat threshold
+  (Safe 0-40/Review 41-60/High 61-75/Regenerate >75) atau aksi apa pun berdasar skor itu
+  spt diminta PRD. **Quick win kandidat**: tinggal TAMBAH logic threshold+regenerate di
+  titik yang sudah ada, bukan bangun similarity check dari nol.
+- **§39 Content Fatigue Detection**: ❌ TIDAK ADA.
+- **§41 Caption Intelligence** (variasi GAYA caption - storytelling/educational/short/
+  dst): ❌ TIDAK ADA sbg mekanisme rotasi eksplisit - caption digenerate kontekstual dari
+  skrip (lihat `generateCaptionAndHashtags`), tapi tidak ada tracking/avoid gaya yang
+  overused (beda dari TIER 1-3 yang SUDAH ada rotasi utk structureTemplate/hookType/
+  contentType - caption STYLE belum punya rotasi serupa).
+- **§42 Hashtag Intelligence**: ⚠️ SEBAGIAN - hashtag digenerate kontekstual (bukan
+  hardcode) + dibatasi keras maks 5 (`capHashtags`), TAPI tidak ada pelacakan "hindari
+  set hashtag yang sama berulang" spt diminta PRD.
+- **§43 Platform Adaptation** (gaya konten beda per platform - TikTok fast-pacing vs
+  YouTube retention dst): ❌ TIDAK ADA. **PERINGATAN false-positive**: ada file
+  `lib/policy/platformPolicy.ts` yang NAMANYA mirip tapi ISINYA beda total - itu soal
+  compliance monetisasi YouTube ("YouTube Content & Monetization Safety System"), BUKAN
+  adaptasi gaya konten per platform. Jangan salah kira sudah ada krn nama file mirip.
+
+## Roadmap P1/P2 (PRD §56) - urutan rekomendasi kalau lanjut
+
+Semua ini BUKAN blocked, cuma belum dikerjakan (fokus P0 dulu). Urutan disarankan
+(termudah/paling murah dulu, bukan urutan PRD):
+1. **Content Similarity threshold+regenerate** (lengkapi §38 - fondasinya sudah ada,
+   quick win nyata).
+2. **Content Fatigue Detection** (§39) - datanya sudah ada semua (performanceViews per
+   topic/pillar dari waktu ke waktu), tidak butuh SWOT/Competitor, tidak butuh dependency
+   baru.
+3. **Hashtag repetition tracking** (lengkapi §42 - pola sama dgn structureTemplate/
+   hookType usage tracking yg sudah ada di TIER 2, tinggal terapkan ke hashtag).
+4. **Content Intelligence Score** (§36) - PRD tidak jelaskan detail rumusnya di bagian
+   yang sudah dibaca, perlu baca §36 penuh dulu sebelum desain.
+5. Sisanya (Caption style rotation §41, Platform Adaptation §43, Pre-Publishing QC §37,
+   Trend Adaptation §40, AI Recommendation Center §45, Content Experiment Engine §46,
+   Client Reporting mode §48) - belum diprioritaskan urutannya, baca PRD detail dulu
+   sebelum mulai masing-masing.
+6. P2 (Predictive performance/A-B testing otomatis/audience segmentation/predictive
+   trend/cross-brand learning) - PALING RENDAH prioritas per PRD §56 sendiri, jangan
+   dikerjakan sebelum semua P1 selesai.
 
 ## Kalau ada pertanyaan silang antara OpenCode & Claude Code
 
