@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
-import { getSimilarityTier, SIMILARITY_TIER_LABELS, SIMILARITY_TIER_COLORS } from "@/lib/ai/contentSimilarity";
+import { getSimilarityTier, SIMILARITY_TIER_LABELS, SIMILARITY_TIER_COLORS } from "@/lib/ai/similarityTier";
 import type { Project, ProjectDetail, SocialAccount } from "@/types";
 
 const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
