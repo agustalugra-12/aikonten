@@ -13,6 +13,7 @@ import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
 import { WeeklyReport } from "@/components/dashboard/WeeklyReport";
 import { ContentPlan } from "@/components/dashboard/ContentPlan";
+import { FatigueSummary } from "@/components/dashboard/FatigueSummary";
 import { CompetitorIntelligence } from "@/components/dashboard/CompetitorIntelligence";
 import { MonthlyReport } from "@/components/dashboard/MonthlyReport";
 import { UsageSummary } from "@/components/dashboard/UsageSummary";
@@ -182,6 +183,7 @@ function DashboardContent() {
 
               <UsageSummary />
               <AnalyticsSummary brandId={selectedBrandId} />
+              <FatigueSummary brandId={selectedBrandId} />
               <DraftReview brandId={selectedBrandId} projects={projects} onChange={refreshProjects} />
 
               <Card>

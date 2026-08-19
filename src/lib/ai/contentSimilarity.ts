@@ -38,6 +38,38 @@ export type SimilarityResult = {
   similarToProjectId: string | null;
 };
 
+// Content Similarity Threshold (PRD §38) - 4 tingkat threshold utk review decision.
+// Threshold dikonfigurasi, bisa diubah sesuai kebijakan brand.
+export type SimilarityTier = "safe" | "review" | "high" | "regenerate";
+
+const SIMILARITY_THRESHOLDS = {
+  safe: 40,       // 0-40: Safe - tidak perlu review
+  review: 60,     // 41-60: Review - perlu dicek manual
+  high: 75,       // 61-75: High Similarity - hampir duplicate
+  // >75: Regenerate - wajib generate ulang
+};
+
+export function getSimilarityTier(score: number): SimilarityTier {
+  if (score <= SIMILARITY_THRESHOLDS.safe) return "safe";
+  if (score <= SIMILARITY_THRESHOLDS.review) return "review";
+  if (score <= SIMILARITY_THRESHOLDS.high) return "high";
+  return "regenerate";
+}
+
+export const SIMILARITY_TIER_LABELS: Record<SimilarityTier, string> = {
+  safe: "Aman",
+  review: "Perlu Review",
+  high: "High Similarity",
+  regenerate: "Wajib Regenerate",
+};
+
+export const SIMILARITY_TIER_COLORS: Record<SimilarityTier, string> = {
+  safe: "bg-green-100 text-green-800",
+  review: "bg-yellow-100 text-yellow-800",
+  high: "bg-orange-100 text-orange-800",
+  regenerate: "bg-red-100 text-red-800",
+};
+
 // Dipanggil processProject.ts SETELAH caption final digenerate. Gagal embed (API
 // error) tidak boleh menggagalkan generate video keseluruhan - pemanggil WAJIB
 // bungkus try/catch & lanjut dgn embedding/skor null kalau ini throw (lihat komentar

@@ -52,6 +52,8 @@ export type Project = {
   previewUrl?: string | null;
   previewType?: "video" | "image" | null;
   durationSeconds?: number | null;
+  // Content Similarity Score (PRD §38) - cosine similarity 0-100, NULL kalau belum dihitung
+  similarityScore?: number | null;
 };
 
 export type MediaAsset = {

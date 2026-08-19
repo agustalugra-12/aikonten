@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
+import { getSimilarityTier, SIMILARITY_TIER_LABELS, SIMILARITY_TIER_COLORS } from "@/lib/ai/contentSimilarity";
 import type { Project, ProjectDetail, SocialAccount } from "@/types";
 
 const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
@@ -129,6 +130,14 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
           <Badge variant="outline" className="capitalize mb-1">
             {project.type}
           </Badge>
+          {project.similarityScore != null && project.similarityScore > 0 && (() => {
+            const tier = getSimilarityTier(project.similarityScore);
+            return (
+              <Badge className={`ml-1 mb-1 ${SIMILARITY_TIER_COLORS[tier]}`}>
+                Similarity: {project.similarityScore}% - {SIMILARITY_TIER_LABELS[tier]}
+              </Badge>
+            );
+          })()}
           {youtubeTitle ? (
             <p className="text-sm font-semibold max-w-xl">{youtubeTitle}</p>
           ) : (
