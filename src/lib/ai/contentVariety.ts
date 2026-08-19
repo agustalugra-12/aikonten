@@ -12,11 +12,26 @@ import { and, eq, desc, isNotNull } from "drizzle-orm";
 // pillar/topik terbatas WAJAR mengulang struktur dlm 5 post tanpa itu benar2 monoton).
 const RECENT_PROJECTS_WINDOW = 8;
 
-// Threshold deteksi pengulangan (2026-08-14) - dipilih supaya kira2 sebanding dgn
-// ukuran pool masing2 (2/7 struktur pendek ~29%, 3/11 hook ~27% - flag SEBELUM suatu
-// pola jadi dominan di window, bukan sesudah). Lihat spec doc utk pertimbangan lengkap.
+// Threshold deteksi pengulangan (2026-08-14, DIREVISI 2026-08-19 - lihat bawah) -
+// dipilih supaya kira2 sebanding dgn ukuran pool masing2, flag SEBELUM suatu pola jadi
+// dominan di window, bukan sesudah.
 const STRUCTURE_REPEAT_THRESHOLD = 2;
-const HOOK_REPEAT_THRESHOLD = 3;
+// HOOK_REPEAT_THRESHOLD DITURUNKAN 3->2 (2026-08-19, bug nyata ditemukan Agus - "footage
+// masih monoton pemilihannya", digali lebih dalam ternyata hookType-nya juga: cek data
+// produksi 30 hari terakhir, "direct_benefit" dipakai di 46-48% konten TERBARU Pelangi &
+// Laundry In Bali [11/23 & 11/24], padahal mekanisme anti-monoton ini SUDAH aktif &
+// SUDAH ke-trigger berkali-kali - akar masalahnya threshold >3 (butuh 4/8=50% dulu baru
+// dianggap overused) itu JUSTRU PALING LONGGAR dari 3 dimensi ini, padahal pool hook (11
+// tipe) PALING BESAR di antara ketiganya (structure ~5-7, content type 16) - harusnya
+// threshold-nya proporsional LEBIH KETAT bukan lebih longgar. Diturunkan ke 2 (samakan
+// dgn structure/content type) supaya regen loop di processProject.ts ke-trigger lebih
+// awal. CATATAN: regen loop sendiri MAX_REGEN_ATTEMPTS=2 (di processProject.ts, TIDAK
+// diubah di sini - file itu sedang ada WIP paralel) - kalau setelah perbaikan ini
+// monoton MASIH terjadi, kandidat perbaikan lanjutan: naikkan MAX_REGEN_ATTEMPTS, atau
+// buat hookType dipilih PROAKTIF (pickLeastUsedTemplate-style) sebelum generate, sama
+// pola dgn structureTemplate/contentType - BUKAN cuma reaktif classify-lalu-cek spt
+// sekarang (satu2nya dari 3 dimensi ini yg masih murni reaktif).
+const HOOK_REPEAT_THRESHOLD = 2;
 const CONTENT_TYPE_REPEAT_THRESHOLD = 2;
 // Pool content types lebih kecil (16 types) - threshold 2 berarti 25% dari window 8.
 // Flag SEBELIKTNYA type jadi dominan (lebih from 25% usage).
