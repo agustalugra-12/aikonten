@@ -90,8 +90,8 @@ belum tersentuh sama sekali oleh siapa pun:
   gabungan `dailyIdeas` (belum diproduksi) + `projects` (sudah/sedang diproduksi), kolom
   Date/Jenis/Tipe Konten/Pilar/Topik-Hook/Struktur/Status. TIDAK menyentuh pipeline
   generate/produksi sama sekali - resiko rendah, murni presentasi data yang sudah ada.
-  Diverifikasi ke DB lokal (data real). **Belum di-deploy** ke server mana pun (sama
-  seperti pola sebelumnya - kode siap, tinggal jendela restart aman).
+  Diverifikasi ke DB lokal (data real). **DEPLOY SELESAI 2026-08-19** ke KEDUA server -
+  lihat catatan deploy gabungan di bawah (Laporan Bulanan).
   **BELUM ADA di versi ini** (kalau SWOT/Competitor sudah tidak blocked lagi ke depan):
   planning PROAKTIF (AI usulkan rencana ke depan berbasis SWOT/Competitor/Content Goal),
   saat ini cuma cerminan data yang SUDAH terjadi/di-generate sistem lama (`dailyIdeas`).
@@ -114,16 +114,16 @@ belum tersentuh sama sekali oleh siapa pun:
     (aman di-retry). `followers` sengaja NULL - belum ada query Buffer yg terverifikasi
     expose follower count, JANGAN ditebak/fabrikasi kalau lanjutkan ini. File
     `.service`/`.timer` sudah dibuat (`scripts/cron/kontenpilot-daily-analytics.*`), pola
-    identik cron lain, jadwal 02:30 WIB - **BELUM didaftarkan ke systemd di server manapun**
-    (belum di-deploy, cuma ada di repo).
+    identik cron lain, jadwal 02:30 WIB - **DIDAFTARKAN & AKTIF di KEDUA server sejak
+    2026-08-19**, sudah dites manual (bukan cuma nunggu jadwal) & terverifikasi baris
+    `analytics` real tersimpan di kedua server.
   - [x] **Langkah 2 SELESAI (commit `62d3ce7`)**: halaman "Laporan Mingguan" (tab baru di
     Sidebar) - ranking 5 konten terbaik by views + badge jumlah post per pillar, window
     7/30/90 hari (toggle). Endpoint `GET /api/brands/[id]/weekly-report` READ-ONLY, agregasi
     SQL (`MIN(publishLogs.publishedAt)` per project, join `projects`), TIDAK panggil Buffer
     API sama sekali (murah, cepat). Diverifikasi query-nya langsung ke DB lokal (85 hasil
     nyata Pelangi Homestay 90 hari, angka performa asli). `npx tsc --noEmit` + `npm run
-    build` lokal bersih, route baru muncul di manifest. **Belum di-deploy ke server mana
-    pun** (cuma di repo lokal ini, sama seperti langkah lain yg nunggu restart approval).
+    build` lokal bersih, route baru muncul di manifest. **DEPLOY SELESAI** ke kedua server.
   - [x] **Langkah 3 (PDF export) SELESAI (commit `cb1aed0`)**: tombol "Unduh PDF" di
     halaman Laporan Mingguan. Library: `@react-pdf/renderer` (React 19 didukung resmi,
     dicek peer dep dulu SEBELUM install) - dipilih drpd puppeteer krn tidak butuh browser
@@ -176,12 +176,27 @@ belum tersentuh sama sekali oleh siapa pun:
     alasan Competitor Intelligence). **Belum di-cache** (biaya nyata tiap load AI, tapi
     laporan bulanan wajar jarang dibuka - tambahkan cache pola `socialAccounts.
     cachedMetrics` KALAU ke depan terbukti sering dibuka & biaya jadi masalah nyata,
-    jangan bangun cache preemptif tanpa bukti perlu). **Belum di-deploy** (sama pola -
-    kode siap, tinggal jendela restart aman kedua server).
+    jangan bangun cache preemptif tanpa bukti perlu).
+  - [x] **DEPLOY GABUNGAN SELESAI 2026-08-19** (Content Planning Engine + Laporan Bulanan
+    sekaligus, satu jendela restart, Agus konfirmasi "ya lanjut"): build lokal ✓, restart
+    server lama ✓ (`systemctl restart` jalan langsung, timestamp baru 07:27:28 WIB, nol
+    error di journal selain 1 warning cgroup-cleanup systemd yang tidak relevan), sync 10
+    file ke server baru ✓ (tidak ada dependency baru kali ini - `@react-pdf/renderer`
+    sudah ter-install dari deploy sebelumnya), build server baru ✓ (27s), restart server
+    baru ✓ (dijalankan manual Agus via sudo interaktif, sama pola seperti sebelumnya -
+    timestamp baru 07:42:01 WIB). **Verifikasi akhir**: `curl` langsung ke
+    `/api/brands/x/content-plan` & `/api/brands/x/monthly-report` di KEDUA server
+    menghasilkan `HTTP 401` (Unauthorized) BUKAN `404` - membuktikan route benar-benar
+    dikenali server (butuh login, sesuai desain), bukan cuma "restart tidak error".
+    **KESIMPULAN: kedua server sekarang identik & 100% up to date** dengan semua fitur
+    yang dikerjakan sesi ini (Analytics/Reporting penuh + Content Planning Engine).
   - [ ] **BELUM dikerjakan**:
     1. Grafik tren - butuh `analytics` terkumpul beberapa MINGGU dulu (baru mulai 18-19
        Agustus di kedua server), belum ada cukup data poin utk grafik berarti. Cek lagi
        sekitar awal September.
+    2. Competitor Intelligence + SWOT (§5-8) - masih 100% blocked keputusan bisnis Agus
+       (lihat poin di atas). Kalau ini akhirnya diputuskan, Content Planning Engine &
+       Monthly SWOT Update (§34) baru bisa dilengkapi ke versi penuh PRD.
 
 ## Kalau ada pertanyaan silang antara OpenCode & Claude Code
 
