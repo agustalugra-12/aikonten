@@ -11,12 +11,34 @@ import { parseIdeaFile } from "@/lib/ai/manualIdeaParser";
 // yg dipakai footage/logo - itu utk file besar yg tidak perlu diproses server, file ide
 // ini KECIL & WAJIB diparse server-side segera, jadi terima bytes langsung lebih simpel,
 // tidak perlu app-storage utk file mentahnya sama sekali).
+//
+// Varian JSON (2026-08-19, AI Content Planning Engine) - staf "Terima" 1 saran AI dari
+// tab Rencana Konten kirim {"idea": "..."} langsung (bukan file) - sama tabel/mekanisme
+// FIFO, cuma beda sumber & bentuk body, `source` ditandai "ai-content-plan-suggestion"
+// biar kelihatan asalnya di daftar Bank Ide.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: brandId } = await params;
 
   const [brand] = await db.select().from(brands).where(eq(brands.id, brandId));
   if (!brand) {
     return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
+
+  if ((req.headers.get("content-type") || "").includes("application/json")) {
+    const body = await req.json();
+    const idea = typeof body?.idea === "string" ? body.idea.trim() : "";
+    if (!idea) {
+      return NextResponse.json({ error: "idea wajib diisi" }, { status: 400 });
+    }
+    await db.insert(manualIdeas).values({
+      id: newId("mide"),
+      brandId,
+      idea,
+      source: "ai-content-plan-suggestion",
+      used: false,
+      createdAt: new Date(),
+    });
+    return NextResponse.json({ ok: true, count: 1 });
   }
 
   const formData = await req.formData();

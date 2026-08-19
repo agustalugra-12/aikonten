@@ -30,15 +30,22 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   partial: "outline",
 };
 
+type Suggestion = { pillar: string; topic: string; hookType: string; reasoning: string };
+
 // Content Planning Engine (2026-08-19, PRD §22-23) - tabel kronologis gabungan ide
-// (belum diproduksi) + konten (sudah/sedang diproduksi), pengganti sementara tampilan
-// tabel "Date/Content Type/Pillar/Topic/Hook/Structure/Status" yang diminta PRD. SWOT/
-// Competitor Analysis sebagai input planning BELUM ada (blocked keputusan bisnis) -
-// lihat catatan lengkap di API route content-plan/route.ts.
+// (belum diproduksi) + konten (sudah/sedang diproduksi). Sejak SWOT/Competitor
+// unblocked (e4264c2), tab ini juga punya panel "AI Sarankan Rencana" (versi PENUH) -
+// AI gabungkan SWOT+Competitor+Historical Performance+Content Diversity jadi draf
+// saran, non-binding (staf klik Terima per saran, pola sama SELURUH AI call lain di
+// app ini - lihat lib/ai/contentPlanSuggestions.ts).
 export function ContentPlan({ brandId }: { brandId: string }) {
   const [days, setDays] = useState(14);
   const [rows, setRows] = useState<PlanRow[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [acceptingIdx, setAcceptingIdx] = useState<number | null>(null);
+  const [acceptedIdx, setAcceptedIdx] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     setLoading(true);
@@ -48,8 +55,73 @@ export function ContentPlan({ brandId }: { brandId: string }) {
       .finally(() => setLoading(false));
   }, [brandId, days]);
 
+  const handleSuggest = () => {
+    setSuggestLoading(true);
+    setAcceptedIdx(new Set());
+    fetch(`/api/brands/${brandId}/content-plan/suggest`, { method: "POST" })
+      .then((res) => res.json())
+      .then((data) => setSuggestions(data.suggestions || []))
+      .finally(() => setSuggestLoading(false));
+  };
+
+  const handleAccept = (idx: number, s: Suggestion) => {
+    setAcceptingIdx(idx);
+    const idea = `[${s.pillar}] ${s.topic} (hook: ${s.hookType})`;
+    fetch(`/api/brands/${brandId}/manual-ideas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idea }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok) setAcceptedIdx((prev) => new Set(prev).add(idx));
+      })
+      .finally(() => setAcceptingIdx(null));
+  };
+
   return (
-    <Card>
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+          <CardTitle>AI Sarankan Rencana</CardTitle>
+          <Button size="sm" onClick={handleSuggest} disabled={suggestLoading}>
+            {suggestLoading ? "Menyusun saran..." : "AI Sarankan Rencana"}
+          </Button>
+        </CardHeader>
+        {suggestions !== null && (
+          <CardContent>
+            {suggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Tidak ada saran - coba isi catatan kompetitor dulu di tab Kompetitor supaya AI punya lebih banyak sinyal.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {suggestions.map((s, idx) => (
+                  <div key={idx} className="flex items-start justify-between gap-3 rounded-md border p-3">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{s.pillar}</Badge>
+                        <Badge variant="secondary">{s.hookType}</Badge>
+                      </div>
+                      <p className="text-sm font-medium">{s.topic}</p>
+                      <p className="text-xs text-muted-foreground">{s.reasoning}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={acceptedIdx.has(idx) ? "secondary" : "default"}
+                      disabled={acceptingIdx === idx || acceptedIdx.has(idx)}
+                      onClick={() => handleAccept(idx, s)}
+                    >
+                      {acceptedIdx.has(idx) ? "Diterima" : acceptingIdx === idx ? "Menyimpan..." : "Terima"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+      <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
         <CardTitle>Rencana &amp; Riwayat Konten</CardTitle>
         <div className="flex items-center gap-2">
@@ -105,6 +177,7 @@ export function ContentPlan({ brandId }: { brandId: string }) {
           </div>
         )}
       </CardContent>
-    </Card>
+      </Card>
+    </div>
   );
 }
