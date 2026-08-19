@@ -10,7 +10,7 @@ import {
   buildPillarAvoidInstruction,
   buildHookAvoidInstruction,
 } from "./contentVariety";
-import { pillarTargetPercentForSite, PELANGI_PILLARS, GENERIC_PILLARS } from "./generateContent";
+import { pillarTargetPercentForSite, PELANGI_PILLARS, GENERIC_PILLARS, HOOK_TYPES } from "./generateContent";
 
 // AI Content Planning Engine - versi PENUH (2026-08-19, PRD "AI Content Intelligence"
 // §22-23, lanjutan dari versi read-only c5dad80 setelah SWOT/Competitor unblocked
@@ -90,8 +90,10 @@ Performa per Pilar: ${ownPerformance.byPillar.map((b) => `${b.label} (${b.avgVie
         content:
           `PERFORMA BRAND (30 hari terakhir):\n${performaRingkas}\n\n` +
           `SINYAL KOMPETITOR/SWOT:\n${swotRingkas}\n\n` +
+          `hookType WAJIB SALAH SATU PERSIS dari: ${HOOK_TYPES.map((h) => `"${h}"`).join(", ")} - jangan ` +
+          `pakai istilah lain di luar daftar itu.\n\n` +
           `Balas HARUS JSON valid (tanpa markdown code fence): {"suggestions": [{"pillar": "...", ` +
-          `"topic": "topik/ide konten spesifik, 1 kalimat", "hookType": "curiosity|problem|contrarian|question|story|data|warning|direct_benefit|mystery|comparison", ` +
+          `"topic": "topik/ide konten spesifik, 1 kalimat", "hookType": "...", ` +
           `"reasoning": "kenapa ide ini relevan sekarang, maks 20 kata, sebutkan sinyal yang dipakai"}]}`,
       },
     ],
@@ -111,7 +113,12 @@ Performa per Pilar: ${ownPerformance.byPillar.map((b) => `${b.label} (${b.avgVie
       .map((s: ContentPlanSuggestion) => ({
         pillar: s.pillar,
         topic: s.topic,
-        hookType: s.hookType,
+        // Backstop kode (2026-08-19) - prompt sudah instruksikan daftar hook baku, tapi
+        // model sesekali improvisasi istilah sendiri (mis. "engagement", bukan salah
+        // satu HOOK_TYPES) - sama disiplin dgn normalizeHookType di generateContent.ts,
+        // jangan percaya prompt sendirian. Fallback "curiosity" (paling netral/aman)
+        // drpd buang seluruh saran cuma krn label hook meleset.
+        hookType: (HOOK_TYPES as readonly string[]).includes(s.hookType) ? s.hookType : "curiosity",
         reasoning: typeof s.reasoning === "string" ? s.reasoning : "",
       }));
   } catch {
