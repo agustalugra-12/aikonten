@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { projects, mediaAssets, publishLogs } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { runPrePublishQC } from "@/lib/ai/prePublishQC";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -26,4 +27,21 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   await db.delete(mediaAssets).where(eq(mediaAssets.projectId, id));
   await db.delete(projects).where(eq(projects.id, id));
   return NextResponse.json({ ok: true });
+}
+
+// Pre-Publishing QC (PRD §37) - quality check sebelum publish
+export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const [project] = await db.select().from(projects).where(eq(projects.id, id));
+  if (!project) {
+    return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
+  }
+  const result = await runPrePublishQC(project.brandId, {
+    id: project.id,
+    generatedCaption: project.generatedCaption,
+    generatedHashtags: project.generatedHashtags,
+    similarityScore: project.similarityScore,
+    pillar: project.pillar,
+  });
+  return NextResponse.json(result);
 }

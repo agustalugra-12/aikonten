@@ -130,6 +130,18 @@ function normalizeHookType(v: unknown): HookType | null {
   return (HOOK_TYPES as readonly string[]).includes(v as string) ? (v as HookType) : null;
 }
 
+// Caption Style Rotation (PRD §41) - variasi gaya caption supaya tidak monoton.
+// Sama pola dgn HOOK_TYPES: daftar tetap + normalisasi + tracking usage.
+export const CAPTION_STYLES = [
+  "storytelling", "educational", "short", "conversational", "question",
+  "authority", "product", "emotional", "seo", "cta_focused",
+] as const;
+export type CaptionStyle = (typeof CAPTION_STYLES)[number];
+
+function normalizeCaptionStyle(v: unknown): CaptionStyle | null {
+  return (CAPTION_STYLES as readonly string[]).includes(v as string) ? (v as CaptionStyle) : null;
+}
+
 // Content Type validation (2026-08-14, TIER 1) - TIDAK validasi ke daftar tetap seperti
 // HOOK_TYPES/CONTENT_ANGLES, krn content_types adalah TABLE extensible (bisa INSERT type
 // baru tanpa code change). Validasi cuma format: string non-kosong yg match pattern ID
@@ -190,6 +202,8 @@ function buildClassificationFragment(knowledgeSite?: string | null, customPillar
     "klasifikasi kategori hook/pembuka yang BENAR-BENAR dipakai di skrip/caption ini - " +
     "klasifikasi ini dipakai sistem melacak variasi konten, JAWAB SEJUJURNYA sesuai isi konten ini, " +
     "bukan asal pilih." +
+    ` dan captionStyle (WAJIB SALAH SATU PERSIS): ${CAPTION_STYLES.map((s) => `"${s}"`).join(", ")} - ` +
+    "klasifikasi gaya penulisan caption yang BENAR-BENAR dipakai di konten ini." +
     contentTypeHint +
     keywordPart
   );
@@ -201,16 +215,10 @@ export type GeneratedContent = {
   pillar: string | null;
   angle: ContentAngle | null;
   hookType: HookType | null;
-  contentType: string | null; // Content Type ID (ct_*), TIER 1 - nullable, fail-soft
+  captionStyle: CaptionStyle | null;
+  contentType: string | null;
   targetKeyword: string | null;
   keywordLevel: number | null;
-  // Knowledge Base MENTAH yang dipakai grounding generate ini (2026-08-08, Fact Check
-  // Engine PRD Section 12) - diteruskan apa adanya ke factCheckCaption() di
-  // processProject.ts, supaya cross-check-nya konsisten pakai KB PERSIS yang sama dgn
-  // yang dibaca model saat generate (bukan fetch ulang terpisah yang berisiko out-of-
-  // sync kalau KB berubah di antara 2 panggilan). String kosong = brand ini tidak
-  // punya KB terkonfigurasi (lihat buildKnowledgeGroundingBlock) - factCheckCaption
-  // menangani ini dgn skip (return null), bukan dianggap "0 klaim ditemukan".
   knowledgeUsed: string;
 };
 
@@ -392,7 +400,8 @@ export async function generateCaptionAndHashtags(
   avoidStructureNames: string[] = [],
   avoidHookTypes: string[] = [],
   avoidContentTypes: string[] = [],
-  avoidHashtags: string[] = []
+  avoidHashtags: string[] = [],
+  avoidCaptionStyles: string[] = []
 ): Promise<GeneratedVideoContent> {
   const client = getOpenAIClient();
   // usage kosong (brand belum diketahui, mis. dipanggil dari konteks tanpa brandId) -
@@ -443,6 +452,10 @@ export async function generateCaptionAndHashtags(
     (preferredContentType
       ? ` Untuk menjaga variasi konten, prioritaskan content type ${preferredContentType} KALAU memang cocok dgn isi konten ini (jangan dipaksakan kalau benar2 tidak pas).`
       : "");
+  const captionStyleAvoidInstruction =
+    avoidCaptionStyles.length > 0
+      ? ` Caption style "${avoidCaptionStyles.join(", ")}" sudah terlalu sering dipakai - WAJIB pilih gaya caption LAIN kali ini.`
+      : "";
   const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
   const targetWords = Math.round(videoDurationTarget * WORDS_PER_SECOND);
   const isLongForm = videoDurationTarget >= 180;
@@ -482,6 +495,7 @@ export async function generateCaptionAndHashtags(
     buildClassificationFragment(knowledgeSite, customPillarsJson) +
     hookAvoidInstruction +
     contentTypeAvoidInstruction +
+    captionStyleAvoidInstruction +
     (avoidHashtags.length > 0
       ? `\n\nIMPORTANT: The following hashtags have been used TOO FREQUENTLY recently and MUST be AVOIDED: ${avoidHashtags.join(", ")}. Generate DIFFERENT, fresh hashtags.`
       : "");
@@ -509,6 +523,7 @@ export async function generateCaptionAndHashtags(
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
     hookType: normalizeHookType(parsed.hookType),
+    captionStyle: normalizeCaptionStyle(parsed.captionStyle),
     contentType: normalizeContentType(parsed.contentType),
     knowledgeUsed: grounding.knowledge,
     ...normalizeTargetKeyword(parsed.targetKeyword),
@@ -588,6 +603,7 @@ export async function generateCaptionForImages(
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
     hookType: normalizeHookType(parsed.hookType),
+    captionStyle: normalizeCaptionStyle(parsed.captionStyle),
     contentType: normalizeContentType(parsed.contentType),
     knowledgeUsed: grounding.knowledge,
     ...normalizeTargetKeyword(parsed.targetKeyword),

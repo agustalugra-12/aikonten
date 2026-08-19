@@ -480,6 +480,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     let avoidStructureNames: string[] = [];
     let avoidHookTypes: string[] = [];
     let avoidContentTypes: string[] = [];
+    let avoidCaptionStyles: string[] = [];
     let avoidHashtags: string[] = project.brandId ? await getOverusedHashtags(project.brandId) : [];
     let attempt = 0;
     let generated: Awaited<ReturnType<typeof generateCaptionAndHashtags>>;
@@ -496,7 +497,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         avoidStructureNames,
         avoidHookTypes,
         avoidContentTypes,
-        avoidHashtags
+        avoidHashtags,
+        avoidCaptionStyles
       );
       attempt += 1;
       const overused =
@@ -511,6 +513,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       avoidStructureNames = [...avoidStructureNames, generated.structureTemplate];
       if (generated.hookType) avoidHookTypes = [...avoidHookTypes, generated.hookType];
       if (generated.contentType) avoidContentTypes = [...avoidContentTypes, generated.contentType];
+      if (generated.captionStyle) avoidCaptionStyles = [...avoidCaptionStyles, generated.captionStyle];
       // eslint-disable-next-line no-constant-condition
     } while (true);
     ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed } = generated);
