@@ -62,26 +62,40 @@ function assertTrue(actual: boolean, msg: string) {
   );
 }
 
-// isStructureOverused / isHookTypeOverused - threshold persis (2 utk struktur, 3 utk hook)
+// isStructureOverused / isHookTypeOverused - threshold persis (2 utk struktur, 2 utk hook
+// sejak 2026-08-19 - lihat catatan HOOK_REPEAT_THRESHOLD di contentVariety.ts)
 {
   const usage: StructureHookUsage = {
     structureCounts: new Map([["Hook-Peak-Fasilitas-CTA", 3]]),
-    hookTypeCounts: new Map([["curiosity", 4]]),
+    hookTypeCounts: new Map([["curiosity", 3]]),
   };
   assertTrue(isStructureOverused("Hook-Peak-Fasilitas-CTA", usage), "isStructureOverused: 3x (>2) terdeteksi overused");
   assertEqual(isStructureOverused("Problem-Solution-Fasilitas-CTA", usage), false, "isStructureOverused: 0x tidak overused");
-  assertTrue(isHookTypeOverused("curiosity", usage), "isHookTypeOverused: 4x (>3) terdeteksi overused");
+  assertTrue(isHookTypeOverused("curiosity", usage), "isHookTypeOverused: 3x (>2) terdeteksi overused");
   assertEqual(isHookTypeOverused("problem", usage), false, "isHookTypeOverused: 0x tidak overused");
   assertEqual(isHookTypeOverused(null, usage), false, "isHookTypeOverused: null hookType tidak pernah overused");
 }
 {
-  // Batas TEPAT threshold - 2x struktur BELUM overused (harus >2, bukan >=2)
+  // Batas TEPAT threshold - 2x BELUM overused (harus >2, bukan >=2)
   const usage: StructureHookUsage = {
     structureCounts: new Map([["A", 2]]),
-    hookTypeCounts: new Map([["curiosity", 3]]),
+    hookTypeCounts: new Map([["curiosity", 2]]),
   };
   assertEqual(isStructureOverused("A", usage), false, "isStructureOverused: TEPAT 2x belum overused (threshold >2)");
-  assertEqual(isHookTypeOverused("curiosity", usage), false, "isHookTypeOverused: TEPAT 3x belum overused (threshold >3)");
+  assertEqual(isHookTypeOverused("curiosity", usage), false, "isHookTypeOverused: TEPAT 2x belum overused (threshold >2)");
+}
+{
+  // Kasus nyata (2026-08-19, laporan Agus "footage masih monoton") - "direct_benefit"
+  // dipakai 4x dari window 8 (50%) di data produksi Pelangi asli - HARUS overused dgn
+  // threshold baru (dulu, dgn threshold lama >3, ini TIDAK akan overused sampai 5x).
+  const usage: StructureHookUsage = {
+    structureCounts: new Map(),
+    hookTypeCounts: new Map([["direct_benefit", 4]]),
+  };
+  assertTrue(
+    isHookTypeOverused("direct_benefit", usage),
+    "isHookTypeOverused: kasus nyata Pelangi 4x/8 (50%) - HARUS terdeteksi overused"
+  );
 }
 
 // buildHookAvoidInstruction
