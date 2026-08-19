@@ -62,10 +62,16 @@ export function DraftReview({ brandId, projects, onChange }: { brandId: string; 
 function DraftCard({ project, accounts, onChange }: { project: Project; accounts: SocialAccount[]; onChange: () => void }) {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [busy, setBusy] = useState<"publish" | "delete" | null>(null);
+  const [intelScore, setIntelScore] = useState<{ overallScore: number; grade: string } | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/projects/${project.id}`);
     if (res.ok) setDetail(await res.json());
+    // Fetch intelligence score
+    fetch(`/api/projects/${project.id}/intelligence`)
+      .then((r) => r.json())
+      .then((d) => { if (d.overallScore != null) setIntelScore({ overallScore: d.overallScore, grade: d.grade }); })
+      .catch(() => {});
   }, [project.id]);
 
   useEffect(() => {
@@ -138,6 +144,11 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
               </Badge>
             );
           })()}
+          {intelScore && (
+            <Badge className={`ml-1 mb-1 ${intelScore.grade === "A" ? "bg-green-100 text-green-800" : intelScore.grade === "B" ? "bg-blue-100 text-blue-800" : intelScore.grade === "C" ? "bg-yellow-100 text-yellow-800" : "bg-red-100 text-red-800"}`}>
+              Score: {intelScore.overallScore}/100 ({intelScore.grade})
+            </Badge>
+          )}
           {youtubeTitle ? (
             <p className="text-sm font-semibold max-w-xl">{youtubeTitle}</p>
           ) : (

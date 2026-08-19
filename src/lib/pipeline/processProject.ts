@@ -11,6 +11,7 @@ import {
 } from "@/lib/ai/clipSelect";
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt, buildSrtFromTranscriptSegments, type ContentAngle } from "@/lib/ai/generateContent";
 import { getRecentStructureAndHookUsage, isStructureOverused, isHookTypeOverused, getRecentContentTypeUsage, isContentTypeOverused } from "@/lib/ai/contentVariety";
+import { getOverusedHashtags } from "@/lib/ai/hashtagTracking";
 import { generateVoiceover } from "@/lib/ai/dubbing";
 // Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
@@ -479,6 +480,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     let avoidStructureNames: string[] = [];
     let avoidHookTypes: string[] = [];
     let avoidContentTypes: string[] = [];
+    let avoidHashtags: string[] = project.brandId ? await getOverusedHashtags(project.brandId) : [];
     let attempt = 0;
     let generated: Awaited<ReturnType<typeof generateCaptionAndHashtags>>;
     do {
@@ -493,7 +495,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         project.brandId,
         avoidStructureNames,
         avoidHookTypes,
-        avoidContentTypes
+        avoidContentTypes,
+        avoidHashtags
       );
       attempt += 1;
       const overused =

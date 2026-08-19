@@ -391,7 +391,8 @@ export async function generateCaptionAndHashtags(
   brandId?: string | null,
   avoidStructureNames: string[] = [],
   avoidHookTypes: string[] = [],
-  avoidContentTypes: string[] = []
+  avoidContentTypes: string[] = [],
+  avoidHashtags: string[] = []
 ): Promise<GeneratedVideoContent> {
   const client = getOpenAIClient();
   // usage kosong (brand belum diketahui, mis. dipanggil dari konteks tanpa brandId) -
@@ -480,7 +481,10 @@ export async function generateCaptionAndHashtags(
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
     buildClassificationFragment(knowledgeSite, customPillarsJson) +
     hookAvoidInstruction +
-    contentTypeAvoidInstruction;
+    contentTypeAvoidInstruction +
+    (avoidHashtags.length > 0
+      ? `\n\nIMPORTANT: The following hashtags have been used TOO FREQUENTLY recently and MUST be AVOIDED: ${avoidHashtags.join(", ")}. Generate DIFFERENT, fresh hashtags.`
+      : "");
   const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
