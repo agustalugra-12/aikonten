@@ -1,8 +1,48 @@
-# Handoff to OpenCode — 2026-08-18
+# Handoff to OpenCode — 2026-08-18 (terus diupdate, baca dari atas dulu)
 
 Ditulis oleh Claude Code, untuk koordinasi kerja paralel (Agus jalankan OpenCode + Claude
 Code bersamaan di repo ini). Tujuan file ini: supaya OpenCode bisa lanjut kerja tanpa perlu
 re-explore ulang apa yang sudah terjadi di sesi Claude Code sebelumnya.
+
+## STATUS TERKINI (2026-08-19, baca ini dulu sebelum bagian lain di bawah - itu histori)
+
+**Semua fitur P0 yang tidak blocked sudah SELESAI DI KODE & sebagian besar SUDAH
+TERVERIFIKASI (bukan cuma compile check) - lihat detail lengkap tiap fitur di bagian
+"Roadmap sisanya" & "Competitor Intelligence + SWOT" di bawah.** Ringkasan commit
+terbaru (urut lama→baru): `d658865` (cron analytics) → `62d3ce7` (Laporan Mingguan) →
+`cb1aed0` (PDF export) → `c5dad80` (Content Planning Engine) → `999bd96` (Laporan
+Bulanan) → `e4264c2` (Competitor Intelligence + SWOT, migrasi 0032).
+
+**PENDING PALING PENTING**: Competitor Intelligence (`e4264c2`) BELUM di-deploy ke
+server manapun - butuh migrasi DB (tabel `competitors` baru, pola sama TIER1: backup,
+DDL manual via better-sqlite3/sqlite3 CLI di tiap server, BUKAN `drizzle-kit migrate`
+yang tetap rusak di kedua server) + sync file + build + restart. Agus bilang "nanti
+deploy bersamaan" - artinya TUNGGU sampai ada fitur lain yg juga siap deploy, jangan
+deploy sendirian dulu kecuali diminta eksplisit.
+
+**SEDANG DIKERJAKAN saat handoff ini ditulis (belum ada kode baru, baru investigasi)**:
+melengkapi §38 Content Similarity Score (lihat "Audit 5 Bagian PRD" di bawah) - skor
+similarity SUDAH dihitung & disimpan (`contentSimilarity.ts`), TAPI belum ada 4 tingkat
+threshold (Safe/Review/High/Regenerate) yang diminta PRD. **Keputusan desain yang sudah
+diambil** (jangan diubah tanpa alasan kuat): jangan auto-regenerate (resiko biaya AI
+tak terkendali + butuh ubah signature `generateCaptionAndHashtags`/
+`generateCaptionForImages` di 2 tempat, invasif) - cukup TAMBAH label threshold sbg
+badge yang staf lihat di dashboard (kandidat: `ContentPlan.tsx` atau `ProjectList.tsx`),
+staf yang putuskan regenerate manual via tombol "Coba Lagi" YANG SUDAH ADA
+(`ProjectList.tsx` → `POST /api/projects/[id]/retry`) - TIDAK perlu bikin mekanisme
+regenerate baru, tinggal SAMBUNGKAN visibility ke yang sudah ada. **Belum ada kode
+untuk ini ditulis** - baru sampai tahap keputusan desain + verifikasi tombol retry
+sudah ada.
+
+**Next steps kalau lanjutkan ini**:
+1. Tulis fungsi threshold di `contentSimilarity.ts` (pure function, gampang unit-test):
+   `getSimilarityTier(score: number): "safe" | "review" | "high" | "regenerate"` sesuai
+   tabel PRD §38 (0-40/41-60/61-75/>75).
+2. Tampilkan badge di UI tempat yang paling masuk akal staf lihat draft (cek
+   `DraftReview.tsx` dulu - lebih relevan dari `ContentPlan.tsx` krn itu tempat staf
+   review SEBELUM publish, sesuai maksud PRD "Sebelum publish").
+3. Setelah itu, roadmap P1 berikutnya per urutan di bagian "Roadmap P1/P2" di bawah:
+   Content Fatigue Detection (§39) - kandidat berikutnya, datanya sudah ada semua.
 
 ## Status saat ini (per commit `8c67f40`)
 
