@@ -289,8 +289,8 @@ Semua ini BUKAN blocked, cuma belum dikerjakan (fokus P0 dulu). Urutan disaranka
 1. ~~**Content Similarity threshold+regenerate**~~ ✅ SELESAI (§38, commit `ef6d0c1` + `3d785e9`)
 2. ~~**Content Fatigue Detection**~~ ✅ SELESAI (§39, commit `ef6d0c1`)
 3. ~~**Hashtag repetition tracking**~~ ✅ SELESAI (§42, commit `1144b5c`)
-4. **Content Intelligence Score** (§36) - PRD tidak jelaskan detail rumusnya di bagian
-   yang sudah dibaca, perlu baca §36 penuh dulu sebelum desain.
+4. ~~**Content Intelligence Score**~~ ✅ SELESAI (§36, commit `1144b5c`, bareng §42) - entri
+   ini sempat basi di handoff, sudah dicek ulang 2026-08-20, memang sudah di-commit.
 5. **Caption style rotation §41**: ✅ SELESAI (commit `396dbf0`, 10 caption styles, tracked in regeneration loop)
 6. **Platform Adaptation §43**: ✅ SELESAI (commit `95fb0ee`, TikTok/Instagram/Facebook/YouTube unique caption style)
 7. **Pre-Publishing QC §37**: ✅ SELESAI (commit `396dbf0`, POST /api/projects/[id] quality checks)
@@ -299,10 +299,40 @@ Semua ini BUKAN blocked, cuma belum dikerjakan (fokus P0 dulu). Urutan disaranka
    catatan kompetitor) + API route `POST /api/brands/[id]/trend-adaptation`. Pola sama
    dgn competitorAnalysis.ts. 2-5 tren signifikan dgn relevanceScore/competitorUsage/
    audienceRelevance/recommendation. Belum ada UI dashboard (tombol ON-DEMAND via API).
-9. Sisanya (AI Recommendation Center §45, Content Experiment Engine §46, Client Reporting mode §48) - belum diprioritaskan urutannya, baca PRD detail dulu sebelum mulai masing-masing.
-6. P2 (Predictive performance/A-B testing otomatis/audience segmentation/predictive
-   trend/cross-brand learning) - PALING RENDAH prioritas per PRD §56 sendiri, jangan
-   dikerjakan sebelum semua P1 selesai.
+9. **BELUM DIKERJAKAN** (masih P1, prioritas berikutnya kalau lanjut roadmap): AI
+   Recommendation Center §45, Content Experiment Engine §46, Client Reporting mode §48 -
+   baca PRD detail dulu sebelum mulai masing-masing.
+
+## P2 - status per 2026-08-20 (PENGECUALIAN urutan prioritas, baca catatan di bawah)
+
+PRD §56 sendiri bilang P2 (predictive performance/A-B testing otomatis/audience
+segmentation/predictive trend/cross-brand learning) PALING RENDAH prioritas, jangan
+dikerjakan sebelum semua P1 selesai - poin 9 di atas (§45/§46/§48) masih belum dikerjakan
+saat 2 item P2 di bawah ini dibuat. Ini BUKAN keputusan baru buat balik ubah urutan
+prioritas P1/P2 secara umum - Agus SUDAH cek dan pilih "sudah kadung dibikin, benerin &
+pakai" utk 2 item spesifik ini (2026-08-20), bukan izin buat lanjut P2 lain di luar 2 ini.
+Sesi berikutnya (OpenCode atau Claude Code manapun): balik ke urutan P1 poin 9 di atas dulu
+kalau mau lanjut, JANGAN mulai item P2 lain tanpa tanya Agus lagi.
+
+- **Audience Segmentation §P2**: ✅ SELESAI 2026-08-20 - `lib/ai/audienceSegmentation.ts` +
+  `POST /api/brands/[id]/audience-segmentation`. Awalnya dibuat sesi OpenCode model
+  gratisan (`nemotron-3.5-lightning-free`) yang lalu macet/loop rusak (lihat catatan commit)
+  - ditemukan 2 bug nyata saat verifikasi: (1) bahasa Indonesia ngaco di 2 tempat
+    ("seklarserasi"->"segmentasi", "Pawalai"->"Pertahankan"); (2) BUG SERIUS - prompt-nya
+    TIDAK PERNAH minta output JSON (beda dari pola baku competitorAnalysis.ts/
+    trendAdaptation.ts), jadi GPT balas prosa bebas, JSON.parse selalu gagal, fitur diam-diam
+    SELALU balas kosong sejak awal dibuat - sudah diperbaiki + diverifikasi live pakai
+    gpt-4.1-mini sungguhan (bukan cuma tsc). Verifikasi: `npx tsx scripts/verify-audience-segmentation.ts`.
+  Belum ada UI dashboard (tombol ON-DEMAND via API, sama seperti Trend Adaptation §40).
+- **Predictive Performance §P2**: ✅ SELESAI 2026-08-20 - `lib/ai/predictivePerformance.ts`
+  + `POST /api/brands/[id]/predictive-performance`. Bug nyata saat verifikasi: trend
+  naik/turun dihitung dari slice array kategori (byPillar+byContentType+byHookType+
+  byStructure, sudah diurutkan berdasar avgViews) yang DIKIRA representasi waktu - jadi
+  yang dibandingkan sebenarnya "kategori performa tertinggi" vs "sisanya", BUKAN paruh
+  awal vs akhir window sungguhan. Diperbaiki dgn fungsi baru `getPerformanceTrendSplit()`
+  di `lib/reports/monthlyReportData.ts` yang query `firstPublishedAt` ASLI dari
+  `publish_logs`. Diverifikasi thd 3 brand asli (Pelangi/laundry in bali/Animal Story & Co)
+  + `npx tsx scripts/verify-predictive-performance.ts` (8 skenario deterministik).
 
 ## Kalau ada pertanyaan silang antara OpenCode & Claude Code
 

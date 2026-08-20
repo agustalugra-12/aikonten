@@ -99,3 +99,60 @@ export async function getMonthlyReportData(brandId: string, days: number): Promi
     byStructure: breakdown(withViews.map((r) => ({ key: r.structureTemplate, views: r.performanceViews }))),
   };
 }
+
+export type PerformanceTrendSplit = {
+  firstHalfAvgViews: number | null;
+  secondHalfAvgViews: number | null;
+  firstHalfCount: number;
+  secondHalfCount: number;
+};
+
+// Perbandingan performa paruh-pertama vs paruh-kedua window (2026-08-20, bug nyata) -
+// dipakai predictivePerformance.ts utk menentukan trendDirection. SEBELUM fix, kode itu
+// menyamakan "first half" dgn N item pertama dari array byPillar+byContentType+byHookType+
+// byStructure yang SUDAH diurutkan berdasar avgViews (bukan waktu) - jadi yang dibandingkan
+// sebenarnya "kategori berperforma tertinggi" vs "sisanya", BUKAN performa awal window vs
+// akhir window sama sekali. Fungsi ini query ulang pakai firstPublishedAt ASLI (kolom yang
+// sudah ada di query getMonthlyReportData, cuma belum di-expose) supaya split-nya sungguhan
+// berdasar waktu publish, konsisten dgn larangan proyek ini soal fabrikasi field yang tidak
+// terverifikasi ke sumber asli (lihat catatan di atas soal §34/breakdown 9->4 dimensi).
+export async function getPerformanceTrendSplit(brandId: string, windowDays: number): Promise<PerformanceTrendSplit> {
+  const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+  const midpoint = new Date(Date.now() - (windowDays / 2) * 24 * 60 * 60 * 1000);
+
+  const firstPublish = db
+    .select({
+      projectId: publishLogs.projectId,
+      firstPublishedAt: sql<number>`min(${publishLogs.publishedAt})`.as("first_published_at"),
+    })
+    .from(publishLogs)
+    .where(and(eq(publishLogs.status, "success"), isNotNull(publishLogs.publishedAt)))
+    .groupBy(publishLogs.projectId)
+    .as("first_publish");
+
+  const rows = await db
+    .select({
+      firstPublishedAt: firstPublish.firstPublishedAt,
+      performanceViews: projects.performanceViews,
+    })
+    .from(projects)
+    .innerJoin(firstPublish, eq(firstPublish.projectId, projects.id))
+    .where(and(
+      eq(projects.brandId, brandId),
+      gte(firstPublish.firstPublishedAt, windowStart.getTime() / 1000),
+      isNotNull(projects.performanceViews),
+    ));
+
+  const midpointSec = midpoint.getTime() / 1000;
+  const firstHalf = rows.filter((r) => r.firstPublishedAt < midpointSec).map((r) => r.performanceViews as number);
+  const secondHalf = rows.filter((r) => r.firstPublishedAt >= midpointSec).map((r) => r.performanceViews as number);
+
+  const avg = (vals: number[]) => (vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
+
+  return {
+    firstHalfAvgViews: avg(firstHalf),
+    secondHalfAvgViews: avg(secondHalf),
+    firstHalfCount: firstHalf.length,
+    secondHalfCount: secondHalf.length,
+  };
+}
