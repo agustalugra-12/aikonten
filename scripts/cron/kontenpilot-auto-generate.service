@@ -1,9 +1,13 @@
 [Unit]
-Description=KontenPilot AI - proses konten Pelangi Homestay + Laundry in Bali (batch ringan)
+Description=KontenPilot AI - proses konten Pelangi Homestay (batch ringan)
 
 [Service]
 Type=oneshot
 # Timeout longgar (2026-08-06, dinaikkan lagi 2026-08-11 - lihat riwayat commit) - render
 # video/generate poster per ide bisa makan waktu, dikali beberapa ide sekaligus.
 TimeoutStartSec=10800
-ExecStart=/root/kontenpilot-ai/scripts/cron/call-endpoint.sh "/api/cron/auto-generate?brandIds=brand_j4nZcwImZsFy,brand_Xmae1oEWdDUX"
+# brand_Xmae1oEWdDUX (Laundry in Bali) DIHAPUS dari brandIds (2026-08-20) - brand ini
+# migrasi penuh ke VPS baru (aikonten.agustapstudio.com), jangan lagi diproses di sini
+# supaya tidak dobel-generate/dobel-publish dari 2 server ke akun sosial media yang sama.
+# Lihat catatan migrasi lengkap di docs/HANDOFF_OPENCODE_2026-08-18.md.
+ExecStart=/root/kontenpilot-ai/scripts/cron/call-endpoint.sh "/api/cron/auto-generate?brandIds=brand_j4nZcwImZsFy"
