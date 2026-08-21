@@ -1,0 +1,1 @@
+ALTER TABLE `brands` ADD `footage_source` text DEFAULT 'mixed' NOT NULL;

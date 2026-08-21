@@ -232,6 +232,13 @@
       "when": 1787100667198,
       "tag": "0032_strong_starbolt",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1787274976408,
+      "tag": "0033_internal_footage_source",
+      "breakpoints": true
     }
   ]
 }

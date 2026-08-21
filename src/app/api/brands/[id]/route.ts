@@ -113,6 +113,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     update.knowledgeSite = body.knowledgeSite;
   }
 
+  // Sumber footage video (2026-08-21, permintaan Agus - Harmoni Hills 100% footage
+  // bank sendiri tanpa Pexels/Pixabay, lihat footageSource di schema.ts & clipSelect.ts).
+  if ("footageSource" in body) {
+    if (body.footageSource !== "mixed" && body.footageSource !== "internal") {
+      return NextResponse.json({ error: "footageSource harus 'mixed' atau 'internal'" }, { status: 400 });
+    }
+    update.footageSource = body.footageSource;
+  }
+
   // Brand Design Profile (2026-08-06, permintaan Agus - "Brand Design System Prompt...
   // Brand Profile terpisah per brand") - warna/font/ikon/tone poster brand ini, lihat
   // posterDesign.ts buildPosterPrompt().

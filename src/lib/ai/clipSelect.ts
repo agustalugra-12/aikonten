@@ -58,13 +58,19 @@ export function getDurationConfig(target: number = DEFAULT_VIDEO_DURATION_TARGET
 // menyebut landmark spesifik).
 export const DESTINATION_STOCK_RATIO = 0.6;
 
+// footageSource "internal" (2026-08-21, permintaan Agus - Harmoni Hills 100% footage
+// bank sendiri, NOL Pexels/Pixabay) - stockBudget 0 & realBudget = target penuh.
 export function computeFootageBudgets(
   isDestinationContent: boolean,
-  target: number = DEFAULT_VIDEO_DURATION_TARGET
+  target: number = DEFAULT_VIDEO_DURATION_TARGET,
+  footageSource: "mixed" | "internal" = "mixed"
 ): {
   realBudgetSeconds: number;
   stockBudgetSeconds: number;
 } {
+  if (footageSource === "internal") {
+    return { realBudgetSeconds: target, stockBudgetSeconds: 0 };
+  }
   const stockRatio = isDestinationContent ? DESTINATION_STOCK_RATIO : 1 - REAL_FOOTAGE_RATIO;
   return {
     realBudgetSeconds: target * (1 - stockRatio),

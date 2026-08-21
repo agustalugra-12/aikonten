@@ -392,7 +392,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       // konten wisata dekat pelangi homestay pakai footage pexels 60% footage pelangi
       // 40%", KEBALIKAN dari rasio default 7:3 utk video promosi properti biasa - lihat
       // computeFootageBudgets di clipSelect.ts).
-      const footageBudgets = computeFootageBudgets(isDestinationContent(project.script), durationConfig.target);
+      const footageBudgets = computeFootageBudgets(isDestinationContent(project.script), durationConfig.target, brand?.footageSource ?? "mixed");
       const budgeted = selectClips(pooled, project.script, footageBudgets.realBudgetSeconds);
       // Pastikan SEMUA file yg Agus sediakan ikut terwakili (2026-08-05, bug nyata
       // ditemukan lewat tes live - selectClips cuma fallback ke 1 klip TERBAIK dari
@@ -551,11 +551,14 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // undefined utk klip itu (BENAR, bukan lisensi tidak diketahui - itu footage asli
     // milik brand sendiri, tidak perlu jejak lisensi pihak ketiga).
     let brollClips: DestinationBrollClip[] = [];
-    if (!isStockFootage) {
+    // footageSource "internal" (2026-08-21, permintaan Agus - Harmoni Hills) - lewati
+    // SEMUA pencarian Pexels/Pixabay, 100% footage bank brand sendiri.
+    const internalOnly = (brand?.footageSource ?? "mixed") === "internal";
+    if (!isStockFootage && !internalOnly) {
       const stockBudget = computeFootageBudgets(isDestinationContent(project.script), durationConfig.target).stockBudgetSeconds;
       brollClips = await fetchDestinationBrollClips(project.script, stockBudget, recentlyUsedUrls);
     }
-    if (brollClips.length === 0 && brollKeywords) {
+    if (brollClips.length === 0 && brollKeywords && !internalOnly) {
       // Fallback lama - skrip tidak menyebut landmark spesifik apa pun, tetap kasih 1
       // klip suasana umum spt sebelumnya (mis. "tropical homestay garden").
       const broll = await searchBrollVideo(brollKeywords, recentlyUsedUrls);
@@ -665,7 +668,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       }
     }
 
-    if (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && brollKeywords) {
+    if (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && brollKeywords && !internalOnly) {
       // Footage asli sudah habis (atau ini jalur 100% stok) - top-up pakai B-roll
       // GENERIK tambahan (bukan destinasi spesifik - itu sengaja dibatasi 1 klip per
       // landmark, lihat destinationBroll.ts). Exclude set terus bertambah tiap iterasi
@@ -699,6 +702,50 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       }
     }
 
+    // internalOnly (2026-08-21, permintaan Agus - "gunakan foto + vidio untuk buat
+    // kontenya jadi lebih variatif ... sampai aku tambahkan footagenya") - brand dgn
+    // footageSource="internal" tidak punya B-roll eksternal utk top-up (semua loop
+    // Pexels/Pixabay di atas di-guard), jadi gap durasi diisi dari FOTO bank brand
+    // sendiri (klip zoom/pan via imageToVideoClip, sama mekanisme dgn blok 2-foto di
+    // atas tapi TANPA cap 2) sampai target tercapai ATAU foto segar habis. Foto yg
+    // sudah diubah di project ini (blok 2-foto) dideteksi drp mediaAssets broll_used
+    // supaya tidak diproses dobel. Sifat SEMENTARA smpai bank video Harmoni cukup -
+    // ponytail: kalau bank video sudah besar, blok ini bisa dibuang tanpa efek samping.
+    if (internalOnly && currentTotalDuration() < PRE_RENDER_TARGET_SECONDS) {
+      const photosUsedThisProject = new Set(
+        (
+          await db
+            .select({ fileUrl: mediaAssets.fileUrl })
+            .from(mediaAssets)
+            .where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.type, "broll_used")))
+        ).map((a) => a.fileUrl)
+      );
+      const bankPhotos = await db
+        .select({ fileUrl: footageBank.fileUrl })
+        .from(footageBank)
+        .where(and(eq(footageBank.brandId, project.brandId), eq(footageBank.mediaType, "image")));
+      const freshPhotos = bankPhotos.filter(
+        (p) => !recentlyUsedUrls.has(p.fileUrl) && !photosUsedThisProject.has(p.fileUrl)
+      );
+      for (const photo of freshPhotos) {
+        if (currentTotalDuration() >= PRE_RENDER_TARGET_SECONDS) break;
+        try {
+          const clip = await imageToVideoClip(photo.fileUrl, project.brandId);
+          brollClips.push(clip);
+          await db.insert(mediaAssets).values({
+            id: newId("asset"),
+            projectId: id,
+            type: "broll_used",
+            fileUrl: photo.fileUrl,
+            durationSeconds: clip.durationSeconds,
+            createdAt: new Date(),
+          });
+        } catch (err) {
+          console.warn(`[processProject] gagal ubah foto ${photo.fileUrl} jadi klip zoom/pan (internalOnly), dilewati:`, err);
+        }
+      }
+    }
+
     // Auto-Fix Ladder (2026-08-12, Fase 2b PRD Animal Story & Co section 9/10/21/22/42)
     // - SEBELUM ini durasi kurang = reject LANGSUNG di sini, walau top-up di atas cuma
     // gagal krn 1 query B-roll SEMPIT (mis. nama spesies jarang) kehabisan hasil di
@@ -711,7 +758,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
 
     // Langkah 1: broaden keyword B-roll & ulang top-up SEKALI (hanya kalau ini benar2
     // jalur B-roll - brollKeywords null utk cabang lain yg tidak relevan).
-    if (currentTotalDuration() < effectiveMinDuration && brollKeywords) {
+    if (currentTotalDuration() < effectiveMinDuration && brollKeywords && !internalOnly) {
       const semula = brollKeywords;
       autoFixLog.push({
         step: "footage_insufficient",

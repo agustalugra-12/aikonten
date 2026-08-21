@@ -51,6 +51,12 @@ export const brands = sqliteTable("brands", {
   // 30 detik 60 detik dan 1.30") - dipakai processProject.ts (TARGET_VIDEO_CLIP_COUNT dkk,
   // sebelumnya hardcode target 30-60 detik) utk turunkan jumlah klip yg dikumpulkan.
   videoDurationTarget: integer("video_duration_target").notNull().default(60),
+  // Sumber footage video (2026-08-21, permintaan Agus - "untuk pembuatan vidio untuk
+  // harmoni hills gunakan footage asli jangan ambil pexels atau lainnya hanya gunakan
+  // bank footage") - "mixed" = perilaku lama (rasio 7:3 asli:stok, lihat clipSelect.ts),
+  // "internal" = 100% footage bank brand sendiri, NOL Pexels/Pixabay (stockBudget=0,
+  // destinationBroll dilewati). Default "mixed" supaya brand lama (Pelangi) tidak berubah.
+  footageSource: text("footage_source", { enum: ["mixed", "internal"] }).notNull().default("mixed"),
   // Berapa foto per POST carousel (2026-08-05, permintaan Agus - "carousel 3 foto,
   // carousel 5 foto dan 7 foto") - BEDA dari dailyCarouselCount (itu jumlah POST carousel/
   // hari, ini jumlah FOTO di DALAM 1 post carousel). Dipakai NewProjectDialog.tsx &
