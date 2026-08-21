@@ -48,6 +48,14 @@ yarn-error.log*
 # di atas (".db.bak-..." beda dari ".db-...", ada titik bukan strip sebelum "bak") -
 # ditemukan lewat git status nyata, belasan file 2-4MB nyaris ke-commit tanpa sengaja.
 /data/*.bak-*
+# 2026-08-21 - pola backup lain yg lolos: ".db.backup-*" & ".db.pre-migration-*-backup-*"
+# (ada titik sebelum "backup", tidak kena "*.db-*" maupun "*.bak-*").
+/data/*.db.backup-*
+/data/*.db.pre-migration-*
+# output knowledge graph graphify (generated, bisa di-regenerate kapan pun)
+/graphify-out/
+# dev db kosong hasil drizzle-kit generate
+drizzle/*.db
 
 # typescript
 *.tsbuildinfo
