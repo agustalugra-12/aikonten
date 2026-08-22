@@ -10,6 +10,11 @@ export type PexelsVideoResult = {
   // broll.ts & processProject.ts). BEDA dari `videoUrl` (link file CDN mp4 langsung,
   // bisa expired/berubah) - link halaman ini stabil utk ditelusuri manusia nanti.
   pageUrl: string;
+  // ID unik video di Pexels (dari API response `video.id`). Dipakai sbg kunci
+  // anti-duplicate PERSIS — URL file CDN bisa beda resolusi/berubah, tapi ID
+  // video Pexels tetap sama. Dipakai utk dedup PERSIS di 1 video & cross-project
+  // (PRD "Update AI Konten — Script & Footage" v1.1 §3, 2026-08-22).
+  pexelsVideoId: string;
 };
 
 // B-roll "pendamping" (lihat PRD diskusi - Agus TIDAK mau full AI-generated content,
@@ -38,15 +43,20 @@ const MAX_PAGES_TRIED = 5;
 
 export async function searchPexelsVideo(
   query: string,
-  excludeUrls: Set<string> = new Set()
+  excludeUrls: Set<string> = new Set(),
+  excludeVideoIds: Set<string> = new Set()
 ): Promise<PexelsVideoResult | null> {
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) throw new Error("PEXELS_API_KEY belum diisi di .env");
 
   type PexelsVideoFile = { link: string; quality: string; width: number; height: number };
-  type PexelsVideo = { video_files?: PexelsVideoFile[]; duration: number; user?: { name: string }; url?: string };
-
-  let allSeenCandidates: PexelsVideoResult[] = [];
+  type PexelsVideo = { 
+    id: string;
+    video_files?: PexelsVideoFile[]; 
+    duration: number; 
+    user?: { name: string }; 
+    url?: string 
+  };
 
   for (let page = 1; page <= MAX_PAGES_TRIED; page++) {
     const url = `${PEXELS_VIDEO_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=8&page=${page}&orientation=portrait`;
@@ -55,13 +65,11 @@ export async function searchPexelsVideo(
 
     const data = await res.json();
     const videos = data.videos || [];
-    if (videos.length === 0) break; // halaman ini kosong - situs Pexels sudah habis hasilnya, tidak ada gunanya coba page berikutnya
+    if (videos.length === 0) break;
 
     const candidates = (videos as PexelsVideo[])
       .map((video) => {
         const files = video.video_files || [];
-        // Prioritas kualitas "hd" (720p-1080p, cukup utk konten sosmed, tidak sebesar 4K yg
-        // bikin proses lebih lama) - kalau tidak ada, pakai apa saja yg ada.
         const file = files.find((f) => f.quality === "hd") || files[0];
         if (!file) return null;
         return {
@@ -69,22 +77,25 @@ export async function searchPexelsVideo(
           durationSeconds: Math.round(video.duration),
           photographer: video.user?.name || "Pexels",
           pageUrl: video.url || "",
+          pexelsVideoId: String(video.id), // ID unik video Pexels (utk dedup PERSIS)
         };
       })
       .filter((c): c is PexelsVideoResult => c !== null);
 
-    allSeenCandidates = allSeenCandidates.concat(candidates);
-    const fresh = candidates.filter((c) => !excludeUrls.has(c.videoUrl));
+    // Dedup PERSIS: exclude by BOTH videoUrl AND pexelsVideoId
+    // (URL file CDN bisa beda resolusi, tapi pexelsVideoId tetap sama → blokir)
+    const fresh = candidates.filter(
+      (c) => !excludeUrls.has(c.videoUrl) && !excludeVideoIds.has(c.pexelsVideoId)
+    );
     if (fresh.length > 0) {
       return fresh[Math.floor(Math.random() * fresh.length)];
     }
   }
 
   // Semua page yg dicoba TERNYATA habis - drpd return null sama sekali (bikin video
-  // gagal generate cuma krn kehabisan variasi), fallback ke PENGULANGAN (lebih baik
+  // gagal generate cuma krn kehabisan variasi), fallback ke pengulangan (lebih baik
   // klip berulang drpd video gagal total) - sama perilaku toleran spt kode lama, TAPI
   // sekarang baru terjadi setelah benar2 habis sampai 5 page (40 kandidat), bukan cuma
   // page 1 (8 kandidat).
-  if (allSeenCandidates.length === 0) return null;
-  return allSeenCandidates[Math.floor(Math.random() * allSeenCandidates.length)];
+  return null;
 }

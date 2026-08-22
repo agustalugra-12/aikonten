@@ -64,6 +64,9 @@ export type DestinationBrollClip = {
   sourceCreator?: string;
   sourceUrl?: string;
   sourceQuery?: string;
+  // ID unik video Pexels (utk dedup PERSIS lintas query dalam 1 video, PRD v1.1 §3).
+  // Hanya diisi kalau source="pexels".
+  pexelsVideoId?: string;
 };
 
 // Ambil klip Pexels utk landmark wisata yg disebut skrip, SAMPAI budget durasi terisi
@@ -76,7 +79,8 @@ export type DestinationBrollClip = {
 export async function fetchDestinationBrollClips(
   script: string,
   budgetSeconds: number = getDurationConfig().stockBudgetSeconds,
-  excludeUrls: Set<string> = new Set()
+  excludeUrls: Set<string> = new Set(),
+  excludeVideoIds: Set<string> = new Set()
 ): Promise<DestinationBrollClip[]> {
   const queries = detectDestinationMentions(script);
   const clips: DestinationBrollClip[] = [];
@@ -85,7 +89,9 @@ export async function fetchDestinationBrollClips(
   for (const query of queries) {
     if (usedSeconds >= budgetSeconds) break;
     try {
-      const broll = await searchBrollVideo(query, excludeUrls);
+      // Shared excludeVideoIds across ALL landmark queries — prevents same
+      // Pexels video being picked for multiple landmarks in one video (PRD v1.1 §3).
+      const broll = await searchBrollVideo(query, excludeUrls, excludeVideoIds);
       if (broll) {
         const durationSeconds = Math.min(broll.durationSeconds, CLIP_DURATION_CAP);
         clips.push({
@@ -95,7 +101,11 @@ export async function fetchDestinationBrollClips(
           sourceCreator: broll.creator,
           sourceUrl: broll.sourceUrl,
           sourceQuery: query,
+          pexelsVideoId: broll.pexelsVideoId,
         });
+        // Track dedup keys for subsequent queries
+        excludeUrls.add(broll.videoUrl);
+        if (broll.pexelsVideoId) excludeVideoIds.add(broll.pexelsVideoId);
         usedSeconds += durationSeconds;
       }
     } catch (err) {

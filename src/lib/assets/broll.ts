@@ -12,6 +12,9 @@ export type BrollResult = {
   // di sini - pemanggil sudah py variable `query`-nya sendiri, tidak perlu bolak-balik.
   creator: string;
   sourceUrl: string;
+  // ID unik video Pexels (utk dedup PERSIS lintas query dalam 1 video, PRD v1.1 §3).
+  // Hanya diisi kalau source="pexels".
+  pexelsVideoId?: string;
 };
 
 // Pexels diutamakan (video umumnya kualitas lebih konsisten), Pixabay jadi cadangan
@@ -43,12 +46,12 @@ function capQueryLength(query: string): string {
   return (lastSpace > 20 ? cut.slice(0, lastSpace) : cut).trim();
 }
 
-export async function searchBrollVideo(query: string, excludeUrls: Set<string> = new Set()): Promise<BrollResult | null> {
+export async function searchBrollVideo(query: string, excludeUrls: Set<string> = new Set(), excludeVideoIds: Set<string> = new Set()): Promise<BrollResult | null> {
   const cappedQuery = capQueryLength(query);
   if (process.env.PEXELS_API_KEY) {
     try {
-      const pexels = await searchPexelsVideo(cappedQuery, excludeUrls);
-      if (pexels) return { videoUrl: pexels.videoUrl, durationSeconds: pexels.durationSeconds, source: "pexels", creator: pexels.photographer, sourceUrl: pexels.pageUrl };
+      const pexels = await searchPexelsVideo(cappedQuery, excludeUrls, excludeVideoIds);
+      if (pexels) return { videoUrl: pexels.videoUrl, durationSeconds: pexels.durationSeconds, source: "pexels", creator: pexels.photographer, sourceUrl: pexels.pageUrl, pexelsVideoId: pexels.pexelsVideoId };
     } catch (err) {
       console.error("[broll] Pexels gagal, coba Pixabay:", err);
     }

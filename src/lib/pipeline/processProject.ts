@@ -32,6 +32,7 @@ import { extractThumbnailFrame } from "@/lib/render/frameExtract";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { fetchDestinationBrollClips, isDestinationContent, type DestinationBrollClip } from "@/lib/ai/destinationBroll";
 import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
+import { angkaKeKata, adaAngkaTersisa } from "@/lib/ai/angkaKeKata";
 import { applyLogoToImage } from "@/lib/ai/logoOverlay";
 import { checkContentSimilarity } from "@/lib/ai/contentSimilarity";
 import { factCheckCaption } from "@/lib/ai/factCheck";
@@ -982,8 +983,33 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // Semua param LAIN (klip, motion, transisi, musik, overlay) TETAP sama persis antar
     // panggilan - retry ini murni soal subtitle, bukan pilih ulang footage/durasi (itu
     // ranah Fase 2b, sudah selesai di atas sblm render pertama ini).
-    const renderWithSubtitles = (srtForRender: string, wordTimingsForRender: typeof wordTimings) =>
-      renderFinalVideo({
+    const renderWithSubtitles = (srtForRender: string, wordTimingsForRender: typeof wordTimings) => {
+      // PRD v1.1 §5 Final QC Checklist (2026-08-22) — jaring pengaman TERAKHIR sebelum render.
+      // Semua cek wajib PASS agar render diizinkan. Gagal = throw Error + log ke autoFixLog.
+      const qcErrors: string[] = [];
+      // [ ] Voiceover tidak memiliki angka numerik
+      const narrationTts = angkaKeKata(narrationText);
+      if (/\d/.test(narrationTts)) qcErrors.push("Voiceover mengandung angka numerik (larangan PRD v1.1 §1)");
+      // [ ] Tidak ada duplicate Pexels footage
+      const pexelsIds = brollClips.map((c) => c.pexelsVideoId).filter((v): v is string => !!v);
+      if (new Set(pexelsIds).size !== pexelsIds.length) qcErrors.push("Duplicate Pexels video ID terdeteksi (PRD v1.1 §3)");
+      // [ ] Setiap scene memiliki footage (selected.length > 0)
+      if (selected.length === 0) qcErrors.push("Tidak ada scene footage terpilih");
+      // [ ] Footage relevan dengan narasi (heuristik: minimal 1 brollClip per project yg butuh B-roll)
+      if (!isStockFootage && brollClips.length === 0 && !internalOnly) {
+        qcErrors.push("Tidak ada B-roll footage meskipun project butuh stock footage");
+      }
+      // [ ] Visual cukup bervariasi (heuristik: minimal 2 klip unik jika > 30 detik)
+      const uniqueClips = new Set(brollClips.map((c) => c.videoUrl)).size;
+      if (durationConfig.target > 30 && uniqueClips < 2) qcErrors.push("Visual terlalu monoton (klip unik < 2)");
+
+      if (qcErrors.length > 0) {
+        const errMsg = `Final QC GAGAL: ${qcErrors.join("; ")}`;
+        autoFixLog.push({ step: "final_qc", action: "Final QC Checklist", result: errMsg });
+        throw new Error(errMsg);
+      }
+
+      return renderFinalVideo({
         projectId: id,
         brandId: project.brandId,
         segments: selected,
@@ -1026,6 +1052,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         showProgressBar: directorDecision.showProgressBar,
         ctaText: pickCtaText(id, ctaContext),
       });
+    };
     let rendered = await renderWithSubtitles(srt, wordTimings);
 
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,

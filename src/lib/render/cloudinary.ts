@@ -2,6 +2,7 @@ import { v2 as cloudinary } from "cloudinary";
 import { createHash } from "crypto";
 import { generateVoiceover, getAudioDurationSeconds } from "@/lib/ai/dubbing";
 import { buildCaptionSrt } from "@/lib/ai/generateContent";
+import { angkaKeKata, adaAngkaTersisa } from "@/lib/ai/angkaKeKata";
 
 function configureCloudinary() {
   const cloud_name = process.env.CLOUDINARY_CLOUD_NAME;
@@ -63,7 +64,12 @@ export async function applyZoomToImage(opts: {
   let srtPublicId: string | undefined;
 
   if (opts.captionText) {
-    const voiceoverBuffer = await generateVoiceover(opts.captionText);
+    // PRD v1.1 §1 (2026-08-22): angka numerik TIDAK BOLEH lolos ke TTS.
+    const captionTts = angkaKeKata(opts.captionText);
+    if (adaAngkaTersisa(captionTts)) {
+      console.warn("[cloudinary] Voiceover caption masih mengandung digit setelah konversi angkaKeKata");
+    }
+    const voiceoverBuffer = await generateVoiceover(captionTts);
     durationSeconds = Math.max(4, Math.round(await getAudioDurationSeconds(voiceoverBuffer)));
 
     // MIME "audio/mpeg" (2026-08-10, dubbing.ts balik ke OpenAI gpt-4o-mini-tts yg

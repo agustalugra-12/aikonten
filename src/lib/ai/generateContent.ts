@@ -359,14 +359,29 @@ const LONG_FORM_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
   },
 ];
 
+// === Library 25 Struktur Storytelling (PRD v1.1 §1, 2026-08-22) ===
+// Digabung ke pool existing + intent detection untuk variasi dinamis (anti-monoton).
+import { SCRIPT_STRUCTURES, detectIntent, selectStructure, type ScriptStructure } from "./scriptStructureLibrary";
+
+// Build unified pool: existing 5 short + 2 long-form + 25 library structures
+const UNIFIED_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
+  ...VIDEO_STRUCTURE_TEMPLATES,
+  ...LONG_FORM_STRUCTURE_TEMPLATES,
+  ...SCRIPT_STRUCTURES.map((s) => ({ name: s.id, guide: s.alur })),
+];
+
 function pickStructureTemplate(
   target: number,
   structureCounts: Map<string, number>,
   avoidNames: string[] = [],
-  compatibleNames: string[] = []
+  compatibleNames: string[] = [],
+  // New PRD v1.1 §1: intent-based structure selection for dynamic variety
+  scriptForIntent?: string,
+  contentPillar?: string
 ): { name: string; guide: string } {
-  // >=180dtk (3 menit) dianggap long-form - lihat catatan LONG_FORM_STRUCTURE_TEMPLATES.
+  // Use unified pool (existing 5 short + 2 long-form + 25 library structures)
   const fullPool = target >= 180 ? LONG_FORM_STRUCTURE_TEMPLATES : VIDEO_STRUCTURE_TEMPLATES;
+
   // TIER 3 - filter struktur oleh compatibility content type (dari content_types
   // table metadata) kalau tersedia. Fallback ke pool penuh kalau compatible kosong
   // (mis. metadata belum diisi / pool structure kecil) - jangan pernah pool kosong.
@@ -378,7 +393,30 @@ function pickStructureTemplate(
   // dikecualikan (yg baru saja terbukti overused percobaan sebelumnya) - fallback ke
   // pool penuh kalau exclude menghabiskan semua opsi (jangan pernah pool kosong).
   const pool = usable.filter((t) => !avoidNames.includes(t.name));
-  return pickLeastUsedTemplate(pool.length > 0 ? pool : usable, structureCounts);
+
+  // New: intent-based selection from Script Structure Library (PRD v1.1 §1)
+  // Detect intent from script/topic, then pick structure via library selector
+  // which respects contentVariety overused tracking (avoidNames).
+  let picked = { name: "", guide: "" };
+  if (scriptForIntent) {
+    const intents = detectIntent(scriptForIntent, undefined);
+    const libStruct = selectStructure(intents, avoidNames);
+    const match = UNIFIED_STRUCTURE_TEMPLATES.find((t) => t.name === libStruct.id);
+    if (match) picked = { name: match.name, guide: match.guide };
+  }
+
+  // Fallback to existing logic if intent detection didn't pick
+  if (!picked.name) {
+    const compatPool = compatibleNames.length > 0
+      ? UNIFIED_STRUCTURE_TEMPLATES.filter((t) => compatibleNames.includes(t.name))
+      : UNIFIED_STRUCTURE_TEMPLATES;
+    const usablePool = compatPool.length > 0 ? compatPool : UNIFIED_STRUCTURE_TEMPLATES;
+    const pool2 = usablePool.filter((t) => !avoidNames.includes(t.name));
+    const pickedPool = pool2.length > 0 ? pool2 : UNIFIED_STRUCTURE_TEMPLATES;
+    const pickedTemplate = pickLeastUsedTemplate(pickedPool.length > 0 ? pickedPool : UNIFIED_STRUCTURE_TEMPLATES, structureCounts);
+    return { name: pickedTemplate.name, guide: pickedTemplate.guide };
+  }
+  return picked;
 }
 
 // Kecepatan bicara TTS acuan ~150 kata/menit (2,5 kata/detik) - dipakai kasih target
@@ -439,7 +477,16 @@ export async function generateCaptionAndHashtags(
   const compatibleNames = preferredContentType
     ? await getCompatibleStructures(preferredContentType)
     : [];
-  const structureTemplate = pickStructureTemplate(videoDurationTarget, usage.structureCounts, avoidStructureNames, compatibleNames);
+  // Derive pillars for intent context (first pillar used for structure selection)
+  const pillars = pillarsForSite(knowledgeSite, customPillarsJson);
+  const structureTemplate = pickStructureTemplate(
+    videoDurationTarget,
+    usage.structureCounts,
+    avoidStructureNames,
+    compatibleNames,
+    script, // PRD v1.1 §1: intent-based structure selection
+    pillars[0] // content pillar for intent context (first pillar)
+  );
 
   const hookAvoidInstruction =
     buildHookAvoidInstruction(usage.hookTypeCounts) +
