@@ -319,7 +319,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // Pool transkrip LENGKAP (semua segmen, bukan cuma yg terpilih) - diisi di cabang
     // non-stok, dipakai lagi belakangan utk top-up minimum durasi (lihat durationConfig.min
     // di bawah) kalau seleksi awal masih kurang.
-    let pooled: (Awaited<ReturnType<typeof transcribeFootage>>[number] & { sourceUrl: string })[] = [];
+    const pooled: (Awaited<ReturnType<typeof transcribeFootage>>[number] & { sourceUrl: string })[] = [];
 
     if (isStockFootage) {
       const cappedDuration = Math.min(rawFootage.durationSeconds || 8, STOCK_FOOTAGE_MAX_DURATION);
@@ -483,7 +483,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     let avoidHookTypes: string[] = [];
     let avoidContentTypes: string[] = [];
     let avoidCaptionStyles: string[] = [];
-    let avoidHashtags: string[] = project.brandId ? await getOverusedHashtags(project.brandId) : [];
+    const avoidHashtags: string[] = project.brandId ? await getOverusedHashtags(project.brandId) : [];
     let attempt = 0;
     let generated: Awaited<ReturnType<typeof generateCaptionAndHashtags>>;
     do {
@@ -516,7 +516,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       if (generated.hookType) avoidHookTypes = [...avoidHookTypes, generated.hookType];
       if (generated.contentType) avoidContentTypes = [...avoidContentTypes, generated.contentType];
       if (generated.captionStyle) avoidCaptionStyles = [...avoidCaptionStyles, generated.captionStyle];
-      // eslint-disable-next-line no-constant-condition
+       
     } while (true);
     ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed } = generated);
     }
