@@ -10,4 +10,13 @@ TimeoutStartSec=10800
 # migrasi penuh ke VPS baru (aikonten.agustapstudio.com), jangan lagi diproses di sini
 # supaya tidak dobel-generate/dobel-publish dari 2 server ke akun sosial media yang sama.
 # Lihat catatan migrasi lengkap di docs/HANDOFF_OPENCODE_2026-08-18.md.
-ExecStart=/root/kontenpilot-ai/scripts/cron/call-endpoint.sh "/api/cron/auto-generate?brandIds=brand_j4nZcwImZsFy"
+#
+# brand_nI5LN5tFVQ37 (harmoni) DITAMBAHKAN (2026-08-25, laporan Agus - konten harmoni
+# berhenti total). Root cause: brand ini dibuat 2026-08-20 - PERSIS di hari yang sama
+# saat commit dd40f4e menghapus Laundry dari baris ExecStart ini - dan tidak pernah
+# ditambahkan ke brandIds. Akibatnya SEJAK DIBUAT, harmoni tidak pernah sekalipun
+# tersentuh cron auto-generate (dikonfirmasi: daily_ideas brand ini tetap ter-generate
+# tiap hari via kontenpilot-daily-ideas.timer terpisah, tapi used=0 selamanya krn tidak
+# ada proses yang memanggil runAutoContent utk brand ini) - 13 project harmoni yang ada
+# SEMUANYA dari tombol manual "Konten Otomatis", bukan dari cron.
+ExecStart=/root/kontenpilot-ai/scripts/cron/call-endpoint.sh "/api/cron/auto-generate?brandIds=brand_j4nZcwImZsFy,brand_nI5LN5tFVQ37"

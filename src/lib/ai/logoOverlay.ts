@@ -54,8 +54,18 @@ export async function buildCircularLogoPng(logoUrl: string, sizePx: number): Pro
   const circleMask = Buffer.from(
     `<svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#fff"/></svg>`
   );
+  // fit: "contain" (bukan "cover") - logo brand TIDAK SELALU persegi (mis. wordmark
+  // studio/agency yg lebar horizontal, beda dari logo Pelangi/Laundry yg lebih persegi).
+  // "cover" dulu mengisi penuh sizeXsize dgn CROP sisi panjang - utk logo lebar itu
+  // artinya kiri-kanan wordmark terpotong sebelum sempat kena mask lingkaran, hasilnya
+  // "tidak rapi" (2026-08-25, laporan Agus - brand Agustap Studio pojok kanan kacau,
+  // sementara Laundry in Bali/Pelangi Homestay -yg logonya sudah persegi- terlihat baik-
+  // baik saja, konsisten dgn root cause ini). "contain" + background transparan
+  // menyisakan padding di sisi pendek alih2 crop - seluruh logo tetap utuh & tetap
+  // proporsional di dalam bingkai lingkaran, utk logo yg SUDAH persegi hasilnya identik
+  // dgn "cover" (tidak ada regresi utk brand yg sudah rapi).
   const png = await sharp(raw)
-    .resize(size, size, { fit: "cover", position: "centre" })
+    .resize(size, size, { fit: "contain", position: "centre", background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .ensureAlpha()
     .composite([{ input: circleMask, blend: "dest-in" }])
     .png()
