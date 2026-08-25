@@ -226,7 +226,16 @@ export async function runAutoContent(
   } else {
     const spesifik = isIdeSpesifikProperti(script, brand.knowledgeSite);
 
-    if (!spesifik) {
+    // desiredType "foto"/"carousel" (2026-08-25, ditemukan langsung pas coba generate 1
+    // poster manual utk Agustap Studio - diminta "foto" tapi hasilnya "video") HARUS
+    // melewati broll search ini sama sekali - beda dari cabang matchedUrls.length>0 di
+    // atas (yg SUDAH menghormati desiredType sejak fix 2026-08-06), fallback broll di
+    // sini TIDAK PERNAH dicek thd desiredType - jadi 1 caller yg eksplisit minta foto
+    // (tombol manual "⚡" dgn type=foto, atau panggilan langsung spt ini) tetap bisa
+    // dibajak jadi video kalau kebetulan ketemu stok Pexels/Pixabay relevan. Skip
+    // pencarian broll VIDEO seluruhnya kalau desiredType eksplisit minta foto/carousel -
+    // biarkan turun ke fallback foto (allowAiGeneratedPhotos/pickAnyRealPhoto) di bawah.
+    if (!spesifik && desiredType !== "foto" && desiredType !== "carousel") {
       try {
         const keywords = await deriveBrollKeywordsFromScript(script);
         const broll = await searchBrollVideo(keywords);
