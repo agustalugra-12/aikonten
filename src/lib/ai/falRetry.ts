@@ -29,6 +29,22 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// 422 content_policy_violation ditemukan (2026-08-25, laporan Agus - "gagal render di
+// fal.ai lihat lebih dari sekali") SELALU retry penuh 3x tanpa pernah sukses - masuk akal
+// krn INPUT (prompt+gambar) SAMA PERSIS tiap percobaan, fal.ai menolak berdasarkan ISI
+// input itu sendiri (bukan kegagalan transien server spt kasus "Could not generate
+// images..." yg jadi alasan retry loop ini dibuat, lihat catatan atas) - percobaan ke-2/
+// ke-3 dijamin ditolak lagi dgn alasan sama, cuma buang ~2-6 detik jeda + bikin log
+// penuh noise identik. Nyerah di percobaan pertama utk error class ini SAJA (bukan utk
+// error lain, spt "fetch failed"/kegagalan generate generik yg MASIH transien).
+export function isContentPolicyViolation(err: unknown): boolean {
+  if (!err || typeof err !== "object" || !("status" in err)) return false;
+  const e = err as { status?: number; body?: unknown };
+  if (e.status !== 422) return false;
+  const bodyStr = JSON.stringify(e.body ?? "");
+  return bodyStr.includes("content_policy_violation");
+}
+
 export async function subscribeFalWithRetry(endpoint: string, input: Record<string, unknown>) {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -45,6 +61,10 @@ export async function subscribeFalWithRetry(endpoint: string, input: Record<stri
       // (query llm_usage_log WHERE model LIKE '%attempt-failed%'), sebelumnya kegagalan
       // sama sekali tidak ninggalkan jejak apa pun di sini.
       await logNonTokenUsage(`${endpoint}-attempt-failed`, 0);
+      if (isContentPolicyViolation(err)) {
+        console.error(`[fal.subscribe] content_policy_violation - input tidak akan berubah di percobaan berikutnya, nyerah sekarang (tidak retry).`);
+        throw err;
+      }
       if (attempt < MAX_ATTEMPTS) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
       }
