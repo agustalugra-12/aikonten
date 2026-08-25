@@ -28,6 +28,28 @@ import { eq, desc, and } from "drizzle-orm";
 const MAX_VIDEO_CLIPS_AUTO = 60;
 const DEFAULT_CAROUSEL_PHOTOS_AUTO = 5;
 
+// Laundry in Bali (2026-08-25, permintaan Agus langsung - "bank footage utk poster/
+// carousel dipakai 10% saja, 90% pakai AI generate") - brand ini punya sedikit footage
+// asli yang representatif utk topik tertentu (tas, sepatu, dst - lihat diskusi hari yang
+// sama), jadi walau ADA foto asli yang match tema (matchFootageForScript menemukan
+// kandidat), Agus mau tetap mayoritas full-AI drpd otomatis pakai foto asli begitu ada
+// yang match. HANYA untuk foto/carousel (bukan video - video TETAP wajib footage asli,
+// keputusan terpisah yang sudah dikonfirmasi sebelumnya), HANYA brand ini (brand lain
+// tidak berubah - kalau ada foto asli match, tetap dipakai spt semula).
+export const LAUNDRY_IN_BALI_BRAND_ID = "brand_Xmae1oEWdDUX";
+export const LAUNDRY_AI_BIAS_PERCENT = 90;
+
+// Diekstrak jadi fungsi murni (rng bisa di-inject) supaya bisa di-unit-test tanpa
+// bergantung Math.random() sungguhan - lihat scripts/verify-laundry-ai-bias.ts.
+export function shouldForceAiOverMatchedPhoto(
+  brandId: string,
+  allowAiGeneratedPhotos: boolean,
+  rng: () => number = Math.random
+): boolean {
+  if (brandId !== LAUNDRY_IN_BALI_BRAND_ID || !allowAiGeneratedPhotos) return false;
+  return rng() * 100 < LAUNDRY_AI_BIAS_PERCENT;
+}
+
 export class AutoContentError extends Error {
   status: number;
   constructor(message: string, status: number = 400) {
@@ -200,6 +222,12 @@ export async function runAutoContent(
       // carousel (desiredType="carousel" atau heuristik lama tanpa desiredType).
       const targetPhotoCount = desiredType === "foto" ? 1 : (brand.carouselPhotosPerPost || DEFAULT_CAROUSEL_PHOTOS_AUTO);
       urlsToUse = imageOnlyUrls.slice(0, targetPhotoCount);
+      // Laundry in Bali - 90% tetap full-AI walau ADA foto asli yang match (lihat
+      // shouldForceAiOverMatchedPhoto di atas) - buang match yang sudah ketemu supaya
+      // fallback useFullAiPoster di bawah yang jalan, bukan otomatis pakai match ini.
+      if (urlsToUse.length > 0 && shouldForceAiOverMatchedPhoto(brandId, !!brand.allowAiGeneratedPhotos)) {
+        urlsToUse = [];
+      }
       // Kalau kandidat tema TERNYATA semua video (mediaType item pertama "video" tapi ada
       // foto lain di urutan bawah SUDAH kekurangan) atau malah 0 foto sama sekali di hasil
       // tema - fallback ke foto asli APA SAJA (pickAnyRealPhoto, sama pola dgn cabang
