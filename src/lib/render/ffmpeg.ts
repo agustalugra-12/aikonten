@@ -120,8 +120,17 @@ const FFMPEG_CPU_QUOTA = process.env.FFMPEG_CPU_QUOTA || "150%";
 
 async function run(cmd: string, args: string[]): Promise<void> {
   const unit = `kontenpilot-ffmpeg-${process.pid}-${Date.now()}-${_ffmpegRunCounter++}`;
+  // 2026-08-27 - "--scope" (dipakai sebelumnya) mensyaratkan proses pemanggil MELEKAT ke
+  // sesi login aktif (systemd nge-inherit scope ke slice sesi tsb). kontenpilot-backend
+  // jalan sbg systemd SERVICE (bukan sesi login), jadi kadang systemd-run gagal dgn
+  // "Interactive authentication required" (root pun kena - butuh sesi utk resolve subject
+  // polkit-nya, bukan soal privilege). Ditemukan lewat riwayat render Animal Story & Co
+  // yg gagal (banyak kejadian 08-12 s/d 08-24). "--wait --pipe" (transient SERVICE, bukan
+  // scope) dikelola langsung oleh PID1 tanpa syarat sesi sama sekali - MemoryMax/CPUQuota
+  // per-invocation & timeout+SIGKILL tetap sama persis, cuma cara systemd melacak unit-nya
+  // yg beda (.service, bukan .scope).
   const scopedArgs = [
-    "--scope", "--quiet", "--unit", unit,
+    "--wait", "--pipe", "--quiet", "--unit", unit,
     "-p", `MemoryMax=${FFMPEG_MEMORY_MAX}`, "-p", `CPUQuota=${FFMPEG_CPU_QUOTA}`, "--",
     cmd, ...args,
   ];
@@ -133,12 +142,20 @@ async function run(cmd: string, args: string[]): Promise<void> {
     });
   } catch (err) {
     const stderr = (err as { stderr?: string })?.stderr || "";
+    // 2026-08-27 - sebelumnya syarat "!stderr" (stderr kosong) utk deteksi timeout - SALAH,
+    // ffmpeg SELALU nulis progress frame-by-frame ke stderr begitu mulai encode, jadi
+    // timeout asli (proses genuinely kena SIGKILL krn kelamaan, bukan crash) hampir tidak
+    // pernah lolos cek ini & jatuh ke pesan generik (dump ribuan baris progress) alih2
+    // pesan ramah "melebihi batas waktu..." yg sudah didesain utk kasus ini. Ditemukan
+    // lewat 1 render Animal Story & Co yg speed=0.0865x (jauh di bawah realtime, filter
+    // chain berat: color grade+subtitle+logo+5 stat overlay+lottie confetti) - stderr-nya
+    // PENUH baris progress, bukan kosong.
     const isTimeout = (err as { killed?: boolean; signal?: string })?.killed &&
-      (err as { signal?: string })?.signal === "SIGKILL" && !stderr;
+      (err as { signal?: string })?.signal === "SIGKILL";
     if (isTimeout) {
       // best-effort - matikan seluruh process tree cgroup-nya (bukan cuma child langsung
       // yang execFile timeout kill-nya sentuh), konsisten dgn desain Fase 4.
-      execFileAsync("systemctl", ["stop", `${unit}.scope`]).catch(() => {});
+      execFileAsync("systemctl", ["stop", `${unit}.service`]).catch(() => {});
       throw new Error(
         `${cmd} melebihi batas waktu ${FFMPEG_TIMEOUT_MS / 60000} menit, dihentikan paksa - ` +
         `kemungkinan render terlalu berat/macet (lihat insiden 2026-08-13, render 46 klip)`,
