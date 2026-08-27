@@ -372,23 +372,45 @@ export async function renderFinalVideo(opts: {
       // gerak-terlalu-cepat kalau durasinya terlalu singkat utk gerakan halus.
       const motion: MotionType =
         duration < 1.5 ? "static" : opts.motions?.[i] || ALL_MOTION_TYPES[i % ALL_MOTION_TYPES.length];
-      await run("ffmpeg", [
-        "-y",
-        "-ss", String(clip.start),
-        "-i", clip.url,
-        "-t", String(duration),
-        "-vf", buildCameraMotionFilter(motion, TARGET_WIDTH, TARGET_HEIGHT, duration, opts.motionIntensity ?? 1.0),
-        "-an",
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "23",
-        outPath,
-      ]);
+      // Retry (2026-08-27, bug nyata Animal Story & Co - 3 render gagal semalam dgn
+      // "ffprobe tidak menghasilkan durasi valid") - `clip.url` di-fetch LANGSUNG oleh
+      // ffmpeg (bukan file lokal), kegagalan transien (network blip/CDN sumber sesaat
+      // tidak responsif) bisa membuat ffmpeg "sukses" (exit 0) tapi outPath rusak/tanpa
+      // durasi valid - baru ketahuan di getDurationSeconds. Retry PENUH (ffmpeg + cek
+      // durasi ulang, bukan cuma cek durasi) krn kegagalannya di fetch/encode, bukan di
+      // pembacaan file. Pola sama dgn falRetry.ts (MAX_ATTEMPTS retry singkat, jeda
+      // pendek antar percobaan) utk kelas kegagalan yang sama: transien, bukan bug kode.
+      const MAX_CLIP_ATTEMPTS = 3;
+      let clipDuration: number | undefined;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await run("ffmpeg", [
+            "-y",
+            "-ss", String(clip.start),
+            "-i", clip.url,
+            "-t", String(duration),
+            "-vf", buildCameraMotionFilter(motion, TARGET_WIDTH, TARGET_HEIGHT, duration, opts.motionIntensity ?? 1.0),
+            "-an",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            outPath,
+          ]);
+          clipDuration = await getDurationSeconds(outPath);
+          break;
+        } catch (err) {
+          if (attempt >= MAX_CLIP_ATTEMPTS) throw err;
+          console.warn(
+            `[ffmpeg] Normalisasi klip ${i} (${clip.url}) gagal percobaan ${attempt}/${MAX_CLIP_ATTEMPTS}, retry: ${(err as Error).message}`,
+          );
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
       normalizedPaths.push(outPath);
       // Durasi AKTUAL hasil encode (bukan asumsi `duration` yg diminta) - frame
       // rounding di fps=30 bisa geser sepersekian detik, xfade offset WAJIB akurat
       // (lihat transitions.ts) drpd ikut menyimpang sedikit demi sedikit tiap klip.
-      normalizedDurations.push(await getDurationSeconds(outPath));
+      normalizedDurations.push(clipDuration);
     }
 
     // 2) Sambung klip PAKAI TRANSISI (xfade, 2026-08-10 - lihat transitions.ts kenapa
