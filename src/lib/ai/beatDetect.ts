@@ -1,10 +1,7 @@
-import { execFile } from "child_process";
-import { promisify } from "util";
-import { writeFile, mkdtemp, rm, readFile } from "fs/promises";
+import { mkdtemp, rm, readFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
-
-const execFileAsync = promisify(execFile);
+import { runFfmpeg } from "@/lib/render/ffmpegExec";
 
 // Music Beat Sync (2026-08-10, PRD "AI Content Editing Engine" Roadmap V3) - deteksi
 // beat MURNI lokal (ffmpeg decode + energy-based peak-picking di JS), TIDAK ADA library
@@ -33,11 +30,14 @@ async function decodeToRawPcm(audioUrl: string): Promise<Buffer> {
   const workDir = await mkdtemp(path.join(tmpdir(), "kontenpilot_beat_"));
   try {
     const outPath = path.join(workDir, "audio.raw");
-    await execFileAsync("ffmpeg", [
+    // Fase 3 (2026-08-31): via wrapper ffmpegExec (cgroup+timeout util+semaphore) -
+    // dulu execFileAsync telanjang. Argumen decode SAMA PERSIS; kegagalan tetap
+    // ditangkap caller (detectBeats) & dianggap "tanpa beat sync" seperti biasa.
+    await runFfmpeg([
       "-y", "-i", audioUrl,
       "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", "-acodec", "pcm_s16le",
       outPath,
-    ], { maxBuffer: 1024 * 1024 * 64 });
+    ], "util");
     return await readFile(outPath);
   } finally {
     await rm(workDir, { recursive: true, force: true });

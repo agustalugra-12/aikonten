@@ -1,7 +1,4 @@
-import { execFile } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
+import { runFfmpeg } from "@/lib/render/ffmpegExec";
 
 // Quality Checker (2026-08-10, PRD "AI Content Editing Engine" section 32) - jaring
 // pengaman TERAKHIR sebelum project ditandai "ready" (tampil di Draft Review, BISA
@@ -71,34 +68,37 @@ const MAX_BLACK_SECONDS = 2;
 // cepat dibaca), bukan angka presisi UI - cukup utk menangkap kasus ekstrem.
 const MAX_SRT_LINE_CHARS = 140;
 
+// Fase 3 (2026-08-31): SEMUA detector di bawah jalan lewat wrapper ffmpegExec (profil
+// util: MemoryMax/SwapMax/cgroup + timeout + semaphore global) - dulu 3x execFileAsync
+// telanjang TANPA timeout/cgroup, 1 cek macet = project menggantung selamanya.
+// Filter, threshold, & pola parse stderr (termasuk parse err.stderr saat ffmpeg gagal
+// - stderr kini di-attach ke error oleh ffmpegExec, lihat sana) SAMA PERSIS -
+// keputusan QC tidak berubah, hanya kebijakan resource eksekusinya.
 async function detectLongestSilence(videoUrl: string): Promise<number> {
-  const { stderr } = await execFileAsync(
-    "ffmpeg",
+  const { stderr } = await runFfmpeg(
     ["-i", videoUrl, "-af", `silencedetect=noise=-35dB:d=${MAX_SILENCE_SECONDS}`, "-f", "null", "-"],
-    { maxBuffer: 1024 * 1024 * 16 }
-  ).catch((err) => ({ stderr: err.stderr || "", stdout: "" }));
+    "util"
+  ).catch((err) => ({ stderr: (err as { stderr?: string })?.stderr || "", stdout: "" }));
 
   const durations = [...stderr.matchAll(/silence_duration:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
   return durations.length > 0 ? Math.max(...durations) : 0;
 }
 
 async function detectMeanVolume(videoUrl: string): Promise<number | null> {
-  const { stderr } = await execFileAsync(
-    "ffmpeg",
+  const { stderr } = await runFfmpeg(
     ["-i", videoUrl, "-af", "volumedetect", "-f", "null", "-"],
-    { maxBuffer: 1024 * 1024 * 16 }
-  ).catch((err) => ({ stderr: err.stderr || "", stdout: "" }));
+    "util"
+  ).catch((err) => ({ stderr: (err as { stderr?: string })?.stderr || "", stdout: "" }));
 
   const match = stderr.match(/mean_volume:\s*(-?[\d.]+)\s*dB/);
   return match ? parseFloat(match[1]) : null;
 }
 
 async function detectTotalBlackSeconds(videoUrl: string): Promise<number> {
-  const { stderr } = await execFileAsync(
-    "ffmpeg",
+  const { stderr } = await runFfmpeg(
     ["-i", videoUrl, "-vf", "blackdetect=d=1:pic_th=0.98", "-an", "-f", "null", "-"],
-    { maxBuffer: 1024 * 1024 * 16 }
-  ).catch((err) => ({ stderr: err.stderr || "", stdout: "" }));
+    "util"
+  ).catch((err) => ({ stderr: (err as { stderr?: string })?.stderr || "", stdout: "" }));
 
   const durations = [...stderr.matchAll(/black_duration:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
   return durations.reduce((sum, d) => sum + d, 0);

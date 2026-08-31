@@ -1,21 +1,15 @@
-import { execFile } from "child_process";
-import { promisify } from "util";
 import { writeFile, mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { readFile } from "fs/promises";
+import { runFfmpeg } from "./ffmpegExec";
 
-const execFileAsync = promisify(execFile);
-
-async function run(cmd: string, args: string[]): Promise<void> {
-  try {
-    await execFileAsync(cmd, args, { maxBuffer: 1024 * 1024 * 64 });
-  } catch (err) {
-    const stderr = (err as { stderr?: string })?.stderr || "";
-    throw new Error(`${cmd} gagal: ${(err as Error).message}\n${stderr.slice(-2000)}`);
-  }
-}
+// Fase 3 (2026-08-31): private run() telanjang (execFileAsync TANPA cgroup/timeout/
+// semaphore - ditemukan audit, satu2nya jalur zoompan lolos dari semua kebijakan
+// resource) DIHAPUS - semua panggilan pakai wrapper ffmpegExec (profil util). Filter
+// zoompan, varian,preset/CRF, & hasil visual SAMA PERSIS - hanya kebijakan resource
+// eksekusinya yg berubah.
 
 // Foto -> klip video pendek dgn efek zoom/pan (2026-08-07, permintaan Agus - "footage
 // jangan monoton untuk semua brand... silahkan gunakan footage foto sebagai video tidak
@@ -78,12 +72,12 @@ export async function imageToVideoClip(imageUrl: string, brandId: string, durati
       `scale=3840:-2,` +
       `zoompan=z='${variant.zExpr}':x='${variant.xExpr(totalFrames)}':y='${variant.yExpr}':d=${totalFrames}:s=1080x1920:fps=${fps}`;
 
-    await run("ffmpeg", [
+    await runFfmpeg([
       "-y", "-loop", "1", "-i", imgPath, "-t", String(durationSeconds),
       "-vf", zoompanFilter,
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
       outPath,
-    ]);
+    ], "util");
 
     const outBuffer = await readFile(outPath);
     const key = buildAssetKey(brandId, "footage_zoom", `${variant.name}_${Date.now()}.mp4`);

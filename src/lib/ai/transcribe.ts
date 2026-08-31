@@ -1,11 +1,8 @@
 import { getOpenAIClient, logNonTokenUsage } from "./openaiClient";
-import { execFile } from "child_process";
-import { promisify } from "util";
+import { runFfmpeg } from "@/lib/render/ffmpegExec";
 import { writeFile, readFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
-
-const execFileAsync = promisify(execFile);
 
 // Whisper (2026-08-06, permintaan Agus - "cek ai konten juga agar transparan") - beda
 // dari chat.completions, Whisper TIDAK py field `usage.prompt_tokens` - harganya per
@@ -46,11 +43,15 @@ export type WordTiming = { word: string; start: number; end: number };
 // sesuai permintaan, bukan menggagalkan apa pun.
 async function normalizeAudioForWhisper(sourcePath: string): Promise<string> {
   const wavPath = `${sourcePath}.norm.wav`;
-  await execFileAsync("ffmpeg", [
+  // Fase 3 (2026-08-31): ffmpeg via wrapper ffmpegExec (cgroup MemoryMax/SwapMax +
+  // timeout util + semaphore global) - dulu telanjang execFileAsync tanpa batas apa pun,
+  // 1 file aneh bisa menggantung transkripsi selamanya. Perilaku error TIDAK berubah:
+  // gagal normalisasi tetap ditangkap caller & dianggap senyap (lihat bawah).
+  await runFfmpeg([
     "-y", "-i", sourcePath,
     "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
     wavPath,
-  ]);
+  ], "util");
   return wavPath;
 }
 

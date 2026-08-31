@@ -4,6 +4,7 @@ import { promisify } from "util";
 import { writeFile, unlink, mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
+import { runFfmpeg } from "@/lib/render/ffmpegExec";
 
 const execFileAsync = promisify(execFile);
 
@@ -93,7 +94,13 @@ async function concatMp3Buffers(buffers: Buffer[]): Promise<Buffer> {
     const listPath = path.join(workDir, "list.txt");
     await writeFile(listPath, partPaths.map((p) => `file '${p}'`).join("\n"));
     const outPath = path.join(workDir, "out.mp3");
-    await execFileAsync("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", outPath]);
+    // Fase 3 (2026-08-31): via wrapper ffmpegExec (cgroup+timeout util+semaphore) -
+    // dulu execFileAsync telanjang. Concat demuxer -c copy SAMA PERSIS (re-mux tanpa
+    // re-encode, bukan concat byte mentah - lihat komentar fungsi ini). ffprobe utk
+    // durasi audio di bawah TETAP execFileAsync langsung - binary berbeda, baca
+    // metadata murni (detik-milidetik, ~0 memori), bukan encode - di luar scope
+    // kebijakan resource ffmpeg.
+    await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", outPath], "util");
     const { readFile } = await import("fs/promises");
     return await readFile(outPath);
   } finally {

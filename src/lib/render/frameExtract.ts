@@ -1,11 +1,8 @@
-import { execFile } from "child_process";
-import { promisify } from "util";
 import { mkdtemp, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
-
-const execFileAsync = promisify(execFile);
+import { runFfmpeg } from "./ffmpegExec";
 
 // Thumbnail dari POTONGAN VIDEO ASLI, TANPA biaya AI (2026-08-10, permintaan Agus -
 // "jangan ada biaya thumbnail, gunakan potongan video terbaik saja") - GANTI TOTAL dari
@@ -29,14 +26,17 @@ export async function extractThumbnailFrame(
   try {
     const atSeconds = Math.max(1, Math.min(durationSeconds * 0.15, durationSeconds - 1));
     const outPath = path.join(workDir, "thumbnail.jpg");
-    await execFileAsync("ffmpeg", [
+    // Fase 3 (2026-08-31): via wrapper ffmpegExec (cgroup+timeout util+semaphore) -
+    // dulu execFileAsync telanjang; argumen ffmpeg SAMA PERSIS (baca URL remote,
+    // input-seek -ss, 1 frame JPEG q:v 2), cuma kebijakan resource eksekusinya.
+    await runFfmpeg([
       "-y",
       "-ss", String(atSeconds),
       "-i", videoUrl,
       "-vframes", "1",
       "-q:v", "2",
       outPath,
-    ]);
+    ], "util");
     const buffer = await readFile(outPath);
     const key = buildAssetKey(brandId, projectId, "thumbnail.jpg");
     return uploadBuffer(key, buffer, "image/jpeg");
@@ -74,14 +74,15 @@ export async function extractThumbnailCandidates(
         durationSeconds - 1
       );
       const outPath = path.join(workDir, `candidate_${i}.jpg`);
-      await execFileAsync("ffmpeg", [
+      // Fase 3 (2026-08-31): via wrapper ffmpegExec - argumen SAMA PERSIS dgn sebelumnya.
+      await runFfmpeg([
         "-y",
         "-ss", String(Math.max(0, atSeconds)),
         "-i", videoUrl,
         "-vframes", "1",
         "-q:v", "2",
         outPath,
-      ]);
+      ], "util");
       const buffer = await readFile(outPath);
       const key = buildAssetKey(brandId, projectId, `thumbnail_candidate_${i}.jpg`);
       urls.push(await uploadBuffer(key, buffer, "image/jpeg"));

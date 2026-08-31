@@ -236,7 +236,14 @@ export async function runFfmpeg(
         );
       }
 
-      throw new Error(`ffmpeg gagal: ${(err as Error).message}\n${stderr.slice(-2000)}`);
+      // stderr di-attach sbg property error (2026-08-31, Fase 3) - caller utility spt
+      // qualityChecker HISTORIS-nya mem-parse err.stderr dari kegagalan ffmpeg (bukan
+      // cuma dari sukses) utk tetap mengekstrak data parsial - perilaku itu dipertahankan
+      // persis, jadi stderr harus tetap terjangkau scr terstruktur, bukan cuma terbenam
+      // di dalam message string.
+      const failure = new Error(`ffmpeg gagal: ${(err as Error).message}\n${stderr.slice(-2000)}`);
+      (failure as { stderr?: string }).stderr = stderr;
+      throw failure;
     }
   } finally {
     release();
