@@ -99,6 +99,67 @@ export async function getRecentStructureAndHookUsage(brandId: string): Promise<S
   return tallyStructureAndHookUsage(rows);
 }
 
+// Experiment Engine (2026-08-25, PRD §24) - klasifikasi tier MURNI observational, BUKAN
+// gating pemilihan ide (Task 4 dari Plan 1, lihat catatan lengkap di
+// dailyContentPlanner.ts soal kenapa: gating asli PRD [match hookType/structureTemplate/
+// pillar ide ke top performer] TIDAK feasible - field2 itu belum diklasifikasi di tahap
+// ide, baru saat produksi beneran (processProject.ts). monthlyReportData.ts's
+// byContentType JUGA tidak bisa dipakai - itu taxonomy category dari contentTypeId
+// (extensible, mis. "Tutorial"/"Testimoni"), BEDA TOTAL dari format medium video/foto/
+// carousel (projects.type, cuma "video"|"carousel" - "foto" dilebur ke "carousel" sejak
+// tahap produksi, lihat schema.ts comment "foto = poster tunggal, tetap type=carousel").
+// Signal SATU2NYA yg valid & tersedia di tahap ide (sebelum produksi) ya format medium
+// itu sendiri - jadi tier di sini menjawab "medium ini historically proven atau belum",
+// BUKAN "kombinasi hook/struktur/pilar ini sudah terbukti". Kasar tapi jujur & aman
+// (tidak nyentuh mekanisme exact-count per-tipe yg sudah pernah dibetulkan dari bug
+// nyata "video tidak ada malah foto semua" - restrukturisasi itu utk gating asli
+// ditunda, perlu didiskusikan dulu ke Agus kalau mau).
+export type MediumPerformance = { avgViews: number; count: number };
+
+// Fungsi MURNI - tally avgViews per medium (video/carousel) dari rows performanceViews.
+export function tallyMediumPerformance(
+  rows: { type: string; views: number | null }[]
+): Map<string, MediumPerformance> {
+  const groups = new Map<string, number[]>();
+  for (const r of rows) {
+    if (r.views == null) continue;
+    (groups.get(r.type) || groups.set(r.type, []).get(r.type)!).push(r.views);
+  }
+  const result = new Map<string, MediumPerformance>();
+  for (const [type, views] of groups) {
+    result.set(type, { avgViews: Math.round(views.reduce((a, b) => a + b, 0) / views.length), count: views.length });
+  }
+  return result;
+}
+
+// "foto" (poster tunggal) dilebur ke bucket performa "carousel" (lihat catatan di atas -
+// keduanya sama2 type="carousel" di sisi produksi, cuma beda di tahap ide).
+function mediumBucketFor(contentType: "video" | "foto" | "carousel"): string {
+  return contentType === "foto" ? "carousel" : contentType;
+}
+
+export function classifyIdeaExperimentTier(
+  contentType: "video" | "foto" | "carousel" | null,
+  mediumPerformance: Map<string, MediumPerformance>
+): "proven" | "variation" | "experiment" | null {
+  if (!contentType) return null;
+  const entry = mediumPerformance.get(mediumBucketFor(contentType));
+  if (!entry || entry.count === 0) return "experiment";
+  let best: MediumPerformance | null = null;
+  for (const m of mediumPerformance.values()) {
+    if (!best || m.avgViews > best.avgViews) best = m;
+  }
+  return best && entry.avgViews >= best.avgViews ? "proven" : "variation";
+}
+
+export async function getMediumPerformance(brandId: string): Promise<Map<string, MediumPerformance>> {
+  const rows = await db
+    .select({ type: projects.type, views: projects.performanceViews })
+    .from(projects)
+    .where(and(eq(projects.brandId, brandId), isNotNull(projects.performanceViews)));
+  return tallyMediumPerformance(rows);
+}
+
 // Weighted least-recently-used pick - beda dari footageVariety's selectBalancedRealFootage
 // (strict sort by exact recency timestamp, ties nyaris tidak pernah terjadi krn fileUrl
 // unik+timestamp presisi milidetik): di sini COUNT dari window kecil SERING seri (mis.

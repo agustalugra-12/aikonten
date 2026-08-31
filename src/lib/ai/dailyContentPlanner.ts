@@ -1,11 +1,14 @@
 import { db } from "@/db";
-import { dailyIdeas, brands, projects, manualIdeas, socialAccounts } from "@/db/schema";
+import { dailyIdeas, brands, projects, manualIdeas, socialAccounts, competitors } from "@/db/schema";
 import { and, eq, desc, asc, inArray } from "drizzle-orm";
 import { suggestScoredContentIdeas, todayDateKeyWita } from "./researchTopics";
 import { syncBrandPerformance } from "./performanceLearning";
 import { getChannelProfile, generateYoutubeDailyIdeas } from "./youtubeEditorial";
 import { newId } from "@/lib/ids";
 import { runWithUsageContext } from "./usageContext";
+import { generateTrendAdaptation, filterTrendsForContextFirewall } from "./trendAdaptation";
+import { getMonthlyReportData } from "@/lib/reports/monthlyReportData";
+import { getMediumPerformance, classifyIdeaExperimentTier } from "./contentVariety";
 
 // AI Content Planner (2026-08-05, permintaan Agus, PRD "AI Content Brain" modul 10 -
 // "setiap pagi AI membuat 10 ide"). Digenerate SEKALI per hari (lazy - saat pertama
@@ -35,13 +38,34 @@ export type DailyIdea = {
   youtubeSeriesId: string | null;
   youtubeMetadata: string | null;
   pillar: string | null;
+  // Experiment Engine (2026-08-25, PRD §24, Task 4 Plan 1) - observational SAJA, lihat
+  // catatan lengkap di contentVariety.ts's classifyIdeaExperimentTier soal kenapa ini
+  // BUKAN gating pemilihan ide.
+  experimentTier: "proven" | "variation" | "experiment" | null;
+  // Platform Fit Score (2026-08-26, PRD §19, Task Plan 5) - lihat catatan lengkap di
+  // researchTopics.ts's ScoredIdea. {} = brand belum py akun terhubung/data blm ada.
+  platformFitScores: Record<string, number>;
 };
+
+export function parseStoredPlatformFitScores(raw: string | null): Record<string, number> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIdea[]> {
   // Atribusi biaya (2026-08-12, Fase 1a) - projectId belum ada di titik ini (ide belum
   // jadi project), cukup brandId - lihat usageContext.ts.
   return runWithUsageContext({ brandId }, async () => {
   const today = todayDateKeyWita();
+  // Experiment Engine (2026-08-25, Task 4 Plan 1) - dihitung sekali per panggilan, dipakai
+  // ulang di semua jalur return (cache/YouTube/generik) - cuma agregasi SQL dari
+  // performanceViews yg sudah ada, bukan panggilan AI, aman dihitung tiap kali dibaca.
+  const mediumPerf = await getMediumPerformance(brandId);
 
   const existing = await db
     .select()
@@ -54,6 +78,8 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
         contentType: r.contentType, contentFormat: r.contentFormat,
         youtubeSeriesId: r.youtubeSeriesId, youtubeMetadata: r.youtubeMetadata,
         pillar: r.pillar,
+        experimentTier: classifyIdeaExperimentTier(r.contentType, mediumPerf),
+        platformFitScores: parseStoredPlatformFitScores(r.platformFitScores),
       }))
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
@@ -125,6 +151,8 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
       contentType: r.contentType, contentFormat: r.contentFormat,
       youtubeSeriesId: r.youtubeSeriesId, youtubeMetadata: r.youtubeMetadata,
       pillar: r.pillar,
+      experimentTier: classifyIdeaExperimentTier(r.contentType, mediumPerf),
+      platformFitScores: {}, // jalur YouTube Editorial - platformFitScores blm dihitung di sini
     }));
   }
   // Duplicate Checker, Content Pillar, & Keyword Priority NYATA (2026-08-05) - kirim
@@ -137,6 +165,27 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
   const performanceClassifications = recentProjects.map((p) => ({
     pillar: p.pillar, angle: p.angle, performanceViews: p.performanceViews,
   }));
+
+  // Context Firewall (2026-08-25, PRD §5) - tren dianalisis SEKALI per hari, bareng
+  // syncBrandPerformance di atas (pola lazy/once-a-day yg SAMA - tidak menambah infra
+  // cron baru, cukup 1 panggilan gpt-4.1-mini murah tambahan per brand per hari).
+  // trendAdaptation.ts SUDAH menilai relevanceScore & recommendation - firewall di sini
+  // cuma MEMFILTER: item yg genuinely tidak relevan (recommendation="ignore" DAN tidak
+  // ada mechanismNote) DIBUANG SELURUHNYA (topiknya tidak pernah dikirim ke prompt ide),
+  // sisanya HANYA mechanismNote (kalau ada, kasus "ignore" tapi mekanismenya berguna)
+  // atau nama tren+reasoning (kasus act_now/monitor) yg dikirim - never topik mentah
+  // dari tren yg sudah diputuskan tidak relevan.
+  let mechanismInsights: string[] = [];
+  try {
+    const comps = await db.select().from(competitors).where(eq(competitors.brandId, brandId));
+    const ownPerformance = await getMonthlyReportData(brandId, 30);
+    if (ownPerformance.totalContent >= 3) {
+      const trendResult = await generateTrendAdaptation(brand.name, comps, ownPerformance);
+      mechanismInsights = filterTrendsForContextFirewall(trendResult.trends);
+    }
+  } catch (err) {
+    console.error(`[dailyContentPlanner] gagal analisis tren utk Context Firewall brand ${brandId}:`, err);
+  }
 
   // Bank Ide Manual (2026-08-06, permintaan Agus - "otomatis diambil sebagai bahan
   // konten jika sudah habis otomatis masuk ke ide konten yang disediakan ai") - ambil
@@ -161,12 +210,19 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     .orderBy(asc(manualIdeas.createdAt))
     .limit(dailyTotal);
 
+  // Platform Fit Score (2026-08-26, PRD §19, Task Plan 5) - platform yg BENERAN
+  // terhubung brand ini, bukan daftar semua platform yg didukung app.
+  const connectedAccounts = await db.select({ platform: socialAccounts.platform }).from(socialAccounts).where(eq(socialAccounts.brandId, brandId));
+  const connectedPlatforms = Array.from(new Set(connectedAccounts.map((a) => a.platform)));
+
   const scoredIdeas = await suggestScoredContentIdeas(
     brand.name, brand.description, recentScripts,
     videoCountForIdeas, brand.dailySinglePhotoCount, brand.dailyCarouselCount,
     recentClassifications, performanceClassifications, brand.knowledgeSite, brand.manualKnowledge,
     manualPool.map((m) => m.idea),
-    brand.contentPillars
+    brand.contentPillars,
+    mechanismInsights,
+    connectedPlatforms
   );
 
   if (manualPool.length > 0) {
@@ -190,6 +246,7 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     reasoning: s.reasoning,
     contentType: s.contentType,
     contentFormat: shortsIndices.has(i) ? "youtube_shorts" : null,
+    platformFitScores: Object.keys(s.platformFitScores).length > 0 ? JSON.stringify(s.platformFitScores) : null,
     createdAt: now,
   }));
   if (rows.length > 0) {
@@ -203,6 +260,8 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     // processProject.ts->generateCaptionAndHashtags saat project benar2 diproses) -
     // null di sini konsisten dgn perilaku lama, BUKAN regresi.
     pillar: null,
+    experimentTier: classifyIdeaExperimentTier(r.contentType, mediumPerf),
+    platformFitScores: parseStoredPlatformFitScores(r.platformFitScores),
   }));
   });
 }

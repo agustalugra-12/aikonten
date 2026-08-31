@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Trash2, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useFetchedData } from "@/lib/useFetchedData";
 
 type Competitor = { id: string; name: string; notes: string | null; createdAt: string; updatedAt: string };
 type AnalysisResult = {
@@ -26,23 +27,20 @@ const SWOT_META: { key: keyof AnalysisResult["swot"]; label: string; variant: "d
 // TIDAK ADA integrasi/scraping otomatis apa pun. AI cuma menganalisis catatan itu +
 // performa brand sendiri jadi Content Gap & SWOT - lihat lib/ai/competitorAnalysis.ts.
 export function CompetitorIntelligence({ brandId }: { brandId: string }) {
-  const [competitors, setCompetitors] = useState<Competitor[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: competitorsRaw, loading, refetch: load } = useFetchedData<Competitor[]>(
+    async () => {
+      const res = await fetch(`/api/brands/${brandId}/competitors`);
+      const data = await res.json();
+      return data.competitors || [];
+    },
+    [brandId]
+  );
+  const competitors = competitorsRaw ?? [];
   const [newName, setNewName] = useState("");
   const [newNotes, setNewNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-
-  const load = () => {
-    setLoading(true);
-    fetch(`/api/brands/${brandId}/competitors`)
-      .then((res) => res.json())
-      .then((data) => setCompetitors(data.competitors || []))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(load, [brandId]);
 
   const addCompetitor = async () => {
     if (!newName.trim()) return;

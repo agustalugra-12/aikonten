@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConnectBufferDialog } from "@/components/dashboard/ConnectBufferDialog";
 import { ChannelProfileDialog } from "@/components/dashboard/ChannelProfileDialog";
+import { useFetchedData } from "@/lib/useFetchedData";
 import type { SocialAccount } from "@/types";
 
 const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
@@ -15,19 +15,11 @@ const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
   tiktok: "TikTok",
 };
 export function SocialAccounts({ brandId }: { brandId: string }) {
-  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const res = await fetch(`/api/brands/${brandId}/social-accounts`);
-    setAccounts(await res.json());
-    setLoading(false);
-  }, [brandId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data: accountsRaw, loading, refetch: load } = useFetchedData<SocialAccount[]>(
+    () => fetch(`/api/brands/${brandId}/social-accounts`).then((res) => res.json()),
+    [brandId]
+  );
+  const accounts = accountsRaw ?? [];
 
   return (
     <Card>

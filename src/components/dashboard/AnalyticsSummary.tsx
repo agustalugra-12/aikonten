@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useFetchedData } from "@/lib/useFetchedData";
 import type { SocialAccount } from "@/types";
 
 type Metric = { name: string; value: number; unit: string; type: string };
@@ -36,16 +36,11 @@ function formatValue(m: Metric): string {
 // ditampilkan sbg "belum ada data", bukan disembunyikan begitu saja - biar Agus tau
 // kenapa datanya kosong.
 export function AnalyticsSummary({ brandId }: { brandId: string }) {
-  const [rows, setRows] = useState<AnalyticsRow[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/brands/${brandId}/analytics`)
-      .then((res) => res.json())
-      .then(setRows)
-      .finally(() => setLoading(false));
-  }, [brandId]);
+  const { data: rowsRaw, loading } = useFetchedData<AnalyticsRow[]>(
+    () => fetch(`/api/brands/${brandId}/analytics`).then((res) => res.json()),
+    [brandId]
+  );
+  const rows = rowsRaw ?? [];
 
   return (
     <Card>

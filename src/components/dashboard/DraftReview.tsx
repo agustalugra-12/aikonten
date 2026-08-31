@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -61,22 +61,41 @@ export function DraftReview({ brandId, projects, onChange }: { brandId: string; 
 
 function DraftCard({ project, accounts, onChange }: { project: Project; accounts: SocialAccount[]; onChange: () => void }) {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
-  const [busy, setBusy] = useState<"publish" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"publish" | "delete" | "schedule" | null>(null);
   const [intelScore, setIntelScore] = useState<{ overallScore: number; grade: string } | null>(null);
+  // Manual Per-Post Scheduling (2026-08-25, PRD §26) - input datetime-local NATIVE
+  // (browser sudah py date+time picker bawaan, tidak perlu library tambahan).
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleValue, setScheduleValue] = useState("");
+  const [scheduleMin] = useState(() => new Date(Date.now() + 60000).toISOString().slice(0, 16));
+  // Content Brief (2026-08-26, PRD §12, Task Plan 6) - fetch LAZY (cuma saat expand),
+  // murni assembly read-only (lihat contentBrief.ts), tidak ada biaya AI tapi tetap
+  // tidak perlu selalu di-fetch tiap draft dimuat kalau tidak dilihat.
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [brief, setBrief] = useState<{
+    objective: string | null; targetAudience: string | null; platforms: string[];
+    pillar: string | null; topic: string | null; angle: string | null; hook: string | null;
+    coreMessage: string | null; storytellingStructure: string | null; visualDirection: string | null;
+    cta: string | null; referencePatterns: string | null; score: number | null;
+    retentionRisks: string[];
+  } | null>(null);
 
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/projects/${project.id}`);
-    if (res.ok) setDetail(await res.json());
+  function handleToggleBrief() {
+    if (!briefOpen && !brief) {
+      fetch(`/api/projects/${project.id}/brief`).then((r) => r.json()).then(setBrief).catch(() => {});
+    }
+    setBriefOpen((v) => !v);
+  }
+
+  useEffect(() => {
+    fetch(`/api/projects/${project.id}`)
+      .then(async (res) => { if (res.ok) setDetail(await res.json()); });
     // Fetch intelligence score
     fetch(`/api/projects/${project.id}/intelligence`)
       .then((r) => r.json())
       .then((d) => { if (d.overallScore != null) setIntelScore({ overallScore: d.overallScore, grade: d.grade }); })
       .catch(() => {});
   }, [project.id]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   async function handlePublish() {
     setBusy("publish");
@@ -96,6 +115,28 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
     } else {
       toast.error(updated.errorMessage || "Publish gagal, cek notifikasi Telegram");
     }
+    onChange();
+  }
+
+  async function handleSchedule() {
+    if (!scheduleValue) {
+      toast.error("Pilih tanggal & jam dulu");
+      return;
+    }
+    setBusy("schedule");
+    const res = await fetch(`/api/projects/${project.id}/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledFor: new Date(scheduleValue).toISOString() }),
+    });
+    setBusy(null);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast.error(err.error || "Gagal menjadwalkan");
+      return;
+    }
+    toast.success(`Dijadwalkan tayang ${new Date(scheduleValue).toLocaleString("id-ID")}`);
+    setScheduleOpen(false);
     onChange();
   }
 
@@ -195,6 +236,40 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
         )}
       </div>
 
+      {/* Content Brief (2026-08-26, PRD §12, Task Plan 6) */}
+      <div>
+        <Button variant="ghost" size="sm" className="text-xs h-6 px-2" onClick={handleToggleBrief}>
+          {briefOpen ? "Sembunyikan Brief" : "Lihat Brief"}
+        </Button>
+        {briefOpen && (
+          !brief ? (
+            <p className="text-xs text-muted-foreground px-2">Memuat brief...</p>
+          ) : (
+            <div className="text-xs text-muted-foreground rounded-md border p-3 mt-1 space-y-1">
+              {brief.objective && <p><span className="font-medium text-foreground">Objective:</span> {brief.objective}</p>}
+              {brief.targetAudience && <p><span className="font-medium text-foreground">Target Audience:</span> {brief.targetAudience}</p>}
+              {brief.platforms.length > 0 && <p><span className="font-medium text-foreground">Platform:</span> {brief.platforms.join(", ")}</p>}
+              {brief.pillar && <p><span className="font-medium text-foreground">Pilar:</span> {brief.pillar}</p>}
+              {brief.angle && <p><span className="font-medium text-foreground">Angle:</span> {brief.angle}</p>}
+              {brief.hook && <p><span className="font-medium text-foreground">Hook:</span> {brief.hook}</p>}
+              {brief.storytellingStructure && <p><span className="font-medium text-foreground">Struktur:</span> {brief.storytellingStructure}</p>}
+              {brief.visualDirection && <p><span className="font-medium text-foreground">Arahan Visual:</span> {brief.visualDirection}</p>}
+              {brief.cta && <p><span className="font-medium text-foreground">CTA:</span> {brief.cta}</p>}
+              {brief.referencePatterns && <p><span className="font-medium text-foreground">Alasan Terpilih:</span> {brief.referencePatterns}</p>}
+              {brief.score != null && <p><span className="font-medium text-foreground">Opportunity Score:</span> {brief.score}/100</p>}
+              {brief.retentionRisks.length > 0 && (
+                <div className="pt-1">
+                  <span className="font-medium text-foreground">Resiko Retensi:</span>
+                  <ul className="list-disc list-inside">
+                    {brief.retentionRisks.map((r, i) => <li key={i}>{r}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )
+        )}
+      </div>
+
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-1 flex-wrap">
           {accounts.length === 0 ? (
@@ -210,7 +285,24 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
             </>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {scheduleOpen && (
+            <>
+              <input
+                type="datetime-local"
+                className="text-xs border rounded-md px-2 py-1.5"
+                value={scheduleValue}
+                min={scheduleMin}
+                onChange={(e) => setScheduleValue(e.target.value)}
+              />
+              <Button size="sm" variant="secondary" onClick={handleSchedule} disabled={!!busy}>
+                {busy === "schedule" ? "Menjadwalkan..." : "Konfirmasi"}
+              </Button>
+            </>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setScheduleOpen((v) => !v)} disabled={!!busy || accounts.length === 0}>
+            {scheduleOpen ? "Batal" : "Jadwalkan"}
+          </Button>
           <Button variant="destructive" size="sm" onClick={handleDelete} disabled={!!busy}>
             {busy === "delete" ? "Menghapus..." : "Hapus"}
           </Button>

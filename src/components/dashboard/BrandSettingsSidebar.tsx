@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import type { Brand } from "@/types";
@@ -33,6 +32,27 @@ import type { Brand } from "@/types";
 // di sisi Agus, lihat catatan lengkap di api/media-proxy/route.ts).
 function previewUrl(fileUrl: string): string {
   return `/api/media-proxy?url=${encodeURIComponent(fileUrl)}`;
+}
+
+// Content DNA (2026-08-26, PRD §4, Task Plan 5) - urutan+label dipakai form & save handler.
+const IDENTITY_FIELDS = [
+  "niche", "targetAudience", "positioning", "contentGoals", "toneOfVoice",
+  "preferredTopics", "prohibitedTopics", "contentBoundaries", "eduEntertainmentRatio", "ctaStyle",
+] as const;
+const IDENTITY_LABELS: Record<(typeof IDENTITY_FIELDS)[number], { label: string; placeholder: string; long?: boolean }> = {
+  niche: { label: "Niche", placeholder: "mis. jasa laundry rumahan area Denpasar" },
+  targetAudience: { label: "Target Audience", placeholder: "mis. mahasiswa & karyawan sibuk di Denpasar" },
+  positioning: { label: "Positioning", placeholder: "mis. laundry cepat & terjangkau, bukan premium" },
+  contentGoals: { label: "Content Goals", placeholder: "mis. awareness area Denpasar + booking langsung" },
+  toneOfVoice: { label: "Tone of Voice", placeholder: "mis. santai, akrab, bukan formal korporat" },
+  preferredTopics: { label: "Topik Disukai", placeholder: "mis. tips cuci sepatu, promo bed cover villa", long: true },
+  prohibitedTopics: { label: "Topik Dilarang", placeholder: "mis. jangan bandingkan harga kompetitor secara eksplisit", long: true },
+  contentBoundaries: { label: "Batasan Konten", placeholder: "mis. jangan janji same-day di luar area Denpasar", long: true },
+  eduEntertainmentRatio: { label: "Rasio Edukasi/Hiburan", placeholder: "mis. 70% edukasi, 30% hiburan" },
+  ctaStyle: { label: "Gaya CTA", placeholder: "mis. selalu arahkan chat admin, bukan link bio" },
+};
+function identityFromBrand(b: Brand | null): Record<(typeof IDENTITY_FIELDS)[number], string> {
+  return Object.fromEntries(IDENTITY_FIELDS.map((f) => [f, b?.[f] ?? ""])) as Record<(typeof IDENTITY_FIELDS)[number], string>;
 }
 
 function parseAutoPublishTimes(raw: string | null | undefined): string[] {
@@ -62,6 +82,13 @@ export function BrandSettingsSidebar({
   const [posterBrandProfile, setPosterBrandProfile] = useState(brand?.posterBrandProfile ?? "");
   const [savingKnowledge, setSavingKnowledge] = useState(false);
 
+  // Content DNA (2026-08-26, PRD §4, Task Plan 5) - 1 object state (bukan 10 useState
+  // terpisah) krn semua field ini simetris: teks bebas, sama pola save/reset.
+  const [identity, setIdentity] = useState<Record<(typeof IDENTITY_FIELDS)[number], string>>(identityFromBrand(brand));
+  function updateIdentity(field: (typeof IDENTITY_FIELDS)[number], value: string) {
+    setIdentity((prev) => ({ ...prev, [field]: value }));
+  }
+
   const [videoCount, setVideoCount] = useState(brand?.dailyVideoCount ?? 7);
   const [fotoCount, setFotoCount] = useState(brand?.dailySinglePhotoCount ?? 3);
   const [carouselCount, setCarouselCount] = useState(brand?.dailyCarouselCount ?? 0);
@@ -79,13 +106,14 @@ export function BrandSettingsSidebar({
   >(null);
   const [uploadingIdeas, setUploadingIdeas] = useState(false);
 
-  // Sinkron ulang tiap dialog dibuka - brand bisa berubah (ganti brand aktif) atau
-  // data terbaru masuk sejak terakhir dibuka.
-  useEffect(() => {
-    if (!open) return;
+  // Sinkron ulang form saat dialog dibuka - brand bisa berubah (ganti brand aktif) atau
+  // data terbaru masuk sejak terakhir dibuka. Dipindah ke event handler (bukan effect)
+  // supaya tidak "setState synchronous di dalam effect" (react-hooks/set-state-in-effect).
+  function resetForm() {
     setKnowledgeSite(brand?.knowledgeSite ?? "none");
     setManualKnowledge(brand?.manualKnowledge ?? "");
     setPosterBrandProfile(brand?.posterBrandProfile ?? "");
+    setIdentity(identityFromBrand(brand));
     setVideoCount(brand?.dailyVideoCount ?? 7);
     setFotoCount(brand?.dailySinglePhotoCount ?? 3);
     setCarouselCount(brand?.dailyCarouselCount ?? 0);
@@ -100,7 +128,7 @@ export function BrandSettingsSidebar({
       .then((r) => r.json())
       .then((d) => setManualIdeaList(d.ideas || []))
       .catch(() => setManualIdeaList([]));
-  }, [open, brand, brandId]);
+  }
 
   async function patchBrand(body: Record<string, unknown>): Promise<boolean> {
     const res = await fetch(`/api/brands/${brandId}`, {
@@ -154,10 +182,14 @@ export function BrandSettingsSidebar({
 
   async function handleSaveKnowledge() {
     setSavingKnowledge(true);
+    const identityPayload = Object.fromEntries(
+      IDENTITY_FIELDS.map((f) => [f, identity[f].trim() || null])
+    );
     const ok = await patchBrand({
       knowledgeSite: knowledgeSite === "none" ? null : knowledgeSite,
       manualKnowledge: manualKnowledge.trim() || null,
       posterBrandProfile: posterBrandProfile.trim() || null,
+      ...identityPayload,
     });
     setSavingKnowledge(false);
     if (ok) {
@@ -256,7 +288,7 @@ export function BrandSettingsSidebar({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline">⚙️ Pengaturan Brand</Button>} />
+      <Button variant="outline" onClick={() => { resetForm(); setOpen(true); }}>⚙️ Pengaturan Brand</Button>
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Pengaturan Brand</DialogTitle>
@@ -343,6 +375,38 @@ export function BrandSettingsSidebar({
                 onChange={(e) => setPosterBrandProfile(e.target.value)}
                 placeholder={"Contoh:\nWARNA: Biru tua #005D9E, putih, aksen oranye khusus promo.\nSTYLE: Modern minimalis, premium, terpercaya.\nICON: mesin cuci, setrika, water splash.\nTARGET AUDIENS: mahasiswa & karyawan sibuk."}
               />
+            </div>
+            <div className="space-y-3 border-t pt-4">
+              <div>
+                <Label className="text-xs">🧬 Identitas Brand (Content DNA)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Konteks arah/gaya konten - dipakai AI saat bikin caption/naskah & menilai kecocokan brand. Opsional,
+                  isi apa yang relevan saja.
+                </p>
+              </div>
+              {IDENTITY_FIELDS.filter((f) => !IDENTITY_LABELS[f].long).map((f) => (
+                <div key={f} className="space-y-1">
+                  <Label htmlFor={f} className="text-xs">{IDENTITY_LABELS[f].label}</Label>
+                  <Input
+                    id={f}
+                    value={identity[f]}
+                    onChange={(e) => updateIdentity(f, e.target.value)}
+                    placeholder={IDENTITY_LABELS[f].placeholder}
+                  />
+                </div>
+              ))}
+              {IDENTITY_FIELDS.filter((f) => IDENTITY_LABELS[f].long).map((f) => (
+                <div key={f} className="space-y-1">
+                  <Label htmlFor={f} className="text-xs">{IDENTITY_LABELS[f].label}</Label>
+                  <textarea
+                    id={f}
+                    className="flex min-h-16 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs"
+                    value={identity[f]}
+                    onChange={(e) => updateIdentity(f, e.target.value)}
+                    placeholder={IDENTITY_LABELS[f].placeholder}
+                  />
+                </div>
+              ))}
             </div>
             <Button size="sm" onClick={handleSaveKnowledge} disabled={savingKnowledge}>
               {savingKnowledge ? "Menyimpan..." : "Simpan Knowledge Base"}

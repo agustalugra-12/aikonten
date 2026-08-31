@@ -132,6 +132,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     update.posterBrandProfile = body.posterBrandProfile;
   }
 
+  // Content DNA (2026-08-26, PRD §4, Task Plan 5) - 10 field identitas brand, semua
+  // teks bebas nullable (lihat catatan lengkap di schema.ts's brands table) - validasi
+  // SAMA utk semua field ini (string atau null), cukup 1 loop drpd 10 blok if berulang.
+  const IDENTITY_FIELDS = [
+    "niche", "targetAudience", "positioning", "contentGoals", "toneOfVoice",
+    "preferredTopics", "prohibitedTopics", "contentBoundaries", "eduEntertainmentRatio", "ctaStyle",
+  ] as const;
+  for (const field of IDENTITY_FIELDS) {
+    if (field in body) {
+      if (body[field] !== null && typeof body[field] !== "string") {
+        return NextResponse.json({ error: `${field} harus string atau null` }, { status: 400 });
+      }
+      update[field] = body[field];
+    }
+  }
+
   // Draft vs Auto-Publish (2026-08-06, permintaan Agus - "pilihan draft atau langsung
   // publis"; direvisi hari yg sama - "auto publis mau di publis jam brapa aja
   // menyesuaikan dengan jumlah konten yang ada", autoPublishTime tunggal -> array

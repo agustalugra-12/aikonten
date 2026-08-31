@@ -72,6 +72,7 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
   // UI yg jelas (bukan ikon default browser yg terlihat spt "error aplikasi").
   const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
   const [retriedIds, setRetriedIds] = useState<Set<string>>(new Set());
+  const [retryTimestamps, setRetryTimestamps] = useState<Record<string, number>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function loadItems() {
@@ -154,6 +155,7 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
         setFailedIds((f) => new Set(f).add(itemId));
         return prev;
       }
+      setRetryTimestamps((t) => ({ ...t, [itemId]: Date.now() }));
       return new Set(prev).add(itemId);
     });
   }
@@ -341,6 +343,7 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
                           onClick={() => {
                             setFailedIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
                             setRetriedIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
+                            setRetryTimestamps((prev) => { const n = { ...prev }; delete n[item.id]; return n; });
                           }}
                         >
                           Coba lagi
@@ -349,7 +352,7 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={retriedIds.has(item.id) ? `${previewUrl(item.fileUrl)}&retry=${Date.now()}` : previewUrl(item.fileUrl)}
+                        src={retriedIds.has(item.id) ? `${previewUrl(item.fileUrl)}&retry=${retryTimestamps[item.id] ?? 0}` : previewUrl(item.fileUrl)}
                         alt={item.description}
                         loading="lazy"
                         className="w-full h-full object-cover"

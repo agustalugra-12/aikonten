@@ -146,6 +146,32 @@ export const brands = sqliteTable("brands", {
   // dipisah dari manualKnowledge - data terstruktur yg dibaca kode, bukan teks bebas
   // yg cuma jadi konteks prompt).
   contentPillars: text("content_pillars"),
+  // Experiment Engine (2026-08-25, PRD "AI Konten Intelligence & Agency Upgrade" §24 -
+  // "70% proven, 20% variation, 10% experiment... persentase harus configurable") -
+  // Nullable JSON `{proven: number, variation: number, experiment: number}` (persen,
+  // jumlah 100) - null = default 70/20/10 diterapkan DI KODE (lihat contentVariety.ts),
+  // sama pola bootstrap-tanpa-UI-dulu dgn field lain di sini (mis. stylePreset sebelum
+  // punya default eksplisit) - brand lama TIDAK berubah perilakunya sampai field ini
+  // eksplisit diisi.
+  experimentRatio: text("experiment_ratio"),
+  // Content DNA (2026-08-26, PRD "AI Konten Intelligence & Agency Upgrade" §4) - 10 field
+  // identitas brand yg SEBELUM ini tidak py kolom sendiri (cuma bisa nyempil sbg teks
+  // bebas di manualKnowledge kalau Agus kebetulan nulisnya). Nullable & simple text (BUKAN
+  // JSON terstruktur/enforced) - PRD §38 eksplisit "data adalah guidance, bukan aturan
+  // mutlak", jadi field ini murni konteks tambahan yg dibaca prompt (buildKnowledgeGroundingBlock
+  // di generateContent.ts & brandContext di contentIntelligence.ts's judgeCreativeQuality),
+  // bukan nilai yg divalidasi/dihitung di kode. eduEntertainmentRatio SENGAJA teks bebas
+  // (mis. "70% edukasi, 30% hiburan"), bukan 2 kolom integer terpisah - sama alasan.
+  niche: text("niche"),
+  targetAudience: text("target_audience"),
+  positioning: text("positioning"),
+  contentGoals: text("content_goals"),
+  toneOfVoice: text("tone_of_voice"),
+  preferredTopics: text("preferred_topics"),
+  prohibitedTopics: text("prohibited_topics"),
+  contentBoundaries: text("content_boundaries"),
+  eduEntertainmentRatio: text("edu_entertainment_ratio"),
+  ctaStyle: text("cta_style"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -214,8 +240,15 @@ export const projects = sqliteTable("projects", {
   // gagal/sukses-nya. "partial" = ada yg sukses TAPI belum SEMUA akun - dicoba ulang
   // otomatis (lihat orchestrate.ts + cron/auto-publish.ts), akun yg SUDAH sukses tidak
   // pernah dipublish ulang (idempotent per-akun, cek publishLogs yg sudah ada).
+  // "scheduled" (2026-08-25, PRD §26 Manual Scheduling) - draft yg sudah "ready" TAPI
+  // Agus pilih tanggal/jam tertentu di masa depan lewat scheduledFor (bukan publish
+  // manual sekarang, bukan pula ikut slot brand.autoPublishTimes yg recurring) -
+  // cron/auto-publish.ts cek status ini TERPISAH dari loop slot per-brand yg sudah ada,
+  // apa pun brand.publishMode-nya (keputusan one-off staf, bukan preferensi brand).
+  // Enum di sini TETAP cuma hint TypeScript (kolom DB TEXT polos, sama pola dgn
+  // pillar/angle) - menambah nilai baru TIDAK butuh migrasi utk row lama.
   status: text("status", {
-    enum: ["uploaded", "processing", "ready", "publishing", "published", "partial", "failed"],
+    enum: ["uploaded", "processing", "ready", "publishing", "published", "partial", "failed", "scheduled"],
   })
     .notNull()
     .default("uploaded"),
@@ -260,6 +293,19 @@ export const projects = sqliteTable("projects", {
   // dibutuhkan supaya contentVariety.ts bisa membaca histori pemakaian struktur.
   hookType: text("hook_type"),
   structureTemplate: text("structure_template"),
+  // Content Brief (2026-08-26, PRD §12, Task Plan 6) - 4 field, semua nullable, dirakit
+  // jadi 1 objek Content Brief di GET /api/projects/[id]/brief (TIDAK ada tabel/AI call
+  // baru - lihat catatan lengkap di route itu). ideaScore/ideaReasoning dari
+  // daily_ideas.score/reasoning yg SEBELUM ini dibuang begitu ide jadi project (lihat
+  // autoContent.ts). visualDirection/ctaText BARU - diminta bareng generateCaptionAndHashtags/
+  // generateCaptionForImages (generateContent.ts), 1 panggilan yg SAMA, bukan panggilan baru.
+  ideaScore: integer("idea_score"),
+  ideaReasoning: text("idea_reasoning"),
+  visualDirection: text("visual_direction"),
+  ctaText: text("cta_text"),
+  // Retention Intelligence (2026-08-26, PRD §14, Task Plan 7) - JSON string[], nullable
+  // (jalur foto/carousel/YouTube Editorial tidak relevan, lihat retentionIntelligence.ts).
+  retentionRisks: text("retention_risks"),
   // Content Type Taxonomy (2026-08-14, PRD "AI Content Intelligence" Fase 1 - TIER 1,
   // lihat docs/TIER_0_VERIFICATION_REPORT.md & spec) - TERPISAH dari pillar (business
   // topic) & angle (content angle). Type = format/structure konten (Educational, How-to,
@@ -344,6 +390,11 @@ export const projects = sqliteTable("projects", {
   // regresi.
   autoFixAttempts: integer("auto_fix_attempts"),
   autoFixLog: text("auto_fix_log"), // JSON array: [{step, action, result}]
+  // Manual Per-Post Scheduling (2026-08-25, PRD §26) - diisi lewat POST
+  // /api/projects/[id]/schedule (lihat DraftReview.tsx tombol "Jadwalkan"), dibaca
+  // cron/auto-publish.ts. Nullable - hanya terisi utk project yg SENGAJA dijadwalkan
+  // manual, mayoritas project (draft/auto-publish-mode biasa) tetap null selamanya.
+  scheduledFor: integer("scheduled_for", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
@@ -359,10 +410,18 @@ export const mediaAssets = sqliteTable("media_assets", {
     // konten berulang") - dibaca lib/ai/footageVariety.ts utk MENGHINDARI klip B-roll
     // yg sama dipakai berulang di video berikutnya. Bukan aset yg ditampilkan di UI,
     // murni riwayat internal.
-    enum: ["raw_footage", "final_video", "final_image", "subtitle_file", "thumbnail", "broll_used"],
+    // "thumbnail_candidate" (2026-08-26, PRD §15, Task Plan 7) - kandidat frame thumbnail
+    // dari bagian hook video, SEMUANYA disimpan (bukan cuma yg terpilih) supaya Agus bisa
+    // override manual di Draft Review - lihat thumbnailScoring.ts. Kolom TS-hint saja
+    // (TEXT polos di DB), aman ditambah tanpa migrasi data lama.
+    enum: ["raw_footage", "final_video", "final_image", "subtitle_file", "thumbnail", "broll_used", "thumbnail_candidate"],
   }).notNull(),
   fileUrl: text("file_url").notNull(),
   durationSeconds: integer("duration_seconds"),
+  // Thumbnail Scoring (2026-08-26, PRD §15, Task Plan 7) - nullable, HANYA diisi utk
+  // type="thumbnail_candidate" (skor AI 0-100 + alasan singkat, lihat thumbnailScoring.ts).
+  score: integer("score"),
+  scoreReasoning: text("score_reasoning"),
   // Lisensi/asal aset (2026-08-08, PRD "YouTube Content & Monetization Safety System"
   // Section 16 "Footage License Tracking") - SEBELUM ini fileUrl broll_used tersimpan
   // TANPA jejak sumber/lisensi/kreator sama sekali (dicek langsung ke kode, kosong) -
@@ -394,6 +453,14 @@ export const publishLogs = sqliteTable("publish_logs", {
   errorMessage: text("error_message"),
   telegramNotifiedAt: integer("telegram_notified_at", { mode: "timestamp" }),
   publishedAt: integer("published_at", { mode: "timestamp" }),
+  // Platform Normalization (2026-08-26, PRD §18, Task Plan 3) - metrik PER-PLATFORM,
+  // nullable. SEBELUM ini performanceLearning.ts's syncProjectPerformance() sudah fetch
+  // metrik ini PER LOG (per akun/platform) tapi cuma dijumlah ke projects.performanceViews
+  // (total gabungan semua platform) lalu dibuang - baseline-per-platform BUTUH angka
+  // per-platform asli, bukan total gabungan (1 project bisa tayang ke 2+ platform
+  // sekaligus dgn skala views yg beda jauh, tidak bisa di-baseline dari angka gabungan).
+  views: integer("views"),
+  engagementRate: integer("engagement_rate"), // x100 spt projects.performanceEngagementRate
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -533,6 +600,10 @@ export const dailyIdeas = sqliteTable("daily_ideas", {
   // generateCaptionAndHashtags - beda dari jalur YouTube yg kategorinya SUDAH diketahui
   // dari awal saat idea dibuat, tidak perlu diklasifikasi ulang).
   pillar: text("pillar"),
+  // Platform Fit Score (2026-08-26, PRD §19, Task Plan 5) - JSON string Record<platform,
+  // 0-100>, nullable (batch lama sebelum fitur ini, atau brand tanpa akun terhubung, tetap
+  // null). OBSERVATIONAL SAJA - lihat catatan lengkap di researchTopics.ts's ScoredIdea.
+  platformFitScores: text("platform_fit_scores"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

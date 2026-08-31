@@ -2,9 +2,33 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyCronSecret } from "@/lib/cron/verify";
 import { db } from "@/db";
 import { brands, projects, publishLogs } from "@/db/schema";
-import { eq, and, gte, lt, inArray } from "drizzle-orm";
+import { eq, and, gte, lt, lte, inArray } from "drizzle-orm";
 import { nowTimeStringWita, todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { publishProject } from "@/lib/publish/orchestrate";
+
+// Manual Per-Post Scheduling (2026-08-25, PRD §26) - TERPISAH dari loop slot per-brand
+// di bawah (itu utk brand.publishMode="auto" recurring, ini utk 1 draft spesifik yang
+// Agus jadwalkan manual lewat POST /api/projects/[id]/schedule - apa pun publishMode
+// brand-nya). Dicek SETIAP kali cron ini jalan (siklus sama dgn retryPartialPublishes,
+// ~10-15 menit, lihat kontenpilot-auto-publish.timer) - toleransi keterlambatan alami
+// dari cadence cron itu sendiri, tidak perlu TOLERANCE_MINUTES terpisah spt slot brand.
+async function publishScheduledProjects(): Promise<Array<{ projectId: string; brandId: string }>> {
+  const now = new Date();
+  const due = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.status, "scheduled"), lte(projects.scheduledFor, now)));
+  const published: Array<{ projectId: string; brandId: string }> = [];
+  for (const p of due) {
+    try {
+      await publishProject(p.id);
+      published.push({ projectId: p.id, brandId: p.brandId });
+    } catch (err) {
+      console.error(`[cron/auto-publish] gagal publish scheduled project ${p.id}:`, err);
+    }
+  }
+  return published;
+}
 
 // Retry publish "partial" (2026-08-07, permintaan Agus - "yang berhasil di uploud ke
 // tiktok saja sedangkan fb dan ig gagal agar nanti di uploud ulang") - BEDA dari slot
@@ -89,6 +113,7 @@ export async function POST(req: NextRequest) {
   if (unauthorized) return unauthorized;
 
   const retriedPartial = await retryPartialPublishes();
+  const publishedScheduled = await publishScheduledProjects();
 
   const nowWita = nowTimeStringWita();
   const nowMinutes = timeStringToMinutes(nowWita);
@@ -156,5 +181,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, nowWita, results, retriedPartial });
+  return NextResponse.json({ ok: true, nowWita, results, retriedPartial, publishedScheduled });
 }

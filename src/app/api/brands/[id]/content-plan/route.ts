@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { dailyIdeas, projects, contentTypes } from "@/db/schema";
 import { and, eq, gte, desc } from "drizzle-orm";
+import { getMediumPerformance, classifyIdeaExperimentTier } from "@/lib/ai/contentVariety";
+import { parseStoredPlatformFitScores } from "@/lib/ai/dailyContentPlanner";
 
 // Content Planning Engine (2026-08-19, PRD "AI Content Intelligence" §22-23) - SCOPE
 // DIKURANGI dari PRD asli: PRD minta planning berbasis SWOT+Competitor+Audience+Content
@@ -23,6 +25,13 @@ type PlanRow = {
   topicOrHook: string;
   structure: string | null;
   status: string;
+  // Experiment Engine (2026-08-25, PRD §24, observational - lihat catatan lengkap di
+  // contentVariety.ts's classifyIdeaExperimentTier) - null utk row "project" (konten
+  // sudah diproduksi, tier cuma relevan sblm produksi).
+  experimentTier: "proven" | "variation" | "experiment" | null;
+  // Platform Fit Score (2026-08-26, PRD §19, Task Plan 5) - {} utk row "project" (skor
+  // ini soal ide sblm produksi, lihat researchTopics.ts's ScoredIdea).
+  platformFitScores: Record<string, number>;
 };
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -36,6 +45,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .from(dailyIdeas)
     .where(and(eq(dailyIdeas.brandId, brandId), gte(dailyIdeas.date, windowStartDateStr)))
     .orderBy(desc(dailyIdeas.date));
+  const mediumPerf = await getMediumPerformance(brandId);
 
   const proj = await db
     .select({
@@ -63,6 +73,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       topicOrHook: i.idea,
       structure: null,
       status: i.used ? "Sudah dipakai" : "Belum dipakai",
+      experimentTier: classifyIdeaExperimentTier(i.contentType, mediumPerf),
+      platformFitScores: parseStoredPlatformFitScores(i.platformFitScores),
     })),
     ...proj.map((p): PlanRow => ({
       id: p.id,
@@ -73,6 +85,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       topicOrHook: p.hookType || (p.script || "").slice(0, 100),
       structure: p.structureTemplate,
       status: p.status,
+      experimentTier: null,
+      platformFitScores: {},
     })),
   ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 

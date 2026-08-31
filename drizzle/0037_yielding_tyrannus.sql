@@ -1,0 +1,1 @@
+ALTER TABLE `daily_ideas` ADD `platform_fit_scores` text;

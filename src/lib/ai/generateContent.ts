@@ -222,6 +222,17 @@ export type GeneratedContent = {
   targetKeyword: string | null;
   keywordLevel: number | null;
   knowledgeUsed: string;
+  // Content Brief (2026-08-26, PRD §12, Task Plan 6) - 2 field TAMBAHAN di panggilan yg
+  // SAMA (bukan panggilan GPT baru), dirakit jadi Content Brief di
+  // GET /api/projects/[id]/brief bareng ideaScore/ideaReasoning (lihat schema.ts).
+  visualDirection: string | null;
+  ctaText: string | null;
+  // Retention Intelligence (2026-08-26, PRD §14, Task Plan 7) - kalimat/baris PERSIS yg
+  // dipakai sbg hook (baris pembuka), dipakai retentionIntelligence.ts estimasi durasi
+  // hook dari jumlah kata (WORDS_PER_SECOND) - null utk jalur yg tidak relevan (foto/
+  // carousel tidak punya "watch-time"/hook dlm arti video, tapi tetap diminta krn video
+  // JUGA pakai fungsi caption yg sama, foto biarkan null di parsing-nya).
+  hookText: string | null;
 };
 
 export type GeneratedImageContent = GeneratedContent & {
@@ -311,13 +322,49 @@ export const VIDEO_STRUCTURE_TEMPLATES: { name: string; guide: string }[] = [
 // "pelangi" kalau brand belum eksplisit pilih). Brand TANPA knowledgeSite (null/kosong -
 // bukan cuma brand baru, tapi juga brand yg sengaja tidak terkait properti manapun) SEKARANG
 // dilewati sama sekali (no auto-grounding), BUKAN diam-diam ambil fakta Pelangi.
+// Content DNA (2026-08-26, PRD §4, Task Plan 5) - 10 field identitas brand (niche/target
+// audience/positioning/dst, lihat schema.ts's brands table utk catatan lengkap kenapa
+// field ini teks bebas, bukan JSON terstruktur). Dipisah dari knowledge base ASLI properti
+// (fasilitas/harga, anti-mengarang) di atas - identitas ini soal GAYA/ARAH konten, selalu
+// disertakan kalau ada isinya, TIDAK bergantung pada knowledgeSite/manualKnowledge terisi
+// atau tidak (brand generik non-properti pun tetap dapat identitas ini).
+export type BrandIdentityFields = {
+  niche?: string | null;
+  targetAudience?: string | null;
+  positioning?: string | null;
+  contentGoals?: string | null;
+  toneOfVoice?: string | null;
+  preferredTopics?: string | null;
+  prohibitedTopics?: string | null;
+  contentBoundaries?: string | null;
+  eduEntertainmentRatio?: string | null;
+  ctaStyle?: string | null;
+};
+
+const IDENTITY_LABELS: Record<keyof BrandIdentityFields, string> = {
+  niche: "Niche", targetAudience: "Target Audience", positioning: "Positioning",
+  contentGoals: "Content Goals", toneOfVoice: "Tone of Voice", preferredTopics: "Topik Disukai",
+  prohibitedTopics: "Topik Dilarang", contentBoundaries: "Batasan Konten",
+  eduEntertainmentRatio: "Rasio Edukasi/Hiburan", ctaStyle: "Gaya CTA",
+};
+
+export function buildBrandIdentityBlock(identity?: BrandIdentityFields | null): string {
+  if (!identity) return "";
+  const lines = (Object.keys(IDENTITY_LABELS) as (keyof BrandIdentityFields)[])
+    .map((key) => (identity[key]?.trim() ? `- ${IDENTITY_LABELS[key]}: ${identity[key]!.trim()}` : null))
+    .filter((l): l is string => l !== null);
+  return lines.length > 0 ? `\n\n# IDENTITAS BRAND (Content DNA)\n${lines.join("\n")}\n` : "";
+}
+
 async function buildKnowledgeGroundingBlock(
   knowledgeSite?: string | null,
-  manualKnowledge?: string | null
+  manualKnowledge?: string | null,
+  brandIdentity?: BrandIdentityFields | null
 ): Promise<{ instruction: string; contextBlock: string; knowledge: string }> {
   const autoKnowledge = knowledgeSite ? await fetchPelangiKnowledge(knowledgeSite) : "";
   const knowledge = mergeManualKnowledge(autoKnowledge, manualKnowledge);
-  if (!knowledge) return { instruction: "", contextBlock: "", knowledge: "" };
+  const identityBlock = buildBrandIdentityBlock(brandIdentity);
+  if (!knowledge) return { instruction: "", contextBlock: identityBlock, knowledge: "" };
   return {
     knowledge,
     instruction:
@@ -325,7 +372,7 @@ async function buildKnowledgeGroundingBlock(
       "WAJIB berasal dari situ, dan kalau Knowledge Base eksplisit bilang properti TIDAK " +
       "punya sesuatu (mis. kolam renang/rental motor/jemput bandara/ruang meeting), JANGAN " +
       "PERNAH tulis caption yg mengklaim/menyiratkan itu ada.",
-    contextBlock: `\n\n# KNOWLEDGE BASE ASLI PROPERTI\n${knowledge}\n`,
+    contextBlock: `\n\n# KNOWLEDGE BASE ASLI PROPERTI\n${knowledge}\n${identityBlock}`,
   };
 }
 
@@ -426,7 +473,10 @@ function pickStructureTemplate(
 // cukup, tapi target 480dtk (8 menit) butuh ~1200 kata & GPT TIDAK akan otomatis
 // menulis sepanjang itu tanpa diminta eksplisit - hasilnya voiceover berhenti jauh
 // sebelum video selesai (audio TTS habis, sisa durasi video jadi bisu).
-const WORDS_PER_SECOND = 2.5;
+// Diekspor (2026-08-26, PRD §14, Task Plan 7) - dipakai retentionIntelligence.ts utk
+// estimasi durasi hook dari jumlah kata, sama konstanta dgn perhitungan durasi caption
+// di sini (satu sumber kebenaran, bukan angka duplikat).
+export const WORDS_PER_SECOND = 2.5;
 
 export async function generateCaptionAndHashtags(
   brandName: string,
@@ -441,7 +491,8 @@ export async function generateCaptionAndHashtags(
   avoidHookTypes: string[] = [],
   avoidContentTypes: string[] = [],
   avoidHashtags: string[] = [],
-  avoidCaptionStyles: string[] = []
+  avoidCaptionStyles: string[] = [],
+  brandIdentity?: BrandIdentityFields | null
 ): Promise<GeneratedVideoContent> {
   const client = getOpenAIClient();
   // usage kosong (brand belum diketahui, mis. dipanggil dari konteks tanpa brandId) -
@@ -515,7 +566,7 @@ export async function generateCaptionAndHashtags(
     : { counts: new Map<string, number>(), windowSize: 0 };
   const pillarTargetPercent = pillarTargetPercentForSite(knowledgeSite, customPillarsJson);
   const pillarAvoidInstruction = buildPillarAvoidInstruction(pillarUsageCounts, pillarTargetPercent, pillarWindowSize);
-  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
+  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge, brandIdentity);
   const targetWords = Math.round(videoDurationTarget * WORDS_PER_SECOND);
   const isLongForm = videoDurationTarget >= 180;
   const lengthInstruction = isLongForm
@@ -536,6 +587,15 @@ export async function generateCaptionAndHashtags(
     "caption WAJIB memuat SEMUA poin/langkah tipsnya secara LENGKAP - JANGAN cuma " +
     "disebut sepintas/dijadikan teaser yg mengarahkan ke tempat lain, penonton harus " +
     "dapat SELURUH isi tipsnya langsung dari caption ini." +
+    // Originality Guardrail (2026-08-25, PRD §30, Task 5 Plan 1) - lapisan KEDUA (lapisan
+    // pertama di researchTopics.ts's idea-generation prompt, tempat mechanismInsights dari
+    // Context Firewall masuk). script di sini SUDAH berasal dari ide yg sudah divet
+    // original, tapi caption/voiceover final tetap WAJIB angle & kalimat ASLI brand ini -
+    // JANGAN gunakan judul/kalimat/alur cerita persis dari sumber luar mana pun, walau
+    // mekanismenya (hook/pacing/format) boleh diadaptasi.
+    " Caption & naskah voiceover ini WAJIB kalimat & angle ASLI (bukan tiruan judul/wording " +
+    "dari kompetitor/tren manapun) - kalau ada mekanisme (gaya hook/pacing) yg diadaptasi, " +
+    "adaptasi CARANYA saja, jangan salin kata-katanya." +
     grounding.instruction +
     " Caption ini JUGA jadi naskah voiceover (dibacakan TTS, GANTI TOTAL audio asli video) - " +
     `WAJIB ikuti struktur narasi berikut (jangan tulis label section-nya literal, cukup ` +
@@ -551,6 +611,13 @@ export async function generateCaptionAndHashtags(
     "Sertakan juga thumbnailText: teks hook SANGAT singkat (2-5 kata, Bahasa Indonesia, " +
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +
+    // Content Brief (2026-08-26, PRD §12, Task Plan 6) - 2 field TAMBAHAN, panggilan GPT
+    // yg SAMA (tidak ada panggilan baru).
+    " Sertakan juga visualDirection: 1 kalimat singkat arahan visual/gaya footage yg " +
+    "cocok utk konten ini (mis. \"fokus close-up detail kamar, pacing tenang\"). Sertakan " +
+    "juga ctaText: kalimat CTA PERSIS yg kamu tulis di akhir caption (echo, bukan tulis " +
+    "ulang beda). Sertakan juga hookText: kalimat/baris PERTAMA PERSIS yg kamu tulis sbg " +
+    "hook/pembuka caption ini (echo, bukan tulis ulang beda)." +
     buildClassificationFragment(knowledgeSite, customPillarsJson) +
     hookAvoidInstruction +
     contentTypeAvoidInstruction +
@@ -559,7 +626,7 @@ export async function generateCaptionAndHashtags(
     (avoidHashtags.length > 0
       ? `\n\nIMPORTANT: The following hashtags have been used TOO FREQUENTLY recently and MUST be AVOIDED: ${avoidHashtags.join(", ")}. Generate DIFFERENT, fresh hashtags.`
       : "");
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "visualDirection": "...", "ctaText": "...", "hookText": "...", "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -579,6 +646,9 @@ export async function generateCaptionAndHashtags(
     hashtags: capHashtags(stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : [])),
     brollKeywords: parsed.brollKeywords || null,
     thumbnailText: parsed.thumbnailText || null,
+    visualDirection: typeof parsed.visualDirection === "string" ? parsed.visualDirection : null,
+    ctaText: typeof parsed.ctaText === "string" ? parsed.ctaText : null,
+    hookText: typeof parsed.hookText === "string" ? parsed.hookText : null,
     structureTemplate: structureTemplate.name,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
@@ -603,7 +673,8 @@ export async function generateCaptionForImages(
   knowledgeSite?: string | null,
   manualKnowledge?: string | null,
   customPillarsJson?: string | null,
-  brandId?: string | null
+  brandId?: string | null,
+  brandIdentity?: BrandIdentityFields | null
 ): Promise<GeneratedImageContent> {
   const client = getOpenAIClient();
   // Pillar Target Enforcement (2026-08-19) - sama pola & alasan dgn generateCaptionAndHashtags
@@ -614,7 +685,7 @@ export async function generateCaptionForImages(
     : { counts: new Map<string, number>(), windowSize: 0 };
   const pillarTargetPercent = pillarTargetPercentForSite(knowledgeSite, customPillarsJson);
   const pillarAvoidInstruction = buildPillarAvoidInstruction(pillarUsageCounts, pillarTargetPercent, pillarWindowSize);
-  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge);
+  const grounding = await buildKnowledgeGroundingBlock(knowledgeSite, manualKnowledge, brandIdentity);
   // imageUrls KOSONG (2026-08-11) - jalur full AI-generate poster (allowAiGeneratedPhotos,
   // lihat posterDesign.ts) TIDAK PUNYA foto asli sama sekali (visual dibuat SETELAH
   // caption ini, dari script - bukan sebaliknya), jadi instruksi "lihat foto asli" tidak
@@ -644,9 +715,13 @@ export async function generateCaptionForImages(
     "(mis. \"Rp175.000\" atau \"Promo 20%\") di field promoText - ini akan ditempel " +
     "sbg badge di foto PERTAMA saja, jadi HARUS singkat (maks ~4 kata). Kalau skrip " +
     "TIDAK menyebut harga/promo sama sekali, promoText HARUS null." +
+    // Content Brief (2026-08-26, PRD §12, Task Plan 6) - sama pola dgn generateCaptionAndHashtags.
+    " Sertakan juga visualDirection: 1 kalimat singkat arahan visual/gaya foto yg cocok " +
+    "utk konten ini. Sertakan juga ctaText: kalimat CTA PERSIS yg kamu tulis di akhir " +
+    "caption (echo, bukan tulis ulang beda), atau null kalau caption ini tidak punya CTA." +
     buildClassificationFragment(knowledgeSite, customPillarsJson) +
     pillarAvoidInstruction;
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nJumlah foto: ${imageUrls.length}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "promoText": "..." atau null, "visualDirection": "...", "ctaText": "..." atau null, "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -670,6 +745,11 @@ export async function generateCaptionForImages(
     caption: parsed.caption || "",
     hashtags: capHashtags(stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : [])),
     promoText: parsed.promoText || null,
+    visualDirection: typeof parsed.visualDirection === "string" ? parsed.visualDirection : null,
+    ctaText: typeof parsed.ctaText === "string" ? parsed.ctaText : null,
+    // hookText (2026-08-26, PRD §14) - null di jalur foto/carousel, retensi/watch-time
+    // TIDAK relevan utk konten statis, lihat catatan lengkap di tipe GeneratedContent.
+    hookText: null,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
     hookType: normalizeHookType(parsed.hookType),

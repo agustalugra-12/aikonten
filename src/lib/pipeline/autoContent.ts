@@ -82,7 +82,13 @@ export async function runAutoContent(
   // youtubeSeriesId/youtubeMetadata (khusus type="video" YouTube) - pillar field UMUM
   // yg juga dipakai jalur generik (walau jalur generik isi ini belakangan lewat
   // generateCaptionAndHashtags di processProject.ts, bukan di sini).
-  pillar?: string | null
+  pillar?: string | null,
+  // Content Brief (2026-08-26, PRD §12, Task Plan 6) - dari daily_ideas.score/reasoning,
+  // SEBELUM ini dibuang begitu ide jadi project (confirmed: caller lama tidak pernah
+  // meneruskannya). Diteruskan apa adanya ke projects, dirakit jadi Content Brief di
+  // GET /api/projects/[id]/brief.
+  ideaScore?: number | null,
+  ideaReasoning?: string | null
 ): Promise<{ projectId: string; script: string; fromBroll: boolean } & ProcessResult> {
   let script = scriptOverride;
 
@@ -320,6 +326,8 @@ export async function runAutoContent(
     // processProject.ts). TIDAK di-gate ke type==="video" spt 3 field di atas - pillar
     // field UMUM, bukan spesifik YouTube.
     pillar: pillar ?? null,
+    ideaScore: ideaScore ?? null,
+    ideaReasoning: ideaReasoning ?? null,
     status: "uploaded",
     script,
     transcript: null,

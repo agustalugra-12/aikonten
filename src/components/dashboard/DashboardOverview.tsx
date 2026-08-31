@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProjectList } from "@/components/dashboard/ProjectList";
 import { Send, FileClock, Wallet, Flame } from "lucide-react";
+import { useFetchedData } from "@/lib/useFetchedData";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, Tooltip, Pie, PieChart, Cell } from "recharts";
 import type { Brand, Project, SocialAccount } from "@/types";
 
@@ -43,16 +44,13 @@ export function DashboardOverview({
   accounts: SocialAccount[];
   onRetryProject: () => void;
 }) {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-
-  useEffect(() => {
-    if (!brand?.id) return;
-    setStats(null);
-    fetch(`/api/brands/${brand.id}/dashboard-stats`)
-      .then((res) => res.json())
-      .then(setStats)
-      .catch(() => setStats(null));
-  }, [brand?.id]);
+  const { data: stats } = useFetchedData<DashboardStats | null>(
+    () =>
+      brand?.id
+        ? fetch(`/api/brands/${brand.id}/dashboard-stats`).then((res) => res.json())
+        : Promise.resolve(null),
+    [brand?.id]
+  );
 
   const jamSekarang = new Date().getHours();
   const sapaan = jamSekarang < 11 ? "Selamat pagi" : jamSekarang < 15 ? "Selamat siang" : jamSekarang < 18 ? "Selamat sore" : "Selamat malam";

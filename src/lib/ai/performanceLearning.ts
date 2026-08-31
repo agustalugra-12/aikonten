@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { projects, publishLogs, socialAccounts } from "@/db/schema";
-import { and, eq, isNull, or, lt, isNotNull } from "drizzle-orm";
+import { and, eq, isNull, or, lt, isNotNull, desc } from "drizzle-orm";
 import { getPostMetrics } from "@/lib/publish/bufferAuth";
 import { getYoutubeVideoMetrics } from "@/lib/publish/youtube";
 import { ensureFreshYoutubeAccessToken } from "@/lib/publish/youtubeAuth";
@@ -22,6 +22,15 @@ export async function syncBrandPerformance(brandId: string): Promise<void> {
   const now = new Date();
   const staleThreshold = new Date(now.getTime() - RESYNC_INTERVAL_MS);
 
+  // orderBy DESC createdAt (2026-08-26, bug nyata ditemukan Agus - "laundry in bali blum
+  // muncul" di laporan mingguan) - SEBELUM ini TANPA ORDER BY, jadi urutan candidate
+  // ikut rowid/insertion order (tertua duluan). syncProjectPerformance() TIDAK PERNAH
+  // set performanceSyncedAt kalau anyMetricsFound=false (mis. post Buffer sudah kehapus/
+  // API permanen gagal utk post itu) - project TUA yg metriknya permanen tidak bisa
+  // diambil jadi SELALU kepilih ulang tiap panggilan & menghabiskan limit(20), project
+  // BARU (yg justru relevan utk laporan 7 hari) tidak pernah kebagian slot sync. Diverifikasi
+  // langsung ke DB brand Laundry In Bali: 229 publish sukses, publish TERBARU kemarin,
+  // tapi performance_synced_at PALING BARU cuma sampai 12 Agustus - persis gejala ini.
   const candidateProjects = await db
     .select({ id: projects.id })
     .from(projects)
@@ -32,6 +41,7 @@ export async function syncBrandPerformance(brandId: string): Promise<void> {
         or(isNull(projects.performanceSyncedAt), lt(projects.performanceSyncedAt, staleThreshold))
       )
     )
+    .orderBy(desc(projects.createdAt))
     .limit(20); // batasi per pemanggilan - hindari 1 sync borongan lambat/kena rate limit
 
   for (const p of candidateProjects) {
@@ -47,7 +57,7 @@ export async function syncBrandPerformance(brandId: string): Promise<void> {
 
 async function syncProjectPerformance(projectId: string): Promise<void> {
   const logs = await db
-    .select({ platformPostId: publishLogs.platformPostId, socialAccountId: publishLogs.socialAccountId })
+    .select({ id: publishLogs.id, platformPostId: publishLogs.platformPostId, socialAccountId: publishLogs.socialAccountId })
     .from(publishLogs)
     .where(and(eq(publishLogs.projectId, projectId), eq(publishLogs.status, "success"), isNotNull(publishLogs.platformPostId)));
 
@@ -89,6 +99,16 @@ async function syncProjectPerformance(projectId: string): Promise<void> {
       engagementSum += engagement;
       engagementCount += 1;
     }
+    // Platform Normalization (2026-08-26, PRD §18, Task Plan 3) - simpan metrik PER LOG
+    // (per platform/akun), BUKAN cuma total gabungan di bawah - baseline-per-platform
+    // butuh angka asli per-platform, lihat catatan lengkap di schema.ts's publishLogs.views.
+    await db
+      .update(publishLogs)
+      .set({
+        views: typeof views === "number" ? Math.round(views) : null,
+        engagementRate: typeof engagement === "number" ? Math.round(engagement * 100) : null,
+      })
+      .where(eq(publishLogs.id, log.id));
   }
 
   if (!anyMetricsFound) return; // belum ada data sama sekali - jangan tulis performanceSyncedAt (coba lagi nanti, bukan "sudah dicek, kosong")

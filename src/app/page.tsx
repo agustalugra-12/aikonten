@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,7 +64,7 @@ function DashboardContent() {
   // isi ini (selalu undefined), NewProjectDialog default ke "video" spt biasa.
   const [prefillType, setPrefillType] = useState<"video" | "foto" | "carousel" | undefined>(undefined);
 
-  const loadBrands = useCallback(async () => {
+  async function loadBrands() {
     const res = await fetch("/api/brands");
     const data: Brand[] = await res.json();
     setBrands(data);
@@ -72,21 +72,24 @@ function DashboardContent() {
     const stillExists = remembered && data.some((b) => b.id === remembered);
     setSelectedBrandId(stillExists ? remembered : data[0]?.id ?? null);
     setLoading(false);
-  }, []);
+  }
 
-  const loadProjects = useCallback(async (brandId: string) => {
+  async function loadProjects(brandId: string) {
     const res = await fetch(`/api/projects?brandId=${brandId}`);
     setProjects(await res.json());
-  }, []);
-
-  const loadAccounts = useCallback(async (brandId: string) => {
-    const res = await fetch(`/api/brands/${brandId}/social-accounts`);
-    setAccounts(res.ok ? await res.json() : []);
-  }, []);
+  }
 
   useEffect(() => {
-    loadBrands();
-  }, [loadBrands]);
+    fetch("/api/brands")
+      .then((res) => res.json())
+      .then((data: Brand[]) => {
+        setBrands(data);
+        const remembered = typeof window !== "undefined" ? localStorage.getItem(LAST_BRAND_KEY) : null;
+        const stillExists = remembered && data.some((b) => b.id === remembered);
+        setSelectedBrandId(stillExists ? remembered : data[0]?.id ?? null);
+        setLoading(false);
+      });
+  }, []);
 
   useEffect(() => {
     const ytConnected = searchParams.get("youtube_connected");
@@ -101,12 +104,13 @@ function DashboardContent() {
   }, [searchParams, router]);
 
   useEffect(() => {
-    if (selectedBrandId) {
-      localStorage.setItem(LAST_BRAND_KEY, selectedBrandId);
-      loadProjects(selectedBrandId);
-      loadAccounts(selectedBrandId);
-    }
-  }, [selectedBrandId, loadProjects, loadAccounts]);
+    if (!selectedBrandId) return;
+    localStorage.setItem(LAST_BRAND_KEY, selectedBrandId);
+    fetch(`/api/projects?brandId=${selectedBrandId}`).then((res) => res.json()).then(setProjects);
+    fetch(`/api/brands/${selectedBrandId}/social-accounts`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setAccounts);
+  }, [selectedBrandId]);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });

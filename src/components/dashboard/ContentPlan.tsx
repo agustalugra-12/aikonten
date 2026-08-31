@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useFetchedData } from "@/lib/useFetchedData";
 
 type PlanRow = {
   id: string;
@@ -14,6 +15,16 @@ type PlanRow = {
   topicOrHook: string;
   structure: string | null;
   status: string;
+  experimentTier: "proven" | "variation" | "experiment" | null;
+  platformFitScores: Record<string, number>;
+};
+
+// Experiment Engine (2026-08-25, PRD §24) - label observational, lihat catatan lengkap
+// di contentVariety.ts's classifyIdeaExperimentTier.
+const TIER_LABEL: Record<string, string> = {
+  proven: "Proven",
+  variation: "Variasi",
+  experiment: "Eksperimen",
 };
 
 const WINDOW_OPTIONS = [
@@ -28,9 +39,14 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   "Belum dipakai": "outline",
   failed: "destructive",
   partial: "outline",
+  // Manual Per-Post Scheduling (2026-08-25, PRD §26)
+  scheduled: "secondary",
 };
 
-type Suggestion = { pillar: string; topic: string; hookType: string; reasoning: string };
+type Suggestion = {
+  pillar: string; topic: string; hookType: string; reasoning: string;
+  whyNow: string; whyAudience: string; whyBrand: string; risk: string;
+};
 
 // Content Planning Engine (2026-08-19, PRD §22-23) - tabel kronologis gabungan ide
 // (belum diproduksi) + konten (sudah/sedang diproduksi). Sejak SWOT/Competitor
@@ -40,20 +56,14 @@ type Suggestion = { pillar: string; topic: string; hookType: string; reasoning: 
 // app ini - lihat lib/ai/contentPlanSuggestions.ts).
 export function ContentPlan({ brandId }: { brandId: string }) {
   const [days, setDays] = useState(14);
-  const [rows, setRows] = useState<PlanRow[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: rows, loading } = useFetchedData<PlanRow[]>(
+    () => fetch(`/api/brands/${brandId}/content-plan?days=${days}`).then((res) => res.json()).then((data) => data.rows),
+    [brandId, days]
+  );
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [acceptingIdx, setAcceptingIdx] = useState<number | null>(null);
   const [acceptedIdx, setAcceptedIdx] = useState<Set<number>>(new Set());
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/brands/${brandId}/content-plan?days=${days}`)
-      .then((res) => res.json())
-      .then((data) => setRows(data.rows))
-      .finally(() => setLoading(false));
-  }, [brandId, days]);
 
   const handleSuggest = () => {
     setSuggestLoading(true);
@@ -105,6 +115,13 @@ export function ContentPlan({ brandId }: { brandId: string }) {
                       </div>
                       <p className="text-sm font-medium">{s.topic}</p>
                       <p className="text-xs text-muted-foreground">{s.reasoning}</p>
+                      {/* Content Strategist explanation (2026-08-26, PRD §11, Task Plan 6) */}
+                      <div className="text-xs text-muted-foreground space-y-0.5 mt-1">
+                        {s.whyNow && <p><span className="font-medium text-foreground">Kenapa sekarang:</span> {s.whyNow}</p>}
+                        {s.whyAudience && <p><span className="font-medium text-foreground">Audiens:</span> {s.whyAudience}</p>}
+                        {s.whyBrand && <p><span className="font-medium text-foreground">Kecocokan brand:</span> {s.whyBrand}</p>}
+                        {s.risk && <p><span className="font-medium text-foreground">Resiko:</span> {s.risk}</p>}
+                      </div>
                     </div>
                     <Button
                       size="sm"
@@ -163,9 +180,24 @@ export function ContentPlan({ brandId }: { brandId: string }) {
                     <td className="py-2 pr-3">
                       <Badge variant="outline">{r.kind === "idea" ? "Ide" : "Konten"}</Badge>
                     </td>
-                    <td className="py-2 pr-3">{r.contentType || "-"}</td>
+                    <td className="py-2 pr-3">
+                      {r.contentType || "-"}
+                      {r.experimentTier && (
+                        <Badge variant="outline" className="ml-1 text-xs">{TIER_LABEL[r.experimentTier]}</Badge>
+                      )}
+                    </td>
                     <td className="py-2 pr-3">{r.pillar || "-"}</td>
-                    <td className="py-2 pr-3 max-w-xs truncate" title={r.topicOrHook}>{r.topicOrHook || "-"}</td>
+                    <td className="py-2 pr-3 max-w-xs">
+                      <div className="truncate" title={r.topicOrHook}>{r.topicOrHook || "-"}</div>
+                      {Object.keys(r.platformFitScores).length > 0 && (
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {Object.entries(r.platformFitScores)
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([platform, score]) => `${platform} ${score}`)
+                            .join(" · ")}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-2 pr-3">{r.structure || "-"}</td>
                     <td className="py-2">
                       <Badge variant={STATUS_VARIANT[r.status] || "secondary"}>{r.status}</Badge>

@@ -78,7 +78,8 @@ export async function POST(req: NextRequest) {
           // foto semua") - lihat catatan lengkap di autoContent.ts runAutoContent().
           await runAutoContent(
             brand.id, idea.idea, idea.contentType ?? undefined, idea.contentFormat ?? undefined,
-            idea.youtubeSeriesId ?? undefined, idea.youtubeMetadata ?? undefined, idea.pillar ?? undefined
+            idea.youtubeSeriesId ?? undefined, idea.youtubeMetadata ?? undefined, idea.pillar ?? undefined,
+            idea.score ?? undefined, idea.reasoning ?? undefined
           );
           await markDailyIdeaUsed(idea.id);
           generated++;

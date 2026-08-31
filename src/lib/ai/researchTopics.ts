@@ -141,7 +141,15 @@ async function buildIdeaPromptBase(
   recentClassifications: RecentClassification[],
   knowledgeSite?: string | null,
   manualKnowledge?: string | null,
-  customPillarsJson?: string | null
+  customPillarsJson?: string | null,
+  // Context Firewall (2026-08-25, PRD §5) - mekanisme (BUKAN topik) yang lolos filter
+  // relevansi dari trendAdaptation.ts (lihat dailyContentPlanner.ts pemanggil) - hook/
+  // pacing/format yang terbukti bisa diadaptasi, sudah disaring SEBELUM sampai di sini
+  // (item yang benar2 tidak relevan sama sekali sudah dibuang duluan, tidak pernah
+  // masuk sebagai parameter ini). Default [] - brand tanpa analisis tren terbaru
+  // (paling banyak brand saat ini, krn analisis tren ON-DEMAND bukan otomatis) TIDAK
+  // berubah perilakunya sama sekali.
+  mechanismInsights: string[] = []
 ): Promise<{ system: string; user: string }> {
   const today = new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
   // `knowledgeSite || "pelangi"` DIHAPUS (2026-08-06, bug nyata - lihat catatan sama di
@@ -201,6 +209,24 @@ async function buildIdeaPromptBase(
   // 0 histori pilar itu, jadi tanpa ini idenya tidak akan pernah diarahkan ke sana).
   const pillars = pillarsForSite(knowledgeSite, customPillarsJson);
   const pillarBlock = `\n\nJENIS/PILAR KONTEN yang bisa diusulkan (VARIASIKAN, jangan cuma 1 jenis terus-menerus): ${pillars.join(", ")}.`;
+  // Context Firewall (§5) - mekanisme yang sudah lolos filter relevansi, disajikan
+  // sbg INSPIRASI TEKNIK, bukan topik yang harus diikuti. Kosong = tidak ada
+  // pengaruh sama sekali ke prompt (behavior lama).
+  const mechanismBlock = mechanismInsights.length > 0
+    ? "\n\nMEKANISME/TEKNIK YANG TERBUKTI EFEKTIF (dari analisis tren, boleh diadaptasi " +
+      "CARA-nya - JANGAN ambil topik sumbernya, HANYA teknik/mekanismenya):\n" +
+      mechanismInsights.map((m) => `- ${m}`).join("\n")
+    : "";
+  // Originality Guardrail (2026-08-25, PRD §30) - berlaku UNIVERSAL (bukan cuma saat
+  // ada mechanismInsights) krn ide juga bisa terinspirasi konten kompetitor/tren lewat
+  // jalur lain (mis. Agus baca sendiri lalu masukkan via Bank Ide Manual) - guardrail
+  // ini murah (1 kalimat instruksi, tidak menambah panggilan API) jadi selalu aktif
+  // drpd cuma aktif kondisional & berisiko lupa disertakan di jalur lain nanti.
+  const originalityGuardrail =
+    "\n\nORISINALITAS: kalau ide ini terinspirasi teknik/mekanisme dari konten lain " +
+    "(kompetitor/tren), WAJIB jadi ADAPTASI ORIGINAL - jangan pernah tiru judul/kalimat/ " +
+    "alur cerita sumbernya persis, dan pastikan angle akhirnya tetap sesuai identitas & " +
+    `Knowledge Base brand "${brandName}" sendiri.`;
   const system =
     `Kamu content strategist media sosial utk bisnis lokal Indonesia. Usulkan ${count} ide ` +
     "brief konten singkat (1-2 kalimat tiap ide, Bahasa Indonesia) yang RELEVAN dgn " +
@@ -227,7 +253,9 @@ async function buildIdeaPromptBase(
         "di luar radius itu (mis. Kuta/Seminyak/Nusa Penida), itu tidak relevan & " +
         "menyesatkan calon tamu yg cari penginapan DEKAT lokasi spesifik ini."
       : "") +
-    buildRestrictionFragment(brandName, knowledgeSite);
+    buildRestrictionFragment(brandName, knowledgeSite) +
+    mechanismBlock +
+    originalityGuardrail;
   const user =
     `Brand: ${brandName}\nDeskripsi/niche: ${brandDescription || "(tidak ada deskripsi)"}\n` +
     `Tanggal hari ini: ${today}\n` +
@@ -285,7 +313,30 @@ export type ScoredIdea = {
   score: number; // 0-100
   reasoning: string;
   contentType: "video" | "foto" | "carousel";
+  // Platform Fit Score (2026-08-26, PRD §19, Task Plan 5) - skor 0-100 per platform yg
+  // brand ini PUNYA akun terhubung (tidak menebak platform yg tidak dipakai brand ini).
+  // OBSERVATIONAL SAJA (sama honest scoping dgn Experiment Engine, Plan 1) - brand publish
+  // ke SEMUA akun terhubung sekaligus (orchestrate.ts, tidak ada publish selektif per
+  // platform), jadi skor ini TIDAK menggerbang platform mana yg dapat post, murni
+  // visibility utk Agus liat konsep ini paling cocok dituju platform mana.
+  platformFitScores: Record<string, number>;
 };
+
+// Fungsi MURNI (2026-08-26) - validasi hasil AI utk platformFitScores: HANYA platform yg
+// benar2 ada di connectedPlatforms (jangan percaya model bisa saja karang platform lain),
+// skor di-clamp 0-100, non-number/missing dibuang (bukan dipaksa 0 - "tidak ada data" beda
+// dari "skor 0").
+export function parsePlatformFitScores(raw: unknown, connectedPlatforms: string[]): Record<string, number> {
+  if (!raw || typeof raw !== "object") return {};
+  const result: Record<string, number> = {};
+  for (const platform of connectedPlatforms) {
+    const v = (raw as Record<string, unknown>)[platform];
+    if (typeof v === "number" && Number.isFinite(v)) {
+      result[platform] = Math.max(0, Math.min(100, Math.round(v)));
+    }
+  }
+  return result;
+}
 
 // Opportunity Finder (2026-08-05, PRD "AI Content Brain" - fitur yg Agus sendiri sebut
 // "senjata": "membaca keyword target utama, melihat knowledge base, menghasilkan ide
@@ -320,11 +371,16 @@ export async function suggestScoredContentIdeas(
   // SEMUA ide (termasuk yg dari owner) - satu panggilan API yg sama, bukan 2 panggilan
   // terpisah.
   mustIncludeIdeas: string[] = [],
-  customPillarsJson?: string | null
+  customPillarsJson?: string | null,
+  // Context Firewall (§5) - lihat catatan lengkap di buildIdeaPromptBase.
+  mechanismInsights: string[] = [],
+  // Platform Fit Score (§19) - platform yg BENERAN terhubung brand ini (socialAccounts.platform),
+  // kosong = skip seluruh instruksi platformFitScores (brand belum connect apa pun).
+  connectedPlatforms: string[] = []
 ): Promise<ScoredIdea[]> {
   const client = getOpenAIClient();
   const count = videoCount + fotoCount + carouselCount;
-  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge, customPillarsJson);
+  const { system, user } = await buildIdeaPromptBase(brandName, brandDescription, recentScripts, count, recentClassifications, knowledgeSite, manualKnowledge, customPillarsJson, mechanismInsights);
   const performanceBlock = buildPerformanceInsightBlock(performanceClassifications);
   const mustIncludeBlock =
     mustIncludeIdeas.length > 0
@@ -374,10 +430,18 @@ export async function suggestScoredContentIdeas(
     "cerita lengkap (mis. tur beberapa sudut produk/tempat sekaligus, beberapa fitur berbeda " +
     "dalam 1 post, before/after, beberapa menu/pilihan) - BUKAN cuma 1 foto yg dibagi jadi " +
     "beberapa slide tanpa alasan, harus ada alasan NYATA butuh multi-foto. JANGAN asal bagi " +
-    "rata, pilih yg PALING NATURAL utk tiap format.";
+    "rata, pilih yg PALING NATURAL utk tiap format." +
+    (connectedPlatforms.length > 0
+      ? ` Sertakan jg platformFitScores (0-100 per platform) utk platform ini SAJA: ` +
+        `${connectedPlatforms.join(", ")} - seberapa cocok ide ini utk gaya/algoritma tiap ` +
+        "platform tsb (mis. ide format cepat/hook kuat cocok TikTok, ide storytelling visual " +
+        "cocok Instagram, ide informatif mendalam cocok YouTube)."
+      : "");
   const scoredUser =
     `${user}${performanceBlock}${mustIncludeBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
-    `{"ideas": [{"idea": "...", "score": 0, "reasoning": "...", "contentType": "video"}, ...]}`;
+    `{"ideas": [{"idea": "...", "score": 0, "reasoning": "...", "contentType": "video"` +
+    (connectedPlatforms.length > 0 ? `, "platformFitScores": {${connectedPlatforms.map((p) => `"${p}": 0-100`).join(", ")}}` : "") +
+    `}, ...]}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -393,7 +457,7 @@ export async function suggestScoredContentIdeas(
   const parsed = JSON.parse(cleaned);
   const rawIdeas: unknown[] = Array.isArray(parsed.ideas) ? parsed.ideas : [];
   const scored: ScoredIdea[] = rawIdeas
-    .filter((i): i is { idea: string; score: number; reasoning: string; contentType?: unknown } =>
+    .filter((i): i is { idea: string; score: number; reasoning: string; contentType?: unknown; platformFitScores?: unknown } =>
       !!i && typeof i === "object" && typeof (i as Record<string, unknown>).idea === "string"
     )
     .map((i) => ({
@@ -404,6 +468,7 @@ export async function suggestScoredContentIdeas(
         i.contentType === "carousel" ? ("carousel" as const) :
         i.contentType === "foto" ? ("foto" as const) :
         ("video" as const),
+      platformFitScores: parsePlatformFitScores(i.platformFitScores, connectedPlatforms),
     }));
 
   const filteredIdeaTexts = new Set(filterRestricted(scored.map((s) => s.idea)));

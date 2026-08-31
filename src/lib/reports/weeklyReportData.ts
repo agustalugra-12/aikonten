@@ -1,6 +1,7 @@
 import { db } from "@/db";
-import { projects, publishLogs } from "@/db/schema";
+import { projects, publishLogs, socialAccounts } from "@/db/schema";
 import { and, eq, gte, isNotNull, sql } from "drizzle-orm";
+import { tallyPlatformPerformance, classifyPlatformPerformance, type PlatformBaseline } from "@/lib/ai/platformNormalization";
 
 // Data mentah laporan mingguan (2026-08-19) - DIEKSTRAK dari route.ts (2026-08-19, awal
 // pembuatan fitur ini) supaya endpoint JSON (dashboard in-app) & endpoint PDF (menyusul)
@@ -20,6 +21,15 @@ export type WeeklyReportTopContent = {
   views: number | null;
   engagementRate: number | null;
   publishedAt: string | null;
+  // Platform Normalization (2026-08-26, PRD §18, Task Plan 3) - topContent sekarang
+  // per PLATFORM-POST (1 baris per publishLogs sukses), BUKAN per project - 1 project yg
+  // tayang ke 2+ platform sekaligus jadi 2+ baris, krn baseline/multiplier cuma bermakna
+  // dibandingkan ke platform yg SAMA (lihat catatan lengkap di platformNormalization.ts).
+  // Diranking by multiplier (relative ke baseline platform-nya sendiri), BUKAN raw views
+  // lagi - itu yg bikin perbandingan lintas platform jadi adil.
+  platform: string;
+  multiplier: number | null;
+  tier: "winner" | "average" | "underperformer" | "baseline_building";
 };
 
 export type WeeklyReportData = {
@@ -27,7 +37,15 @@ export type WeeklyReportData = {
   windowStart: string;
   totalPublished: number;
   byPillar: { pillar: string; count: number }[];
+  // Baseline per platform (PRD §18) - avgViews+count dari SEMUA publishLogs sukses brand
+  // ini dlm window yg sama (bukan cuma yg py topContent), jadi baseline representatif.
+  byPlatform: { platform: string; avgViews: number; count: number }[];
   topContent: WeeklyReportTopContent[];
+  // Agency Dashboard (2026-08-26, PRD §32, Task Plan 4) - topContent HANYA top 5 by
+  // multiplier DESC, tier "underperformer" (multiplier rendah) nyaris tidak pernah masuk
+  // slice itu - dipisah di sini biar Agency Dashboard bisa tampilkan "underperforming
+  // content lintas brand" tanpa query baru (reuse classifiedRows yg sudah dihitung).
+  underperformingContent: WeeklyReportTopContent[];
   topContentDataAvailable: boolean;
 };
 
@@ -76,26 +94,74 @@ export async function getWeeklyReportData(brandId: string, days: number): Promis
     .map(([pillar, count]) => ({ pillar, count }))
     .sort((a, b) => b.count - a.count);
 
-  const topContent = rows
-    .filter((r) => r.performanceViews !== null)
-    .sort((a, b) => (b.performanceViews ?? 0) - (a.performanceViews ?? 0))
-    .slice(0, 5)
-    .map((r) => ({
-      id: r.id,
-      pillar: r.pillar,
-      angle: r.angle,
-      captionSnippet: (r.generatedCaption || "").slice(0, 120),
-      views: r.performanceViews,
-      engagementRate: r.performanceEngagementRate !== null ? r.performanceEngagementRate / 100 : null,
-      publishedAt: r.publishedAt ? new Date(r.publishedAt * 1000).toISOString() : null,
-    }));
+  // Platform Normalization (PRD §18) - per platform-post, join publishLogs (metrik ASLI
+  // per platform, lihat performanceLearning.ts) ke projects (pillar/angle/caption) & ke
+  // socialAccounts (platform). Baseline dihitung dari SEMUA baris di window ini (bukan
+  // cuma yg akhirnya masuk top 5) - tallyPlatformPerformance sama persis dgn yg dipakai
+  // getPlatformBaseline, lihat platformNormalization.ts.
+  const platformPostRows = await db
+    .select({
+      id: projects.id,
+      pillar: projects.pillar,
+      angle: projects.angle,
+      generatedCaption: projects.generatedCaption,
+      views: publishLogs.views,
+      engagementRate: publishLogs.engagementRate,
+      publishedAt: publishLogs.publishedAt,
+      platform: socialAccounts.platform,
+    })
+    .from(publishLogs)
+    .innerJoin(projects, eq(publishLogs.projectId, projects.id))
+    .innerJoin(socialAccounts, eq(publishLogs.socialAccountId, socialAccounts.id))
+    .where(
+      and(
+        eq(projects.brandId, brandId),
+        eq(publishLogs.status, "success"),
+        isNotNull(publishLogs.publishedAt),
+        gte(publishLogs.publishedAt, windowStart)
+      )
+    );
+
+  const platformBaseline = tallyPlatformPerformance(
+    platformPostRows.map((r) => ({ platform: r.platform, views: r.views }))
+  );
+  const byPlatform = Array.from(platformBaseline.entries())
+    .map(([platform, b]: [string, PlatformBaseline]) => ({ platform, avgViews: b.avgViews, count: b.count }))
+    .sort((a, b) => b.avgViews - a.avgViews);
+
+  const classifiedRows = platformPostRows
+    .filter((r) => r.views !== null)
+    .map((r) => {
+      const { multiplier, tier } = classifyPlatformPerformance(r.views!, platformBaseline.get(r.platform));
+      return {
+        id: r.id,
+        pillar: r.pillar,
+        angle: r.angle,
+        captionSnippet: (r.generatedCaption || "").slice(0, 120),
+        views: r.views,
+        engagementRate: r.engagementRate !== null ? r.engagementRate / 100 : null,
+        publishedAt: r.publishedAt ? r.publishedAt.toISOString() : null,
+        platform: r.platform,
+        multiplier,
+        tier,
+      };
+    })
+    .sort((a, b) => (b.multiplier ?? -Infinity) - (a.multiplier ?? -Infinity));
+
+  const topContent = classifiedRows.slice(0, 5);
+  const underperformingContent = classifiedRows
+    .filter((r) => r.tier === "underperformer")
+    .slice(-5)
+    .reverse();
 
   return {
     windowDays: days,
     windowStart: windowStart.toISOString(),
     totalPublished,
     byPillar,
+    byPlatform,
     topContent,
-    topContentDataAvailable: rows.some((r) => r.performanceViews !== null),
+    underperformingContent,
+    topContentDataAvailable: platformPostRows.some((r) => r.views !== null),
   };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
@@ -86,9 +85,17 @@ export function ChannelProfileDialog({ socialAccountId, username }: { socialAcco
   const [targetAudience, setTargetAudience] = useState("");
   const [youtubeCategoryId, setYoutubeCategoryId] = useState("22");
 
-  useEffect(() => {
-    if (!open) return;
+  function resetAndOpen() {
+    setOpen(true);
     setLoading(true);
+    setPrimaryNiche("");
+    setContentPillars("");
+    setForbiddenTopics("");
+    setPreferredTopics("");
+    setLanguage("");
+    setTargetCountry("");
+    setTargetAudience("");
+    setYoutubeCategoryId("22");
     fetch(`/api/social-accounts/${socialAccountId}/channel-profile`)
       .then((r) => r.json())
       .then((d: ChannelProfileData | null) => {
@@ -103,7 +110,7 @@ export function ChannelProfileDialog({ socialAccountId, username }: { socialAcco
         setYoutubeCategoryId(data.youtubeCategoryId || "22");
       })
       .finally(() => setLoading(false));
-  }, [open, socialAccountId]);
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -133,7 +140,7 @@ export function ChannelProfileDialog({ socialAccountId, username }: { socialAcco
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size="sm">🎬 Editorial Policy</Button>} />
+      <Button variant="outline" size="sm" onClick={resetAndOpen}>🎬 Editorial Policy</Button>
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editorial Policy - @{username}</DialogTitle>
@@ -143,7 +150,7 @@ export function ChannelProfileDialog({ socialAccountId, username }: { socialAcco
         ) : (
           <div className="space-y-4 pt-2">
             <p className="text-xs rounded-md border bg-muted/50 p-2.5">
-              🎬 Ini adalah "otak" AI YouTube Content Engine channel ini - niche &amp; kategori di sini yang
+              🎬 Ini adalah &quot;otak&quot; AI YouTube Content Engine channel ini - niche &amp; kategori di sini yang
               menentukan seri/topik apa yang otomatis dibuat AI (rotasi kategori, seri episode, larangan topik
               tertentu, dst - lihat PRD). Kosongkan semua = channel ini belum pakai engine editorial khusus
               (fallback ke ide konten generik biasa).

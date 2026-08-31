@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
+import { useFetchedData } from "@/lib/useFetchedData";
 
 type TopContent = {
   id: string;
@@ -40,16 +41,10 @@ const WINDOW_OPTIONS = [
 // SUDAH ada sekarang, tidak perlu nunggu apa pun.
 export function WeeklyReport({ brandId }: { brandId: string }) {
   const [days, setDays] = useState(7);
-  const [data, setData] = useState<ReportData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/brands/${brandId}/weekly-report?days=${days}`)
-      .then((res) => res.json())
-      .then(setData)
-      .finally(() => setLoading(false));
-  }, [brandId, days]);
+  const { data, loading } = useFetchedData<ReportData>(
+    () => fetch(`/api/brands/${brandId}/weekly-report?days=${days}`).then((res) => res.json()),
+    [brandId, days]
+  );
 
   return (
     <div className="space-y-4">

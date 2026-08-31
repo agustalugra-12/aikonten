@@ -18,6 +18,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       similarityScore: p.similarityScore,
       generatedCaption: p.generatedCaption,
       contentType: p.contentTypeId,
+      script: p.script,
     });
     return NextResponse.json(result);
   } catch (e) {

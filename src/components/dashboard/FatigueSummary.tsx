@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useFetchedData } from "@/lib/useFetchedData";
 
 type FatigueResult = {
   topic: string;
@@ -32,17 +32,15 @@ const TREND_LABELS: Record<string, string> = {
 };
 
 export function FatigueSummary({ brandId }: { brandId: string }) {
-  const [fatigue, setFatigue] = useState<FatigueResult[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/brands/${brandId}/fatigue`)
-      .then((res) => res.json())
-      .then((data) => setFatigue(Array.isArray(data) ? data : []))
-      .catch(() => setFatigue([]))
-      .finally(() => setLoading(false));
-  }, [brandId]);
+  const { data: fatigueRaw, loading } = useFetchedData<FatigueResult[]>(
+    () =>
+      fetch(`/api/brands/${brandId}/fatigue`)
+        .then((res) => res.json())
+        .then((data) => (Array.isArray(data) ? data : []))
+        .catch(() => []),
+    [brandId]
+  );
+  const fatigue = fatigueRaw ?? [];
 
   const hasFatigue = fatigue.some((f) => f.recommendation !== "continue");
 

@@ -35,6 +35,7 @@ import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES }
 import { angkaKeKata, adaAngkaTersisa } from "@/lib/ai/angkaKeKata";
 import { applyLogoToImage } from "@/lib/ai/logoOverlay";
 import { checkContentSimilarity } from "@/lib/ai/contentSimilarity";
+import { analyzeRetentionRisk } from "@/lib/ai/retentionIntelligence";
 import { factCheckCaption } from "@/lib/ai/factCheck";
 import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { distributeChapters, type YoutubeMetadata } from "@/lib/ai/youtubeEditorial";
@@ -150,14 +151,15 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     if (project.type === "carousel") {
       const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
       // eslint-disable-next-line prefer-const
-      let { caption, hashtags, promoText, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed } = await generateCaptionForImages(
+      let { caption, hashtags, promoText, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed, visualDirection, ctaText } = await generateCaptionForImages(
         brand?.name || "Brand",
         project.script,
         photoUrls,
         brand?.knowledgeSite,
         brand?.manualKnowledge,
         brand?.contentPillars,
-        project.brandId
+        project.brandId,
+        brand
       );
       // Price Source of Truth (2026-08-11, permintaan Agus - lihat priceValidator.ts) -
       // caption/promoText dibersihkan dari klaim harga yg TIDAK cocok persis dgn
@@ -279,6 +281,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           contentTypeId: contentType,
           targetKeyword,
           keywordLevel,
+          visualDirection,
+          ctaText,
           captionEmbedding: similarity ? JSON.stringify(similarity.embedding) : null,
           similarityScore: similarity?.similarityScore ?? null,
           similarToProjectId: similarity?.similarToProjectId ?? null,
@@ -441,7 +445,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
 
     let caption: string, hashtags: string[], brollKeywords: string | null, thumbnailText: string | null,
       structureTemplate: string, pillar: string | null, angle: ContentAngle | null,
-      hookType: string | null, contentType: string | null, targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string;
+      hookType: string | null, contentType: string | null, targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string,
+      visualDirection: string | null, ctaText: string | null, hookText: string | null,
+      finalStructureOverused: boolean, finalHookTypeOverused: boolean;
 
     if (youtubeMeta) {
       const title = youtubeMeta.titles[youtubeMeta.selectedTitleIndex] || youtubeMeta.titles[0] || project.script.slice(0, 80);
@@ -469,6 +475,15 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       targetKeyword = null;
       keywordLevel = null;
       knowledgeUsed = "";
+      // Content Brief (2026-08-26, PRD §12, Task Plan 6) - jalur YouTube Editorial tidak
+      // panggil generateCaptionAndHashtags (caption dirakit manual dari youtubeMeta di
+      // atas), jadi field ini tidak ada sumbernya di jalur ini - null, konsisten dgn
+      // angle/hookType/dst lain di cabang ini.
+      visualDirection = null;
+      ctaText = null;
+      hookText = null;
+      finalStructureOverused = false;
+      finalHookTypeOverused = false;
   } else {
     // Regenerasi terbatas (2026-08-14, PRD "AI Content Intelligence" Fase 1 - TIER 2) - kalau
     // struktur/hook/contentType yg dipilih TERBUKTI masih overused stlh generate, coba SEKALI
@@ -500,7 +515,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         avoidHookTypes,
         avoidContentTypes,
         avoidHashtags,
-        avoidCaptionStyles
+        avoidCaptionStyles,
+        brand
       );
       attempt += 1;
       const overused =
@@ -518,7 +534,13 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       if (generated.captionStyle) avoidCaptionStyles = [...avoidCaptionStyles, generated.captionStyle];
        
     } while (true);
-    ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed } = generated);
+    ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed, visualDirection, ctaText, hookText } = generated);
+    // Retention Intelligence (2026-08-26, PRD §14, Task Plan 7) - recompute thd hasil AKHIR
+    // (generated) SETELAH loop regen selesai - `overused` di dalam loop di atas scoped ke
+    // tiap percobaan, bukan hasil final (kalau MAX_REGEN_ATTEMPTS habis, hasil akhir bisa
+    // saja MASIH overused - itu justru info yg relevan utk retensi, bukan disembunyikan).
+    finalStructureOverused = isStructureOverused(structureTemplate, usageForRegenCheck);
+    finalHookTypeOverused = isHookTypeOverused(hookType, usageForRegenCheck);
     }
     // Price Source of Truth (2026-08-11, permintaan Agus - lihat priceValidator.ts &
     // catatan sama di jalur carousel di atas) - caption (jadi naskah voiceover, lihat
@@ -881,6 +903,21 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       console.error("[processProject] gagal fact-check caption, dilewati:", err);
     }
 
+    // Retention Intelligence (2026-08-26, PRD §14, Task Plan 7) - durationConfig.target
+    // (BUKAN rendered.durationSeconds - render belum terjadi di titik ini) dipakai krn itu
+    // JUGA basis targetWords/lengthInstruction saat caption ditulis (generateContent.ts),
+    // konsisten dgn asumsi yg sama. null utk jalur youtubeMeta (hookText null di sana).
+    const retentionRisks = hookText
+      ? analyzeRetentionRisk({
+          hookText,
+          totalDurationSeconds: durationConfig.target,
+          hookType,
+          structureOverused: finalStructureOverused,
+          hookTypeOverused: finalHookTypeOverused,
+          similarityScore: similarity?.similarityScore ?? null,
+        })
+      : null;
+
     // Status TETAP "processing" di sini (BUKAN "ready" lagi, 2026-08-10 - bug nyata:
     // renderFinalVideo() di bawah bisa makan waktu MENIT [footage panjang/looping], dan
     // cron/auto-publish men-scan status="ready" tiap 10-15 menit. Kalau status di-flip
@@ -904,6 +941,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         structureTemplate,
         targetKeyword,
         keywordLevel,
+        visualDirection,
+        ctaText,
+        retentionRisks: retentionRisks && retentionRisks.length > 0 ? JSON.stringify(retentionRisks) : null,
         captionEmbedding: similarity ? JSON.stringify(similarity.embedding) : null,
         similarityScore: similarity?.similarityScore ?? null,
         similarToProjectId: similarity?.similarToProjectId ?? null,

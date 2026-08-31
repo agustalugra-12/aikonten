@@ -239,6 +239,55 @@
       "when": 1787274976408,
       "tag": "0033_internal_footage_source",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1787672653602,
+      "tag": "0034_crazy_jocasta",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1787679464934,
+      "tag": "0035_supreme_gunslinger",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1787716916504,
+      "tag": "0036_massive_eternals",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1787717851926,
+      "tag": "0037_yielding_tyrannus",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1787721487309,
+      "tag": "0038_mature_lily_hollister",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1787724469509,
+      "tag": "0039_nice_warstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1787724847824,
+      "tag": "0040_windy_callisto",
+      "breakpoints": true
     }
   ]
 }

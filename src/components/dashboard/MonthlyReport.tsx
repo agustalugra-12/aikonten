@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
+import { useFetchedData } from "@/lib/useFetchedData";
 
 type PerformanceBreakdown = { label: string; avgViews: number; count: number };
 type StrategicRecommendation = {
@@ -65,16 +66,10 @@ function BreakdownList({ title, items }: { title: string; items: PerformanceBrea
 // loading time lebih lama dari WeeklyReport, wajar.
 export function MonthlyReport({ brandId }: { brandId: string }) {
   const [days, setDays] = useState(30);
-  const [data, setData] = useState<MonthlyReportData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/brands/${brandId}/monthly-report?days=${days}`)
-      .then((res) => res.json())
-      .then(setData)
-      .finally(() => setLoading(false));
-  }, [brandId, days]);
+  const { data, loading } = useFetchedData<MonthlyReportData>(
+    () => fetch(`/api/brands/${brandId}/monthly-report?days=${days}`).then((res) => res.json()),
+    [brandId, days]
+  );
 
   return (
     <div className="space-y-4">

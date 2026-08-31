@@ -16,6 +16,15 @@ export async function proxy(req: NextRequest) {
   if (pathname.startsWith("/api/cron/")) {
     return NextResponse.next();
   }
+  // Agency Dashboard (2026-08-26, PRD §32, Task Plan 4) - HANYA brands-summary yg
+  // dipanggil SERVER-KE-SERVER (aikonten.agustapstudio.com <-> aimarketing.pelangihomestay.com),
+  // BUKAN browser Agus, jadi TIDAK PERNAH punya cookie sesi login - pola sama persis dgn
+  // /api/cron/ di atas, auth-nya SENDIRI (X-Agency-Key vs AGENCY_API_SECRET, lihat
+  // lib/agency/verify.ts). /api/agency/dashboard SENGAJA TIDAK dikecualikan di sini - itu
+  // dipanggil browser Agus sendiri (/agency/page.tsx), TETAP wajib sesi login normal.
+  if (pathname === "/api/agency/brands-summary") {
+    return NextResponse.next();
+  }
 
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   const valid = token ? await verifySessionToken(token) : false;

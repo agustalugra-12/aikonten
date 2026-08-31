@@ -17,6 +17,18 @@ export type Brand = {
   publishMode: "draft" | "auto";
   autoPublishTimes: string | null; // JSON string[] "HH:MM" mentah dari DB, lihat schema.ts - parse dulu sebelum dipakai
   posterBrandProfile: string | null;
+  // Content DNA (2026-08-26, PRD §4, Task Plan 5) - lihat catatan lengkap di schema.ts's
+  // brands table.
+  niche: string | null;
+  targetAudience: string | null;
+  positioning: string | null;
+  contentGoals: string | null;
+  toneOfVoice: string | null;
+  preferredTopics: string | null;
+  prohibitedTopics: string | null;
+  contentBoundaries: string | null;
+  eduEntertainmentRatio: string | null;
+  ctaStyle: string | null;
   createdAt: string;
 };
 

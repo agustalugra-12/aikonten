@@ -33,6 +33,16 @@ export type ContentPlanSuggestion = {
   topic: string;
   hookType: string;
   reasoning: string;
+  // Content Strategist explanation (2026-08-26, PRD §11, Task Plan 6) - reasoning di atas
+  // TETAP ringkasan singkat (backward compatible), 4 field ini pecahannya biar Agus liat
+  // penalaran per-dimensi. whyPlatform SENGAJA tidak ada field terpisah - app ini publish
+  // ke SEMUA akun terhubung sekaligus (tidak ada publish selektif per platform), jadi
+  // "why platform" spesifik akan cuma karangan; platform fit sudah dicover Plan 5's
+  // platformFitScores di tahap idea-scoring (suggestScoredContentIdeas), bukan di sini.
+  whyNow: string;
+  whyAudience: string;
+  whyBrand: string;
+  risk: string;
 };
 
 const SUGGESTION_COUNT = 5;
@@ -92,9 +102,18 @@ Performa per Pilar: ${ownPerformance.byPillar.map((b) => `${b.label} (${b.avgVie
           `SINYAL KOMPETITOR/SWOT:\n${swotRingkas}\n\n` +
           `hookType WAJIB SALAH SATU PERSIS dari: ${HOOK_TYPES.map((h) => `"${h}"`).join(", ")} - jangan ` +
           `pakai istilah lain di luar daftar itu.\n\n` +
+          "Utk tiap saran, JUGA pecah penalarannya jadi 4 bagian terpisah (semua maks 15 kata, " +
+          "Bahasa Indonesia, spesifik & jujur - bukan pujian generik):\n" +
+          "- whyNow: kenapa PAS diusulkan sekarang (sinyal performa/kompetitor/gap terkini)\n" +
+          "- whyAudience: kenapa relevan utk audiens brand ini\n" +
+          "- whyBrand: kenapa cocok sama identitas/pilar brand ini\n" +
+          "- risk: potensi resiko/kelemahan ide ini (JANGAN dikosongkan cuma krn ide bagus - " +
+          "selalu ada trade-off, mis. 'topik sudah agak sering diangkat' atau 'butuh data " +
+          "konkret yg mungkin belum ada')\n\n" +
           `Balas HARUS JSON valid (tanpa markdown code fence): {"suggestions": [{"pillar": "...", ` +
           `"topic": "topik/ide konten spesifik, 1 kalimat", "hookType": "...", ` +
-          `"reasoning": "kenapa ide ini relevan sekarang, maks 20 kata, sebutkan sinyal yang dipakai"}]}`,
+          `"reasoning": "ringkasan singkat kenapa ide ini relevan sekarang, maks 20 kata", ` +
+          `"whyNow": "...", "whyAudience": "...", "whyBrand": "...", "risk": "..."}]}`,
       },
     ],
   });
@@ -120,6 +139,10 @@ Performa per Pilar: ${ownPerformance.byPillar.map((b) => `${b.label} (${b.avgVie
         // drpd buang seluruh saran cuma krn label hook meleset.
         hookType: (HOOK_TYPES as readonly string[]).includes(s.hookType) ? s.hookType : "curiosity",
         reasoning: typeof s.reasoning === "string" ? s.reasoning : "",
+        whyNow: typeof s.whyNow === "string" ? s.whyNow : "",
+        whyAudience: typeof s.whyAudience === "string" ? s.whyAudience : "",
+        whyBrand: typeof s.whyBrand === "string" ? s.whyBrand : "",
+        risk: typeof s.risk === "string" ? s.risk : "",
       }));
   } catch {
     return [];
