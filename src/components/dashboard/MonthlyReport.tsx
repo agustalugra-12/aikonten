@@ -78,11 +78,18 @@ export function MonthlyReport({ brandId }: { brandId: string }) {
           <Button variant={days === 30 ? "default" : "outline"} size="sm" onClick={() => setDays(30)}>30 hari</Button>
           <Button variant={days === 90 ? "default" : "outline"} size="sm" onClick={() => setDays(90)}>90 hari</Button>
         </div>
-        <a href={`/api/brands/${brandId}/monthly-report/pdf?days=${days}`} download>
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <Download className="w-3.5 h-3.5" /> Unduh PDF
-          </Button>
-        </a>
+        <div className="flex items-center gap-2 flex-wrap">
+          <a href={`/api/brands/${brandId}/monthly-report/pdf?days=${days}`} download>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Download className="w-3.5 h-3.5" /> Unduh PDF
+            </Button>
+          </a>
+          <a href={`/api/brands/${brandId}/monthly-report/csv?days=${days}`} download>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Download className="w-3.5 h-3.5" /> Unduh CSV
+            </Button>
+          </a>
+        </div>
       </div>
 
       {loading || !data ? (

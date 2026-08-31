@@ -61,13 +61,21 @@ export function WeeklyReport({ brandId }: { brandId: string }) {
             </Button>
           ))}
         </div>
-        {/* Download PDF (2026-08-19) - <a download> langsung ke endpoint PDF, bukan fetch+
-            blob di client - lebih sederhana & browser yg urus proses download-nya sendiri. */}
-        <a href={`/api/brands/${brandId}/weekly-report/pdf?days=${days}`} download>
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <Download className="w-3.5 h-3.5" /> Unduh PDF
-          </Button>
-        </a>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Download PDF (2026-08-19) - <a download> langsung ke endpoint PDF, bukan fetch+
+              blob di client - lebih sederhana & browser yg urus proses download-nya sendiri. */}
+          <a href={`/api/brands/${brandId}/weekly-report/pdf?days=${days}`} download>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Download className="w-3.5 h-3.5" /> Unduh PDF
+            </Button>
+          </a>
+          {/* Download CSV (Phase 6) */}
+          <a href={`/api/brands/${brandId}/weekly-report/csv?days=${days}`} download>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Download className="w-3.5 h-3.5" /> Unduh CSV
+            </Button>
+          </a>
+        </div>
       </div>
 
       {loading || !data ? (
