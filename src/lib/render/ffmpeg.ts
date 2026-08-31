@@ -6,6 +6,7 @@ import path from "path";
 import type { ScoredSegment } from "@/lib/ai/clipSelect";
 import type { WordTiming } from "@/lib/ai/transcribe";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
+import { runFfmpeg } from "./ffmpegExec";
 import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/ai/logoOverlay";
 import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN } from "./subtitleDesign";
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
@@ -97,72 +98,15 @@ const LOUDNORM_FILTER = "loudnorm=I=-16:TP=-1.5:LRA=11";
 // yg sedang jalan normal [bukan macet/thrashing], bukan cuma jaring pengaman kasus
 // macet spt niat awal). Tetap ADA batas (bukan dihapus) - render yg BENERAN macet masih
 // dihentikan, cuma kasih ruang lebih utk render berat yg legit lambat.
-const FFMPEG_TIMEOUT_MS = 40 * 60 * 1000;
-let _ffmpegRunCounter = 0;
-
-// Configurable via env (2026-08-13, bug nyata ditemukan pas migrasi Animal Story & Co ke
-// VPS baru) - hardcode 1000M SEBELUMNYA ternyata tidak cukup utk render long-form banyak
-// klip (46-47 klip xfade, kebutuhan nyata mendekati 3GB per insiden hari ini di komentar
-// atas) - cgroup OOM-kill ffmpeg-nya sendiri (aman, tidak menjatuhkan VPS) TAPI rendernya
-// jadi SELALU gagal utk brand long-form berat. VPS lama (dipakai bareng PMS/MongoDB/AI
-// Chat Bot, 3.8GB) TETAP butuh batas rendah spt 1000M supaya render berat tidak menekan
-// layanan lain - VPS baru (didedikasikan khusus Animal Story & Co, 3.8GB tanpa tetangga)
-// bisa diberi jatah jauh lebih besar. Default tetap 1000M (perilaku VPS lama tidak
-// berubah kalau env tidak diisi), override lewat FFMPEG_MEMORY_MAX di .env per server.
-const FFMPEG_MEMORY_MAX = process.env.FFMPEG_MEMORY_MAX || "1000M";
-
-// Sama alasan/pola dgn FFMPEG_MEMORY_MAX (2026-08-14) - default "150%" (perilaku lama,
-// aman utk VPS lama yg berbagi 2 core dgn PMS/MongoDB/AI Chat Bot - render TIDAK boleh
-// monopoli CPU sampai layanan lain lemot). VPS baru DIDEDIKASIKAN (tidak ada tetangga),
-// override via FFMPEG_CPU_QUOTA supaya ffmpeg bisa pakai kedua core penuh - langsung
-// mempercepat render berat drpd cuma menunggu lebih lama di timeout yg sama.
-const FFMPEG_CPU_QUOTA = process.env.FFMPEG_CPU_QUOTA || "150%";
-
+// Wrapper ke ffmpegExec: satu kebijakan resource + semaphore global utk SEMUA render
+// (2026-08-31, Fase 1 post-OOM audit). Konstanta resource & logika systemd-run dipindah
+// ke ffmpegExec supaya utility calls (transcribe, qualityChecker, frameExtract,
+// imageToClip) bisa pakai kebijakan yang sama.
 async function run(cmd: string, args: string[]): Promise<void> {
-  const unit = `kontenpilot-ffmpeg-${process.pid}-${Date.now()}-${_ffmpegRunCounter++}`;
-  // 2026-08-27 - "--scope" (dipakai sebelumnya) mensyaratkan proses pemanggil MELEKAT ke
-  // sesi login aktif (systemd nge-inherit scope ke slice sesi tsb). kontenpilot-backend
-  // jalan sbg systemd SERVICE (bukan sesi login), jadi kadang systemd-run gagal dgn
-  // "Interactive authentication required" (root pun kena - butuh sesi utk resolve subject
-  // polkit-nya, bukan soal privilege). Ditemukan lewat riwayat render Animal Story & Co
-  // yg gagal (banyak kejadian 08-12 s/d 08-24). "--wait --pipe" (transient SERVICE, bukan
-  // scope) dikelola langsung oleh PID1 tanpa syarat sesi sama sekali - MemoryMax/CPUQuota
-  // per-invocation & timeout+SIGKILL tetap sama persis, cuma cara systemd melacak unit-nya
-  // yg beda (.service, bukan .scope).
-  const scopedArgs = [
-    "--wait", "--pipe", "--quiet", "--unit", unit,
-    "-p", `MemoryMax=${FFMPEG_MEMORY_MAX}`, "-p", `CPUQuota=${FFMPEG_CPU_QUOTA}`, "--",
-    cmd, ...args,
-  ];
-  try {
-    await execFileAsync("systemd-run", scopedArgs, {
-      maxBuffer: 1024 * 1024 * 64,
-      timeout: FFMPEG_TIMEOUT_MS,
-      killSignal: "SIGKILL",
-    });
-  } catch (err) {
-    const stderr = (err as { stderr?: string })?.stderr || "";
-    // 2026-08-27 - sebelumnya syarat "!stderr" (stderr kosong) utk deteksi timeout - SALAH,
-    // ffmpeg SELALU nulis progress frame-by-frame ke stderr begitu mulai encode, jadi
-    // timeout asli (proses genuinely kena SIGKILL krn kelamaan, bukan crash) hampir tidak
-    // pernah lolos cek ini & jatuh ke pesan generik (dump ribuan baris progress) alih2
-    // pesan ramah "melebihi batas waktu..." yg sudah didesain utk kasus ini. Ditemukan
-    // lewat 1 render Animal Story & Co yg speed=0.0865x (jauh di bawah realtime, filter
-    // chain berat: color grade+subtitle+logo+5 stat overlay+lottie confetti) - stderr-nya
-    // PENUH baris progress, bukan kosong.
-    const isTimeout = (err as { killed?: boolean; signal?: string })?.killed &&
-      (err as { signal?: string })?.signal === "SIGKILL";
-    if (isTimeout) {
-      // best-effort - matikan seluruh process tree cgroup-nya (bukan cuma child langsung
-      // yang execFile timeout kill-nya sentuh), konsisten dgn desain Fase 4.
-      execFileAsync("systemctl", ["stop", `${unit}.service`]).catch(() => {});
-      throw new Error(
-        `${cmd} melebihi batas waktu ${FFMPEG_TIMEOUT_MS / 60000} menit, dihentikan paksa - ` +
-        `kemungkinan render terlalu berat/macet (lihat insiden 2026-08-13, render 46 klip)`,
-      );
-    }
-    throw new Error(`${cmd} gagal: ${(err as Error).message}\n${stderr.slice(-2000)}`);
+  if (cmd !== "ffmpeg") {
+    throw new Error(`run() internal di ffmpeg.ts hanya mendukung ffmpeg, diberi: ${cmd}`);
   }
+  await runFfmpeg(args, "render");
 }
 
 async function getDurationSeconds(filePath: string): Promise<number> {
