@@ -587,23 +587,13 @@ export async function renderFinalVideo(opts: {
       finalArgs.push("-itsoffset", subscribeAccentStart.toFixed(2), "-loop", "1", "-i", getBellAssetPath());
       bellInputIdx = nextInputIdx++;
     }
-    // Confetti outro (2026-08-11, permintaan Agus - "kerjakan semua" 9 file Lottie) -
-    // aksen background TIPIS di jendela waktu SAMA dgn Subscribe Button (showLastSeconds,
-    // lihat subscribeButton.ts), full-bleed di BELAKANG pill+lonceng+teks (dioverlay
-    // SEBELUM subscribeButton di chain filter di bawah, bukan sesudah - spy teks CTA
-    // tetap paling atas & tetap terbaca). Asset SUDAH dipotong (lihat
-    // assets/lottie/confetti/meta.json) - bagian "kotak kado terbuka" awal SENGAJA
-    // dibuang (start-seconds 1.8 saat render_lottie.py dipanggil), disisakan cuma fase
-    // confetti jatuh/beterbangan murni - kotak kado tidak nyambung tematik dgn tombol
-    // subscribe, beda dari confetti polos yg cocok jadi aksen perayaan generik.
-    let confettiInputIdx: number | null = null;
-    if (opts.ctaText) {
-      finalArgs.push(
-        "-itsoffset", subscribeAccentStart.toFixed(2),
-        "-framerate", String(getLottieMeta("confetti").fps), "-i", getLottieFramePattern("confetti")
-      );
-      confettiInputIdx = nextInputIdx++;
-    }
+    // (2026-09-01, permintaan Agus - "jangan gunakan confetti") Confetti outro
+    // DIHAPUS dari pipeline - input & filter stage-nya (dulu di sini) tidak lagi
+    // dibuat. BUKAN krn berat (setelah fix -itsoffset di atas, biayanya sudah kecil,
+    // cuma ~4 detik data) - murni keputusan visual/kesederhanaan. Asset PNG sequence-
+    // nya (assets/lottie/confetti/) dibiarkan di disk, tidak dihapus, kalau suatu saat
+    // mau dipakai lagi tinggal kembalikan blok ini (lihat git history commit 27234ff/
+    // 13b2ee3 utk kode aslinya).
     let audioInputIdx: number | null = null;
     if (audioPath) {
       finalArgs.push("-i", audioPath);
@@ -743,31 +733,8 @@ export async function renderFinalVideo(opts: {
       filterStages.push(`[${curLabel}]${buildProgressBarFilter(TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds)}[barred]`);
       curLabel = "barred";
     }
-    if (opts.ctaText && confettiInputIdx !== null) {
-      // Dioverlay SEBELUM subscribeButton (lihat catatan di dekat confettiInputIdx di
-      // atas) - full-bleed x=0/y=0, alpha diturunkan (0.55) spy tetap jadi AKSEN
-      // background, bukan menutupi/bersaing dgn subtitle yg masih mungkin jalan di
-      // jendela waktu yg sama.
-      const confettiMeta = getLottieMeta("confetti");
-      // subscribeAccentStart (dihitung di titik input dibuat, di atas) - SAMA persis
-      // dgn formula lama, tapi sekarang input confetti SUDAH di-itsoffset ke titik ini
-      // (lihat komentar di atas), jadi inputAlreadyOffset:true dipakai supaya
-      // buildLottieOverlayFilterStages TIDAK lagi menambah tpad clone di atasnya.
-      filterStages.push(
-        ...buildLottieOverlayFilterStages(
-          confettiInputIdx,
-          confettiMeta,
-          TARGET_WIDTH,
-          subscribeAccentStart,
-          0,
-          0,
-          curLabel,
-          "confettied",
-          { alpha: 0.55, inputAlreadyOffset: true }
-        )
-      );
-      curLabel = "confettied";
-    }
+    // (2026-09-01) Confetti overlay stage dihapus - lihat komentar di titik input
+    // (di atas, dekat subscribeAccentStart) utk alasan lengkap.
     if (opts.ctaText && bellInputIdx !== null) {
       filterStages.push(
         ...buildSubscribeButtonFilterStages(bellInputIdx, opts.ctaText, TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds, curLabel, "vout")
