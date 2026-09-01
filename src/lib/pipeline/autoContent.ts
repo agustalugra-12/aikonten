@@ -11,6 +11,7 @@ import { getFootageUsageRecency, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, sele
 import { getDurationConfig } from "@/lib/ai/clipSelect";
 import { getChannelProfile } from "@/lib/ai/youtubeEditorial";
 import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyContentPlanner";
+import { applyAgustapStrategyIfActive } from "@/lib/agustap/generationStrategy";
 import { eq, desc, and } from "drizzle-orm";
 
 // Diekstrak (2026-08-06) dari /api/brands/[id]/auto-content/route.ts SUPAYA dipakai
@@ -148,6 +149,11 @@ export async function runAutoContent(
         throw new AutoContentError("AI tidak berhasil kasih ide konten");
       }
       script = ideas[0];
+      // Agustap Studio Content Intelligence (2026-09-02, PRD §2.4/§2.17) - HANYA
+      // aktif kalau brand.knowledgeSite === "agustap_studio" DAN feature flag ON
+      // (guard di dalam fungsi ini sendiri, lihat generationStrategy.ts) - brand
+      // lain 0% terpengaruh, return `script` apa adanya secepat mungkin.
+      script = await applyAgustapStrategyIfActive(brand, script);
     }
   }
 

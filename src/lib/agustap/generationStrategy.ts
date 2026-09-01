@@ -1,6 +1,10 @@
+import { db } from "@/db";
+import { competitors, type brands } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { getOpenAIClient } from "@/lib/ai/openaiClient";
 import { embedText, cosineSimilarity } from "@/lib/ai/contentSimilarity";
 import { getSimilarityTier, type SimilarityTier } from "@/lib/ai/similarityTier";
+import { isAgustapExtensionActive } from "./featureFlag";
 import type { InspirationPrinciples } from "./inspirationAnalyzer";
 import type { CreatorBenchmarkProfile } from "./creatorBenchmark";
 import type { AgustapBrandDNA } from "./contentTransformer";
@@ -216,4 +220,63 @@ export async function buildAgustapContentStrategy(
   }
 
   return { ...final, originalitySimilarityScore: score, originalityTier: tier, rewritten };
+}
+
+type BrandRow = typeof brands.$inferSelect;
+
+/**
+ * Wiring adapter (2026-09-01) - SATU-SATUNYA titik yang menyambungkan Generation
+ * Strategy ke pipeline nyata (src/lib/pipeline/autoContent.ts). Guard
+ * isAgustapExtensionActive() dicek DI SINI (bukan dipercaya ke caller) - brand lain
+ * manapun yang memanggil fungsi ini akan SELALU dapat `script` apa adanya kembali
+ * tanpa perubahan (return awal secepat mungkin, zero query/API cost tambahan).
+ *
+ * Content Inspiration (spesifik, per-user-selection) SENGAJA belum diikutkan di
+ * sini - belum ada API/UI utk user memilih 1 saved inspiration (di luar scope
+ * "wiring tanpa API" permintaan Agus 2026-09-02). Creator Benchmark (otomatis,
+ * §2.4) SUDAH diikutkan penuh - itu justru yang PRD minta jalan tanpa perlu user
+ * pilih apa pun tiap generate.
+ */
+export async function applyAgustapStrategyIfActive(brand: BrandRow, script: string): Promise<string> {
+  if (!isAgustapExtensionActive(brand.knowledgeSite)) return script;
+
+  const activeRows = await db
+    .select()
+    .from(competitors)
+    .where(and(eq(competitors.brandId, brand.id), eq(competitors.benchmarkActive, true)));
+
+  const activeBenchmarks: ActiveCreatorBenchmark[] = [];
+  for (const row of activeRows) {
+    if (!row.benchmarkProfile) continue;
+    try {
+      activeBenchmarks.push({
+        name: row.name,
+        role: row.role,
+        profile: JSON.parse(row.benchmarkProfile) as CreatorBenchmarkProfile,
+      });
+    } catch {
+      continue; // profile korup/lama - dilewati, bukan menggagalkan generate keseluruhan
+    }
+  }
+
+  // §2.7: tidak ada benchmark aktif (belum ada yang di-setup/di-aktifkan) -> zero
+  // API cost tambahan, script existing dipakai apa adanya (sama seperti brand lain).
+  if (activeBenchmarks.length === 0) return script;
+
+  const dna: AgustapBrandDNA = {
+    positioning: brand.positioning || "",
+    toneOfVoice: brand.toneOfVoice || "",
+    targetAudience: brand.targetAudience || "",
+  };
+
+  try {
+    const strategy = await buildAgustapContentStrategy(brand.name, script, dna, activeBenchmarks, null);
+    return strategy?.concept?.trim() || script;
+  } catch (e) {
+    // Kegagalan Intelligence Layer TIDAK BOLEH menggagalkan generate konten
+    // keseluruhan (§43 Failure Isolation - "Agustap module error -> Core AI Konten
+    // tetap hidup") - fallback ke script asli (idea generik existing), bukan throw.
+    console.error("[agustap] applyAgustapStrategyIfActive gagal, fallback ke script asli:", e);
+    return script;
+  }
 }
