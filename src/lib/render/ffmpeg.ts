@@ -566,12 +566,25 @@ export async function renderFinalVideo(opts: {
       finalArgs.push("-loop", "1", "-i", getStatIconPath(stat.iconCategory));
       statIconInputIdx.push(nextInputIdx++);
     }
+    // (2026-09-01, audit reliability - render timeout 120 menit kasus nyata "Clark's
+    // Nutcracker" di VPS 2-core: proses ffmpeg jalan 2 jam, di-SIGKILL paksa) Bell &
+    // confetti SAMA-SAMA cuma tampil di `SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS` (4 detik)
+    // TERAKHIR video, tapi input-nya (`-loop 1`/`-framerate` biasa) mulai dari t=0 -
+    // tanpa perlakuan khusus, filter eval=frame (bell pulse) & tpad-clone (confetti,
+    // lihat lottieOverlay.ts) akan memproses SELURUH durasi video (bisa >7 menit utk
+    // long-form) padahal cuma perlu ~4 detik terakhir. `-itsoffset` di level INPUT
+    // ffmpeg (bukan filter) menunda kemunculan stream ini TANPA decode/generate frame
+    // apa pun sebelum offset-nya - jauh lebih murah drpd tpad clone yang harus
+    // memproses tiap frame padding lewat filter chain (format/scale/colorchannelmixer).
+    const subscribeAccentStart = opts.ctaText
+      ? Math.max(0, outputDurationSeconds - SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS)
+      : 0;
     // Bell icon utk Subscribe Button animasi (2026-08-11 - lihat subscribeButton.ts) -
     // HANYA di-input kalau ctaText ADA (sama pola dgn logo/sticker - opsional, bukan
     // wajib tiap render).
     let bellInputIdx: number | null = null;
     if (opts.ctaText) {
-      finalArgs.push("-loop", "1", "-i", getBellAssetPath());
+      finalArgs.push("-itsoffset", subscribeAccentStart.toFixed(2), "-loop", "1", "-i", getBellAssetPath());
       bellInputIdx = nextInputIdx++;
     }
     // Confetti outro (2026-08-11, permintaan Agus - "kerjakan semua" 9 file Lottie) -
@@ -585,7 +598,10 @@ export async function renderFinalVideo(opts: {
     // subscribe, beda dari confetti polos yg cocok jadi aksen perayaan generik.
     let confettiInputIdx: number | null = null;
     if (opts.ctaText) {
-      finalArgs.push("-framerate", String(getLottieMeta("confetti").fps), "-i", getLottieFramePattern("confetti"));
+      finalArgs.push(
+        "-itsoffset", subscribeAccentStart.toFixed(2),
+        "-framerate", String(getLottieMeta("confetti").fps), "-i", getLottieFramePattern("confetti")
+      );
       confettiInputIdx = nextInputIdx++;
     }
     let audioInputIdx: number | null = null;
@@ -733,18 +749,21 @@ export async function renderFinalVideo(opts: {
       // background, bukan menutupi/bersaing dgn subtitle yg masih mungkin jalan di
       // jendela waktu yg sama.
       const confettiMeta = getLottieMeta("confetti");
-      const confettiStart = Math.max(0, outputDurationSeconds - SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS);
+      // subscribeAccentStart (dihitung di titik input dibuat, di atas) - SAMA persis
+      // dgn formula lama, tapi sekarang input confetti SUDAH di-itsoffset ke titik ini
+      // (lihat komentar di atas), jadi inputAlreadyOffset:true dipakai supaya
+      // buildLottieOverlayFilterStages TIDAK lagi menambah tpad clone di atasnya.
       filterStages.push(
         ...buildLottieOverlayFilterStages(
           confettiInputIdx,
           confettiMeta,
           TARGET_WIDTH,
-          confettiStart,
+          subscribeAccentStart,
           0,
           0,
           curLabel,
           "confettied",
-          { alpha: 0.55 }
+          { alpha: 0.55, inputAlreadyOffset: true }
         )
       );
       curLabel = "confettied";

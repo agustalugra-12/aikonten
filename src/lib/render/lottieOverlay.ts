@@ -56,7 +56,7 @@ export function buildLottieOverlayFilterStages(
   y: number | string,
   curLabel: string,
   outLabel: string,
-  opts: { fadeOutSeconds?: number; alpha?: number } = {}
+  opts: { fadeOutSeconds?: number; alpha?: number; inputAlreadyOffset?: boolean } = {}
 ): string[] {
   const naturalSeconds = getLottieNaturalSeconds(meta);
   const endSeconds = startSeconds + naturalSeconds;
@@ -64,9 +64,20 @@ export function buildLottieOverlayFilterStages(
   const alpha = opts.alpha ?? 1;
   const fmtLabel = `${outLabel}_fmt`;
 
-  let stage =
-    `[${seqInputIdx}:v]format=rgba,scale=${displayWidth}:-2,` +
-    `tpad=start_duration=${startSeconds.toFixed(2)}:start_mode=clone`;
+  // (2026-09-01, audit reliability - render timeout 120 menit di VPS 2-core) `tpad`
+  // SEBELUMNYA selalu dipakai utk menunda kemunculan sequence ini ke `startSeconds` -
+  // utk confetti outro (biasa muncul di ~4 detik TERAKHIR video panjang, mis.
+  // startSeconds=427 di video 431 detik), ini artinya ffmpeg meng-clone & memproses
+  // (format/scale/fade/colorchannelmixer) ~427 detik frame PADDING yang TIDAK PERNAH
+  // terlihat (confetti asli cuma tampil di enable='between()' window-nya) - kerja CPU
+  // besar utk sesuatu yang secara visual tidak ada. Kalau pemanggil SUDAH menunda input
+  // ini di level ffmpeg (`-itsoffset startSeconds` sebelum `-i`, lihat ffmpeg.ts), frame
+  // dari input ini SUDAH mulai muncul tepat di t=startSeconds tanpa perlu tpad clone
+  // sama sekali - set `inputAlreadyOffset: true` utk skip tpad di kasus itu.
+  let stage = opts.inputAlreadyOffset
+    ? `[${seqInputIdx}:v]format=rgba,scale=${displayWidth}:-2`
+    : `[${seqInputIdx}:v]format=rgba,scale=${displayWidth}:-2,` +
+      `tpad=start_duration=${startSeconds.toFixed(2)}:start_mode=clone`;
   if (fadeOutSeconds > 0) {
     stage += `,fade=t=out:st=${(endSeconds - fadeOutSeconds).toFixed(2)}:d=${fadeOutSeconds}:alpha=1`;
   }

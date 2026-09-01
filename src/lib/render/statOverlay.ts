@@ -92,7 +92,16 @@ export function buildStatOverlayFilterStages(
   return [
     `[${curLabel}]drawbox=x=${boxX}:y=${boxY}:w=${boxW}:h=${boxH}:color=black@0.55:t=fill:` +
       `enable='between(t,${startSeconds.toFixed(2)},${endSeconds.toFixed(2)})'[${boxLabel}]`,
-    `[${iconInputIdx}:v]format=rgba,scale=w='${popScale}':h='${popScale}':eval=frame[${iconFmtLabel}]`,
+    // trim (2026-09-01, audit reliability - render timeout 120 menit di VPS 2-core)
+    // `-loop 1` icon input mengalir tanpa batas sepanjang durasi video (ratusan detik
+    // utk long-form), TAPI `eval=frame` di scale bawah ini WAJIB recompute expression
+    // TIAP FRAME (lihat komentar const di atas) - tanpa trim, itu artinya recompute
+    // sia-sia utk SELURUH sisa video setelah kartu ini fade-out di endSeconds, padahal
+    // kartu cuma tampil ${DISPLAY_SECONDS} detik. Trim ke endSeconds+buffer kecil
+    // memotong pemborosan itu (icon overlay TETAP correct - `enable=` di bawah sudah
+    // menyembunyikannya setelah endSeconds, trim cuma menghentikan KOMPUTASI yang toh
+    // tidak pernah terlihat, bukan mengubah kapan ia terlihat).
+    `[${iconInputIdx}:v]trim=duration=${(endSeconds + 0.5).toFixed(2)},format=rgba,scale=w='${popScale}':h='${popScale}':eval=frame[${iconFmtLabel}]`,
     `[${boxLabel}][${iconFmtLabel}]overlay=${iconX}:${iconY}:enable='between(t,${startSeconds.toFixed(2)},${endSeconds.toFixed(2)})'[${iconedLabel}]`,
     `[${iconedLabel}]drawtext=fontfile=${FONT_PATH}:text='${text}':fontsize=${fontSize}:fontcolor=white:` +
       `x=${textX}:y=${boxY}+(${boxH}-text_h)/2:` +
