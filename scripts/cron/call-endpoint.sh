@@ -4,7 +4,14 @@
 # `journalctl`) lalu POST ke endpoint cron internal lokal. $1 = path endpoint (mis.
 # "/api/cron/daily-ideas").
 set -euo pipefail
-cd /root/kontenpilot-ai
+# (2026-09-01, bug nyata: hardcode /root/kontenpilot-ai bikin SEMUA cron job gagal
+# "No such file or directory" di server render 202.10.41.72, yang checkout-nya di
+# /home/admin/kontenpilot-ai - dampak nyata: auto-publish mati total sejak 18:45 WIB,
+# konten yang sudah selesai render [mis. proj_sOU9eN4XdXXf] tidak pernah ke-publish
+# otomatis) - derive path dari lokasi script sendiri supaya SATU file yang sama benar
+# di kedua server (2-server deploy, lihat docs/DEPLOY_CHECKLIST.md), bukan hardcode
+# absolute path salah satu server.
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SECRET=$(grep "^CRON_SECRET=" .env | sed 's/^CRON_SECRET=//')
 if [ -z "$SECRET" ]; then
   echo "CRON_SECRET belum diisi di .env" >&2
