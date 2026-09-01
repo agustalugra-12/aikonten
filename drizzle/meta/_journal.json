@@ -288,6 +288,13 @@
       "when": 1787724847824,
       "tag": "0040_windy_callisto",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1788278001491,
+      "tag": "0041_curved_steve_rogers",
+      "breakpoints": true
     }
   ]
 }

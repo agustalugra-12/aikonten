@@ -621,6 +621,13 @@ export const manualIdeas = sqliteTable("manual_ideas", {
   source: text("source").notNull(), // nama file asal (mis. "ide-agustus.xlsx") - jejak audit, bukan dipakai logika
   used: integer("used", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  // Saved Content Inspiration (PRD Agustap Studio Content Intelligence §2.1.B, §2.16,
+  // 2026-09-01) - REUSE tabel existing (`idea`=ringkasan konsep, `used`=sudah dipakai
+  // generate atau belum - semantik SAMA PERSIS dgn "dapat dipilih kembali" §2.1.B).
+  // Kolom NULLABLE, source="manual_excel_import" existing TIDAK terpengaruh.
+  sourceUrl: text("source_url"), // link video/konten yang dianalisis (§2.13)
+  inspirationPrinciples: text("inspiration_principles"), // JSON InspirationPrinciples (Phase 2 inspirationAnalyzer.ts)
+  creatorName: text("creator_name"), // opsional, nama creator sumber (bukan dipakai identitas - §14/§2.21)
 });
 
 // Pencatatan token/biaya AI (2026-08-06, permintaan Agus - "cek ai blok dan ai konten
@@ -800,4 +807,13 @@ export const competitors = sqliteTable("competitors", {
   notes: text("notes"), // catatan bebas staf - platform, frekuensi posting, tipe konten, dst
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  // Creator Benchmark (PRD Agustap Studio Content Intelligence §2.1.A, 2026-09-01) -
+  // kolom NULLABLE, extend tabel existing (docs/REUSE_MAP.md) - brand lain yang cuma
+  // pakai `notes` (SWOT/content-gap manual, competitorAnalysis.ts) TIDAK terpengaruh
+  // sama sekali, kolom ini tetap null utk mereka.
+  accountUrl: text("account_url"), // link akun creator (§2.11), beda dari `notes` bebas
+  benchmarkProfile: text("benchmark_profile"), // JSON: {hookPattern, storytellingPattern, contentAngle, pacing, ctaPattern, visualPattern, audiencePattern} (§2.1.A)
+  role: text("role"), // strength/peran creator (§2.10) - mis. "hook/attention/problem framing"
+  benchmarkActive: integer("benchmark_active", { mode: "boolean" }).notNull().default(false), // Active/Inactive (§2.9, §2.16) - default false, HARUS diaktifkan eksplisit
+  analyzedContentCount: integer("analyzed_content_count"), // berapa konten dianalisis saat benchmark dibuat (§2.11, target 10-20)
 });
