@@ -46,11 +46,18 @@ function capQueryLength(query: string): string {
   return (lastSpace > 20 ? cut.slice(0, lastSpace) : cut).trim();
 }
 
-export async function searchBrollVideo(query: string, excludeUrls: Set<string> = new Set(), excludeVideoIds: Set<string> = new Set()): Promise<BrollResult | null> {
+export async function searchBrollVideo(
+  query: string,
+  excludeUrls: Set<string> = new Set(),
+  excludeVideoIds: Set<string> = new Set(),
+  // Sama pola/alasan dgn pexels.ts/pixabay.ts - default kosong = 0 perubahan perilaku
+  // existing utk semua caller/brand yang tidak mengisinya.
+  blockTitleKeywords: string[] = []
+): Promise<BrollResult | null> {
   const cappedQuery = capQueryLength(query);
   if (process.env.PEXELS_API_KEY) {
     try {
-      const pexels = await searchPexelsVideo(cappedQuery, excludeUrls, excludeVideoIds);
+      const pexels = await searchPexelsVideo(cappedQuery, excludeUrls, excludeVideoIds, blockTitleKeywords);
       if (pexels) return { videoUrl: pexels.videoUrl, durationSeconds: pexels.durationSeconds, source: "pexels", creator: pexels.photographer, sourceUrl: pexels.pageUrl, pexelsVideoId: pexels.pexelsVideoId };
     } catch (err) {
       console.error("[broll] Pexels gagal, coba Pixabay:", err);
@@ -59,7 +66,7 @@ export async function searchBrollVideo(query: string, excludeUrls: Set<string> =
 
   if (process.env.PIXABAY_API_KEY) {
     try {
-      const pixabay = await searchPixabayVideo(cappedQuery, excludeUrls);
+      const pixabay = await searchPixabayVideo(cappedQuery, excludeUrls, blockTitleKeywords);
       if (pixabay) return { videoUrl: pixabay.videoUrl, durationSeconds: pixabay.durationSeconds, source: "pixabay", creator: pixabay.photographer, sourceUrl: pixabay.pageUrl };
     } catch (err) {
       console.error("[broll] Pixabay juga gagal:", err);

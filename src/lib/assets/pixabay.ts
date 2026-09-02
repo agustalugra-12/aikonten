@@ -22,7 +22,10 @@ const MAX_PAGES_TRIED = 5;
 
 export async function searchPixabayVideo(
   query: string,
-  excludeUrls: Set<string> = new Set()
+  excludeUrls: Set<string> = new Set(),
+  // Sama alasan/pola dgn pexels.ts blockTitleKeywords - default kosong = 0 perubahan
+  // perilaku existing.
+  blockTitleKeywords: string[] = []
 ): Promise<PixabayVideoResult | null> {
   const apiKey = process.env.PIXABAY_API_KEY;
   if (!apiKey) throw new Error("PIXABAY_API_KEY belum diisi di .env");
@@ -56,12 +59,20 @@ export async function searchPixabayVideo(
       .filter((c): c is PixabayVideoResult => c !== null);
 
     allSeenCandidates = allSeenCandidates.concat(candidates);
-    const fresh = candidates.filter((c) => !excludeUrls.has(c.videoUrl));
+    const fresh = candidates.filter(
+      (c) => !excludeUrls.has(c.videoUrl) && !blockTitleKeywords.some((kw) => c.pageUrl.toLowerCase().includes(kw.toLowerCase()))
+    );
     if (fresh.length > 0) {
       return fresh[Math.floor(Math.random() * fresh.length)];
     }
   }
 
-  if (allSeenCandidates.length === 0) return null;
-  return allSeenCandidates[Math.floor(Math.random() * allSeenCandidates.length)];
+  // Fallback terakhir (semua page habis, tanpa exclude) TETAP hormati blockTitleKeywords
+  // (PRD §20 "NO_RELEVANT_FOOTAGE lebih baik drpd footage salah") - kalau SEMUA kandidat
+  // yang pernah dilihat kena block, return null drpd paksa pakai yang salah konteks.
+  const allSeenAllowed = allSeenCandidates.filter(
+    (c) => !blockTitleKeywords.some((kw) => c.pageUrl.toLowerCase().includes(kw.toLowerCase()))
+  );
+  if (allSeenAllowed.length === 0) return null;
+  return allSeenAllowed[Math.floor(Math.random() * allSeenAllowed.length)];
 }

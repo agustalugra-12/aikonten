@@ -39,6 +39,7 @@ import { analyzeRetentionRisk } from "@/lib/ai/retentionIntelligence";
 import { factCheckCaption } from "@/lib/ai/factCheck";
 import { isAgustapExtensionActive } from "@/lib/agustap/featureFlag";
 import { checkContentClarity, type ServiceCatalog, type ClarityCheckResult } from "@/lib/agustap/contentClarity";
+import { AGUSTAP_FINANCIAL_BLOCKLIST } from "@/lib/agustap/contextualFootage";
 import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { distributeChapters, type YoutubeMetadata } from "@/lib/ai/youtubeEditorial";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
@@ -123,6 +124,13 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // brand dipindah ke SINI (2026-08-11, sebelumnya di bawah) - dibutuhkan guard di
     // bawah SEBELUM titik lama fetch-nya.
     const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
+    // Contextual Footage (2026-09-02, PRD Agustap Studio) - blocklist finansial dipakai
+    // SEMUA titik searchBrollVideo di bawah utk brand ini. Default-block (bukan panggil
+    // deriveAgustapBrollQuery lagi di tiap titik - satu LLM call ekstra sudah terjadi di
+    // generateCaptionAndHashtags/autoContent.ts, di sini cukup terapkan blocklist-nya
+    // saja) - simplifikasi sadar: skrip Agustap yang genuinely soal trading sangat
+    // jarang, default aman lebih penting drpd deteksi presisi di tiap titik B-roll.
+    const agustapFootageBlock = isAgustapExtensionActive(brand?.knowledgeSite) ? AGUSTAP_FINANCIAL_BLOCKLIST : [];
     // project.type === "carousel" DAN brand.allowAiGeneratedPhotos DIKECUALIKAN
     // (2026-08-11, bug nyata ditemukan lewat tes generate langsung - "Belum ada footage
     // mentah" walau ini SENGAJA dibuat 0-asset oleh autoContent.ts sbg sinyal full
@@ -649,7 +657,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     if (brollClips.length === 0 && brollKeywords && !internalOnly) {
       // Fallback lama - skrip tidak menyebut landmark spesifik apa pun, tetap kasih 1
       // klip suasana umum spt sebelumnya (mis. "tropical homestay garden").
-      const broll = await searchBrollVideo(brollKeywords, recentlyUsedUrls);
+      const broll = await searchBrollVideo(brollKeywords, recentlyUsedUrls, undefined, agustapFootageBlock);
       if (broll) {
         brollClips = [{
           videoUrl: broll.videoUrl,
@@ -776,7 +784,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       let attempts = 0;
       while (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && attempts < maxAttempts) {
         attempts += 1;
-        const broll = await searchBrollVideo(brollKeywords, usedBrollUrls);
+        const broll = await searchBrollVideo(brollKeywords, usedBrollUrls, undefined, agustapFootageBlock);
         if (!broll) break;
         usedBrollUrls.add(broll.videoUrl);
         brollClips.push({
@@ -861,7 +869,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         let attempts2 = 0;
         while (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && attempts2 < maxAttempts2) {
           attempts2 += 1;
-          const broll = await searchBrollVideo(broaderKeywords, usedBrollUrls2);
+          const broll = await searchBrollVideo(broaderKeywords, usedBrollUrls2, undefined, agustapFootageBlock);
           if (!broll) break;
           usedBrollUrls2.add(broll.videoUrl);
           brollClips.push({

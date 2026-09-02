@@ -44,7 +44,13 @@ const MAX_PAGES_TRIED = 5;
 export async function searchPexelsVideo(
   query: string,
   excludeUrls: Set<string> = new Set(),
-  excludeVideoIds: Set<string> = new Set()
+  excludeVideoIds: Set<string> = new Set(),
+  // Content Clarity/Relevance (2026-09-02, PRD Agustap Studio "Contextual Footage") -
+  // filter kandidat yang pageUrl-nya mengandung kata terlarang (mis. trading/crypto utk
+  // konten UMKM). Default array kosong = TIDAK ADA filter, perilaku 100% sama utk semua
+  // caller existing (brand lain) - opsional & backward compatible, bukan behavior baru
+  // yang dipaksakan global.
+  blockTitleKeywords: string[] = []
 ): Promise<PexelsVideoResult | null> {
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) throw new Error("PEXELS_API_KEY belum diisi di .env");
@@ -85,7 +91,10 @@ export async function searchPexelsVideo(
     // Dedup PERSIS: exclude by BOTH videoUrl AND pexelsVideoId
     // (URL file CDN bisa beda resolusi, tapi pexelsVideoId tetap sama → blokir)
     const fresh = candidates.filter(
-      (c) => !excludeUrls.has(c.videoUrl) && !excludeVideoIds.has(c.pexelsVideoId)
+      (c) =>
+        !excludeUrls.has(c.videoUrl) &&
+        !excludeVideoIds.has(c.pexelsVideoId) &&
+        !blockTitleKeywords.some((kw) => c.pageUrl.toLowerCase().includes(kw.toLowerCase()))
     );
     if (fresh.length > 0) {
       return fresh[Math.floor(Math.random() * fresh.length)];

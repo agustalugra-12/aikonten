@@ -17,6 +17,7 @@ import {
   type ContentTypeUsage,
 } from "./contentVariety";
 import { getActiveContentTypes, getCompatibleStructures } from "./contentTypeUtils";
+import { isAgustapExtensionActive } from "@/lib/agustap/featureFlag";
 
 // Normalisasi hashtag (2026-08-05, bug nyata dilaporkan Agus - hashtag tampil "##").
 // Prompt di bawah tidak menegaskan ADA/TIDAKnya "#" di tiap item array, jadi GPT kadang
@@ -608,6 +609,20 @@ export async function generateCaptionAndHashtags(
     "Sertakan juga brollKeywords: 2-4 kata kunci Bahasa INGGRIS singkat utk cari video " +
     "stok (B-roll) pendamping yg relevan dgn suasana/topik ini (mis. \"tropical homestay " +
     "garden\"), atau null kalau topiknya tidak cocok disandingkan stok footage generik. " +
+    // Contextual Footage (2026-09-02, PRD Agustap Studio "Contextual Footage & Visual
+    // Relevance") - brollKeywords di sini SATU LLM call bareng caption (bukan panggilan
+    // terpisah spt deriveBrollKeywordsFromScript), jadi instruksi kontekstual UMKM
+    // ditambahkan LANGSUNG di sini utk brand ini - kata abstrak "business analytics/
+    // growth" polos sering balik hasil stock market/trading chart di Pexels (SALAH
+    // konteks), keyword KONKRET (pemilik bisnis/smartphone/social media) menghindarinya
+    // di sumbernya. Brand lain (baris ini tidak jalan) 0% berubah.
+    (isAgustapExtensionActive(knowledgeSite)
+      ? "KHUSUS brollKeywords brand ini (Agustap Studio, konteks UMKM/social media marketing): " +
+        "JANGAN pakai kata abstrak 'business'/'growth'/'analytics' polos (sering salah balik hasil " +
+        "trading/stock market chart) - pakai keyword KONKRET spt 'small business owner smartphone', " +
+        "'cafe owner social media', 'content creator checking analytics', KECUALI skrip ini MEMANG " +
+        "eksplisit membahas trading/saham/crypto. "
+      : "") +
     "Sertakan juga thumbnailText: teks hook SANGAT singkat (2-5 kata, Bahasa Indonesia, " +
     "huruf besar boleh) yg cocok ditempel besar-besar di thumbnail YouTube (mis. " +
     "\"MULAI 175K!\"), atau null kalau tidak ada hook yg pas." +

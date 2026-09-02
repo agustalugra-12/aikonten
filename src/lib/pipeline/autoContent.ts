@@ -12,6 +12,8 @@ import { getDurationConfig } from "@/lib/ai/clipSelect";
 import { getChannelProfile } from "@/lib/ai/youtubeEditorial";
 import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyContentPlanner";
 import { applyAgustapStrategyIfActive } from "@/lib/agustap/generationStrategy";
+import { isAgustapExtensionActive } from "@/lib/agustap/featureFlag";
+import { deriveAgustapBrollQuery } from "@/lib/agustap/contextualFootage";
 import { eq, desc, and } from "drizzle-orm";
 
 // Diekstrak (2026-08-06) dari /api/brands/[id]/auto-content/route.ts SUPAYA dipakai
@@ -286,8 +288,12 @@ export async function runAutoContent(
     // biarkan turun ke fallback foto (allowAiGeneratedPhotos/pickAnyRealPhoto) di bawah.
     if (!spesifik && desiredType !== "foto" && desiredType !== "carousel") {
       try {
-        const keywords = await deriveBrollKeywordsFromScript(script);
-        const broll = await searchBrollVideo(keywords);
+        // Contextual Footage (2026-09-02, PRD Agustap Studio) - Agustap dapat query
+        // konkret UMKM/small-business + blocklist finansial, brand lain 0% berubah.
+        const { query: keywords, blockTitleKeywords } = isAgustapExtensionActive(brand.knowledgeSite)
+          ? await deriveAgustapBrollQuery(script)
+          : { query: await deriveBrollKeywordsFromScript(script), blockTitleKeywords: [] as string[] };
+        const broll = await searchBrollVideo(keywords, undefined, undefined, blockTitleKeywords);
         if (broll) {
           type = "video";
           urlsToUse = [broll.videoUrl];
