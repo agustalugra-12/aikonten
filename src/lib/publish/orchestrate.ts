@@ -222,7 +222,20 @@ async function publishProjectInner(projectId: string): Promise<void> {
     // belakangan (status "error") tanpa sinyal apa pun ke kita. HANYA relevan utk jalur
     // Buffer (native publisher lain sudah sinkron/terkonfirmasi langsung) - tidak
     // di-await (background, sama pola dgn checkAndHandleDuplicate di buffer.ts).
-    if (account.publishVia === "buffer" && result.success && result.platformPostId) {
+    //
+    // Skip utk Instagram (2026-09-02, optimasi jatah Buffer 30 hari - brand Laundry In
+    // Bali kena RATE_LIMIT_EXCEEDED window 30d) - komentar bufferAuth.ts sendiri sudah
+    // catat BUKTI nyata "Instagram biasa 'sent' dlm hitungan detik", beda dari TikTok
+    // yang terbukti (insiden nyata 2026-08-13) bisa "sending" 15-17 menit & kadang
+    // berakhir "error" diam-diam. Coverage TikTok TIDAK dikurangi sama sekali - cuma
+    // hapus polling yang costnya nyata tapi manfaatnya sudah terbukti nol utk Instagram.
+    const BUFFER_VERIFY_SKIP_PLATFORMS = new Set(["instagram"]);
+    if (
+      account.publishVia === "buffer" &&
+      result.success &&
+      result.platformPostId &&
+      !BUFFER_VERIFY_SKIP_PLATFORMS.has(account.platform)
+    ) {
       const { verifyPublishSucceeded } = await import("./bufferAuth");
       verifyPublishSucceeded({
         postId: result.platformPostId,
