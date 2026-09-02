@@ -15,6 +15,7 @@ import { WeeklyReport } from "@/components/dashboard/WeeklyReport";
 import { ContentPlan } from "@/components/dashboard/ContentPlan";
 import { FatigueSummary } from "@/components/dashboard/FatigueSummary";
 import { CompetitorIntelligence } from "@/components/dashboard/CompetitorIntelligence";
+import { AgustapIntelligence } from "@/components/dashboard/AgustapIntelligence";
 import { MonthlyReport } from "@/components/dashboard/MonthlyReport";
 import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
@@ -232,6 +233,8 @@ function DashboardContent() {
             <ContentPlan brandId={selectedBrandId} />
           ) : activeView === "kompetitor" ? (
             <CompetitorIntelligence brandId={selectedBrandId} />
+          ) : activeView === "agustap" ? (
+            <AgustapIntelligence brandId={selectedBrandId} />
           ) : activeView === "footage" ? (
             <Card>
               <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">

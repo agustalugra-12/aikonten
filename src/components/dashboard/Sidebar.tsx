@@ -1,10 +1,10 @@
 "use client";
 
-import { LayoutDashboard, GalleryHorizontal, Lightbulb, FolderOpen, Music, Settings, BarChart3, CalendarDays, Swords, Building2 } from "lucide-react";
+import { LayoutDashboard, GalleryHorizontal, Lightbulb, FolderOpen, Music, Settings, BarChart3, CalendarDays, Swords, Building2, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Brand } from "@/types";
 
-export type DashboardView = "overview" | "konten" | "ide" | "rencana" | "kompetitor" | "footage" | "musik" | "laporan" | "pengaturan";
+export type DashboardView = "overview" | "konten" | "ide" | "rencana" | "kompetitor" | "agustap" | "footage" | "musik" | "laporan" | "pengaturan";
 
 const NAV_ITEMS: { view: DashboardView; label: string; icon: typeof LayoutDashboard }[] = [
   { view: "overview", label: "Dashboard", icon: LayoutDashboard },
@@ -17,6 +17,16 @@ const NAV_ITEMS: { view: DashboardView; label: string; icon: typeof LayoutDashbo
   { view: "laporan", label: "Laporan", icon: BarChart3 },
   { view: "pengaturan", label: "Pengaturan Brand", icon: Settings },
 ];
+
+// Agustap Studio Content Intelligence (PRD §2.18, §2.21, 2026-09-02) - menu
+// TAMBAHAN, HANYA muncul kalau brand ini Agustap Studio (knowledgeSite match) -
+// brand lain nav-nya 100% sama seperti sebelumnya (§2.21 Isolation).
+const AGUSTAP_NAV_ITEM: { view: DashboardView; label: string; icon: typeof LayoutDashboard } = {
+  view: "agustap",
+  label: "Agustap Studio",
+  icon: Brain,
+};
+const AGUSTAP_KNOWLEDGE_SITE = "agustap_studio";
 
 // Sidebar navigasi (2026-08-13, permintaan Agus - konsep dashboard baru gaya app musik
 // [referensi Google Drive], warna TETAP hitam-putih/grayscale tokens shadcn yg sudah
@@ -34,6 +44,7 @@ export function Sidebar({
   onSelectView: (v: DashboardView) => void;
 }) {
   const initial = (brand?.name || "?").trim().charAt(0).toUpperCase();
+  const navItems = brand?.knowledgeSite === AGUSTAP_KNOWLEDGE_SITE ? [...NAV_ITEMS, AGUSTAP_NAV_ITEM] : NAV_ITEMS;
 
   return (
     <aside className="w-56 shrink-0 border-r bg-card flex flex-col">
@@ -48,7 +59,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 px-3 space-y-1">
-        {NAV_ITEMS.map(({ view, label, icon: Icon }) => (
+        {navItems.map(({ view, label, icon: Icon }) => (
           <button
             key={view}
             onClick={() => onSelectView(view)}
