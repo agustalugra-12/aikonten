@@ -89,7 +89,11 @@ export async function runAutoContent(
   // meneruskannya). Diteruskan apa adanya ke projects, dirakit jadi Content Brief di
   // GET /api/projects/[id]/brief.
   ideaScore?: number | null,
-  ideaReasoning?: string | null
+  ideaReasoning?: string | null,
+  // Agustap Studio Content Inspiration (2026-09-02, PRD §2.1.B/§2.19) - id
+  // `manual_ideas` hasil POST /api/brands/[id]/content-inspiration, opsional.
+  // Diabaikan sepenuhnya utk brand lain (guard di applyAgustapStrategyIfActive).
+  agustapInspirationId?: string | null
 ): Promise<{ projectId: string; script: string; fromBroll: boolean } & ProcessResult> {
   let script = scriptOverride;
 
@@ -149,13 +153,18 @@ export async function runAutoContent(
         throw new AutoContentError("AI tidak berhasil kasih ide konten");
       }
       script = ideas[0];
-      // Agustap Studio Content Intelligence (2026-09-02, PRD §2.4/§2.17) - HANYA
-      // aktif kalau brand.knowledgeSite === "agustap_studio" DAN feature flag ON
-      // (guard di dalam fungsi ini sendiri, lihat generationStrategy.ts) - brand
-      // lain 0% terpengaruh, return `script` apa adanya secepat mungkin.
-      script = await applyAgustapStrategyIfActive(brand, script);
     }
   }
+
+  // Agustap Studio Content Intelligence (2026-09-02, PRD §2.4/§2.17/§2.19) - HANYA
+  // aktif kalau brand.knowledgeSite === "agustap_studio" DAN feature flag ON (guard
+  // di dalam fungsi ini sendiri, lihat generationStrategy.ts) - brand lain (termasuk
+  // Animal Story & Co yang lewat jalur channelProfile di atas) 0% terpengaruh,
+  // return `script` apa adanya secepat mungkin. Diletakkan SETELAH blok `if
+  // (!script)` (bukan di dalam cabang suggestContentIdeas saja) supaya tetap jalan
+  // walau user kirim scriptOverride/topic sendiri + pilih Content Inspiration
+  // (§2.19 form "Topic" + "Inspiration" bisa dipakai bersamaan).
+  script = await applyAgustapStrategyIfActive(brand, script, agustapInspirationId);
 
   const matchedUrls = await matchFootageForScript(brandId, script);
   let type: "video" | "carousel" = "carousel";

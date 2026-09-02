@@ -38,8 +38,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     );
   }
 
+  // Agustap Studio Content Inspiration (2026-09-02, PRD §2.19) - id `manual_ideas`
+  // opsional dari dropdown "Inspiration" di UI. Diabaikan sepenuhnya utk brand lain
+  // (guard brand isolation ada di applyAgustapStrategyIfActive, bukan di sini).
+  const agustapInspirationId = typeof body.agustapInspirationId === "string" ? body.agustapInspirationId : undefined;
+
   try {
-    const result = await runAutoContent(brandId, body.script, desiredType, contentFormat);
+    const result = await runAutoContent(
+      brandId, body.script, desiredType, contentFormat,
+      undefined, undefined, undefined, undefined, undefined,
+      agustapInspirationId
+    );
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     const status = err instanceof AutoContentError ? err.status : 500;

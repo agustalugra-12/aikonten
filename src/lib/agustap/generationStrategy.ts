@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { competitors, type brands } from "@/db/schema";
+import { competitors, manualIdeas, type brands } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { getOpenAIClient } from "@/lib/ai/openaiClient";
 import { embedText, cosineSimilarity } from "@/lib/ai/contentSimilarity";
@@ -231,13 +231,18 @@ type BrandRow = typeof brands.$inferSelect;
  * manapun yang memanggil fungsi ini akan SELALU dapat `script` apa adanya kembali
  * tanpa perubahan (return awal secepat mungkin, zero query/API cost tambahan).
  *
- * Content Inspiration (spesifik, per-user-selection) SENGAJA belum diikutkan di
- * sini - belum ada API/UI utk user memilih 1 saved inspiration (di luar scope
- * "wiring tanpa API" permintaan Agus 2026-09-02). Creator Benchmark (otomatis,
- * §2.4) SUDAH diikutkan penuh - itu justru yang PRD minta jalan tanpa perlu user
- * pilih apa pun tiap generate.
+ * Content Inspiration (spesifik, per-user-selection, §2.1.B/§2.19) - opsional,
+ * diteruskan via `inspirationId` (row `manual_ideas` hasil
+ * POST /api/brands/[id]/content-inspiration). Kalau diberikan, ditandai
+ * `used=true` SETELAH benar-benar dipakai (sesuai semantik existing `used`
+ * flag) - kegagalan mark-used tidak menggagalkan strategy (best-effort,
+ * konsisten §43).
  */
-export async function applyAgustapStrategyIfActive(brand: BrandRow, script: string): Promise<string> {
+export async function applyAgustapStrategyIfActive(
+  brand: BrandRow,
+  script: string,
+  inspirationId?: string | null
+): Promise<string> {
   if (!isAgustapExtensionActive(brand.knowledgeSite)) return script;
 
   const activeRows = await db
@@ -259,9 +264,21 @@ export async function applyAgustapStrategyIfActive(brand: BrandRow, script: stri
     }
   }
 
-  // §2.7: tidak ada benchmark aktif (belum ada yang di-setup/di-aktifkan) -> zero
-  // API cost tambahan, script existing dipakai apa adanya (sama seperti brand lain).
-  if (activeBenchmarks.length === 0) return script;
+  let contentInspiration: InspirationPrinciples | null = null;
+  if (inspirationId) {
+    const [inspRow] = await db.select().from(manualIdeas).where(eq(manualIdeas.id, inspirationId));
+    if (inspRow?.brandId === brand.id && inspRow.inspirationPrinciples) {
+      try {
+        contentInspiration = JSON.parse(inspRow.inspirationPrinciples) as InspirationPrinciples;
+      } catch {
+        contentInspiration = null; // korup - dilewati, bukan menggagalkan generate
+      }
+    }
+  }
+
+  // §2.7: tidak ada benchmark aktif MAUPUN inspiration dipilih -> zero API cost
+  // tambahan, script existing dipakai apa adanya (sama seperti brand lain).
+  if (activeBenchmarks.length === 0 && !contentInspiration) return script;
 
   const dna: AgustapBrandDNA = {
     positioning: brand.positioning || "",
@@ -270,7 +287,14 @@ export async function applyAgustapStrategyIfActive(brand: BrandRow, script: stri
   };
 
   try {
-    const strategy = await buildAgustapContentStrategy(brand.name, script, dna, activeBenchmarks, null);
+    const strategy = await buildAgustapContentStrategy(brand.name, script, dna, activeBenchmarks, contentInspiration);
+    if (strategy && inspirationId && contentInspiration) {
+      try {
+        await db.update(manualIdeas).set({ used: true }).where(eq(manualIdeas.id, inspirationId));
+      } catch {
+        // best-effort - kegagalan mark-used TIDAK menggagalkan strategy yang sudah jadi.
+      }
+    }
     return strategy?.concept?.trim() || script;
   } catch (e) {
     // Kegagalan Intelligence Layer TIDAK BOLEH menggagalkan generate konten

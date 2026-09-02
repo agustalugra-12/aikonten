@@ -182,7 +182,7 @@ function DashboardContent() {
           ) : activeView === "konten" ? (
             <div className="space-y-6">
               <div className="flex items-center gap-2 flex-wrap">
-                <AutoContentButton brandId={selectedBrandId} onDone={refreshProjects} />
+                <AutoContentButton brandId={selectedBrandId} brand={currentBrand} onDone={refreshProjects} />
                 <StoryboardDialog brandId={selectedBrandId} />
               </div>
 

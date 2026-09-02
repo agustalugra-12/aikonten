@@ -101,6 +101,28 @@ async function main() {
     }
   })();
 
+  await (async () => {
+    const prev = process.env.AGUSTAP_CONTENT_INTELLIGENCE_ENABLED;
+    process.env.AGUSTAP_CONTENT_INTELLIGENCE_ENABLED = "true";
+    try {
+      // inspirationId palsu (tidak pernah ada di manual_ideas) + 0 benchmark aktif ->
+      // contentInspiration tetap null (query balik kosong) -> §2.7 -> script tidak
+      // berubah, TANPA panggil OpenAI (zero cost, tidak crash walau id ngawur).
+      const result = await applyAgustapStrategyIfActive(
+        fakeBrand({ id: "brand_tidak_pernah_ada_xyz", knowledgeSite: "agustap_studio" }),
+        originalScript,
+        "insp_tidak_pernah_ada_xyz"
+      );
+      check(
+        "Brand Agustap + inspirationId tidak valid/tidak ada + 0 benchmark -> script TIDAK BERUBAH, tidak crash (§2.19)",
+        result === originalScript
+      );
+    } finally {
+      if (prev === undefined) delete process.env.AGUSTAP_CONTENT_INTELLIGENCE_ENABLED;
+      else process.env.AGUSTAP_CONTENT_INTELLIGENCE_ENABLED = prev;
+    }
+  })();
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }
