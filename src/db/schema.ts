@@ -172,6 +172,13 @@ export const brands = sqliteTable("brands", {
   contentBoundaries: text("content_boundaries"),
   eduEntertainmentRatio: text("edu_entertainment_ratio"),
   ctaStyle: text("cta_style"),
+  // Service Catalog (2026-09-02, PRD "Agustap Studio Content Clarity") - JSON:
+  // {serviceDescription, packages: [{name, price, features}], commonFeatures, addOns}.
+  // Source of truth WAJIB data nyata (repo agustalugra-12/webagustapstudio, halaman
+  // Pricing.tsx) - TIDAK PERNAH dikarang AI. Nullable, brand lain (Pelangi/Laundry/
+  // Animal Story) tidak pernah mengisi kolom ini, sama pola dgn kolom Agustap lain
+  // (content_pillars, content_boundaries) - extend tabel existing, bukan tabel baru.
+  serviceCatalog: text("service_catalog"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

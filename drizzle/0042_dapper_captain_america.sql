@@ -1,0 +1,1 @@
+ALTER TABLE `brands` ADD `service_catalog` text;

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { projects, mediaAssets, brands, socialAccounts, footageBank } from "@/db/schema";
+import { projects, mediaAssets, brands, socialAccounts, footageBank, contentTypes } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { transcribeFootage, transcribeAudioBuffer, type TranscriptSegment } from "@/lib/ai/transcribe";
 import {
@@ -37,6 +37,8 @@ import { applyLogoToImage } from "@/lib/ai/logoOverlay";
 import { checkContentSimilarity } from "@/lib/ai/contentSimilarity";
 import { analyzeRetentionRisk } from "@/lib/ai/retentionIntelligence";
 import { factCheckCaption } from "@/lib/ai/factCheck";
+import { isAgustapExtensionActive } from "@/lib/agustap/featureFlag";
+import { checkContentClarity, type ServiceCatalog, type ClarityCheckResult } from "@/lib/agustap/contentClarity";
 import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
 import { distributeChapters, type YoutubeMetadata } from "@/lib/ai/youtubeEditorial";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
@@ -150,17 +152,52 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
 
     if (project.type === "carousel") {
       const photoUrls = rawFootageAssets.map((a) => a.fileUrl);
+      // Content Clarity (2026-09-02, PRD "Agustap Studio Content Clarity") - jalur
+      // carousel/poster TIDAK PUNYA regen loop struktur/hook sama sekali sebelumnya
+      // (beda dari jalur video di bawah) - ini KHUSUS carousel poster kena skenario
+      // negative-example PRD (paket promosi tanpa penjelasan layanan). Dicek SEBELUM
+      // generatePosterCopy/applyPosterDesign (fal.ai berbayar) supaya caption yg gagal
+      // clarity tidak sempat menghasilkan gambar poster yg dibuang. Max 2 percobaan,
+      // pola SAMA dgn jalur video (bounded, bukan retry tak terbatas).
+      const clarityActive = isAgustapExtensionActive(brand?.knowledgeSite);
+      let agustapServiceCatalogCarousel: ServiceCatalog | null = null;
+      if (clarityActive && brand?.serviceCatalog) {
+        try {
+          agustapServiceCatalogCarousel = JSON.parse(brand.serviceCatalog) as ServiceCatalog;
+        } catch {
+          agustapServiceCatalogCarousel = null;
+        }
+      }
+      let carouselAttempt = 0;
+      let generatedImages: Awaited<ReturnType<typeof generateCaptionForImages>>;
+      do {
+        generatedImages = await generateCaptionForImages(
+          brand?.name || "Brand",
+          project.script,
+          photoUrls,
+          brand?.knowledgeSite,
+          brand?.manualKnowledge,
+          brand?.contentPillars,
+          project.brandId,
+          brand
+        );
+        carouselAttempt += 1;
+        if (!clarityActive || !generatedImages.contentType) break;
+        const [ct] = await db.select().from(contentTypes).where(eq(contentTypes.name, generatedImages.contentType));
+        try {
+          const clarity = await checkContentClarity(
+            { caption: generatedImages.caption, promotionalIntensity: ct?.promotionalIntensity ?? 0 },
+            agustapServiceCatalogCarousel
+          );
+          if (clarity.passed || carouselAttempt >= 2) break;
+          console.warn(`[processProject] carousel clarity FAIL (${clarity.failureReason || "-"}) (percobaan ${carouselAttempt}/2), regenerate...`);
+        } catch (err) {
+          console.error("[processProject] gagal cek content clarity (carousel), lanjut tanpa cek (fail-open):", err);
+          break;
+        }
+      } while (true);
       // eslint-disable-next-line prefer-const
-      let { caption, hashtags, promoText, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed, visualDirection, ctaText } = await generateCaptionForImages(
-        brand?.name || "Brand",
-        project.script,
-        photoUrls,
-        brand?.knowledgeSite,
-        brand?.manualKnowledge,
-        brand?.contentPillars,
-        project.brandId,
-        brand
-      );
+      let { caption, hashtags, promoText, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed, visualDirection, ctaText } = generatedImages;
       // Price Source of Truth (2026-08-11, permintaan Agus - lihat priceValidator.ts) -
       // caption/promoText dibersihkan dari klaim harga yg TIDAK cocok persis dgn
       // knowledgeUsed (knowledge base RESMI brand ini, gabungan manualKnowledge + fetch
@@ -494,6 +531,19 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     const MAX_REGEN_ATTEMPTS = 2;
     const usageForRegenCheck = await getRecentStructureAndHookUsage(project.brandId);
     const contentTypeUsageForRegenCheck = await getRecentContentTypeUsage(project.brandId);
+    // Content Clarity (2026-09-02, PRD "Agustap Studio Content Clarity") - REUSE loop
+    // regen ini apa adanya (bukan bikin retry mechanism kedua), guard brand di sini
+    // sendiri (bukan cuma di caller) krn ini titik masuk baru - brand lain 0% query
+    // tambahan (agustapServiceCatalog tetap null, isClarityRelevant selalu false).
+    const clarityActive = isAgustapExtensionActive(brand?.knowledgeSite);
+    let agustapServiceCatalog: ServiceCatalog | null = null;
+    if (clarityActive && brand?.serviceCatalog) {
+      try {
+        agustapServiceCatalog = JSON.parse(brand.serviceCatalog) as ServiceCatalog;
+      } catch {
+        agustapServiceCatalog = null;
+      }
+    }
     let avoidStructureNames: string[] = [];
     let avoidHookTypes: string[] = [];
     let avoidContentTypes: string[] = [];
@@ -501,6 +551,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     const avoidHashtags: string[] = project.brandId ? await getOverusedHashtags(project.brandId) : [];
     let attempt = 0;
     let generated: Awaited<ReturnType<typeof generateCaptionAndHashtags>>;
+    let lastClarityResult: ClarityCheckResult | null = null;
     do {
       generated = await generateCaptionAndHashtags(
         brand?.name || "Brand",
@@ -519,20 +570,34 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         brand
       );
       attempt += 1;
+      let clarityFailed = false;
+      if (clarityActive && generated.contentType) {
+        const [ct] = await db.select().from(contentTypes).where(eq(contentTypes.name, generated.contentType));
+        try {
+          lastClarityResult = await checkContentClarity(
+            { caption: generated.caption, promotionalIntensity: ct?.promotionalIntensity ?? 0 },
+            agustapServiceCatalog
+          );
+          clarityFailed = !lastClarityResult.passed;
+        } catch (err) {
+          console.error("[processProject] gagal cek content clarity, lanjut tanpa cek (fail-open):", err);
+        }
+      }
       const overused =
         isStructureOverused(generated.structureTemplate, usageForRegenCheck) ||
         isHookTypeOverused(generated.hookType, usageForRegenCheck) ||
-        (generated.contentType && isContentTypeOverused(generated.contentType, contentTypeUsageForRegenCheck));
+        (generated.contentType && isContentTypeOverused(generated.contentType, contentTypeUsageForRegenCheck)) ||
+        clarityFailed;
       if (!overused || attempt >= MAX_REGEN_ATTEMPTS) break;
       console.warn(
         `[processProject] struktur "${generated.structureTemplate}" / hook "${generated.hookType}" / content type "${generated.contentType}" ` +
-        `masih overused (percobaan ${attempt}/${MAX_REGEN_ATTEMPTS}), regenerate...`
+        `masih overused ATAU clarity FAIL (${lastClarityResult?.failureReason || "-"}) (percobaan ${attempt}/${MAX_REGEN_ATTEMPTS}), regenerate...`
       );
       avoidStructureNames = [...avoidStructureNames, generated.structureTemplate];
       if (generated.hookType) avoidHookTypes = [...avoidHookTypes, generated.hookType];
       if (generated.contentType) avoidContentTypes = [...avoidContentTypes, generated.contentType];
       if (generated.captionStyle) avoidCaptionStyles = [...avoidCaptionStyles, generated.captionStyle];
-       
+
     } while (true);
     ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed, visualDirection, ctaText, hookText } = generated);
     // Retention Intelligence (2026-08-26, PRD §14, Task Plan 7) - recompute thd hasil AKHIR
