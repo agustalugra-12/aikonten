@@ -65,22 +65,25 @@ proven, bukan cuma diklaim).
 
 ## 5. Data Creator Benchmark tidak real (risiko kualitas, bukan risiko teknis)
 
-**Status saat ini**: 6 profil `CREATOR_BENCHMARK_V1_SEED` ditulis manual
-dari pengetahuan umum publik, DITANDAI eksplisit
-`"[SEED MANUAL - belum dianalisis dari konten asli]"` di `benchmarkProfile`
-tersimpan — bukan disamarkan seolah hasil analisis nyata.
+**Status (2026-09-02, diperbarui)**: semua 6 profil sudah diganti dari SEED
+MANUAL ke analisis nyata via `buildCreatorBenchmarkFromContentUrls()` (0
+tersisa seed). Dua tingkat kualitas sumber, DITANDAI beda jelas di `notes`:
+- **Seth Godin, Justin Welsh, Neil Patel** — `"[ANALISIS ASLI]"`: dianalisis
+  langsung dari tulisan asli mereka sendiri (blog/newsletter publik, fetch
+  HTTP polos berhasil karena statis).
+- **Alex Hormozi, Victoria Wong, Vanessa Lau** — `"[ANALISIS DARI ARTIKEL
+  PIHAK KETIGA]"`: video-native (TikTok/IG/YouTube Shorts), fetch polos
+  TIDAK bisa akses post asli mereka (JS-rendered). Diganti dengan analisis
+  dari artikel/interview pihak ketiga yang kredibel membedah gaya konten
+  mereka — bukan post asli, kualitas sinyal lebih rendah dari kategori
+  pertama, tapi jauh lebih baik dari pengetahuan umum generik.
 
-**Risiko**: kalau flag dianggap "selesai" dan tag SEED MANUAL ini
-terlewat/tidak dibaca staf lain, output generate konten bisa terasa
-generic (profil dari pengetahuan umum, bukan pola asli creator).
-
-**Mitigasi**: `analyzeInspiration()` + `buildCreatorBenchmarkFromContentUrls()`
-sudah siap menerima URL asli kapan pun tersedia — mengganti seed TIDAK
-butuh perubahan kode, cuma re-run dengan URL nyata. Constraint teknis:
-fetch HTTP polos (tanpa headless browser) — realistis hanya berhasil untuk
-sumber statis (blog/newsletter/artikel/transcript YouTube terindeks web),
-BUKAN video TikTok/Reels/Shorts langsung (JS-rendered, akan balik
-`SOURCE_UNAVAILABLE`, bukan gagal diam-diam).
+**Risiko sisa**: kategori kedua (analisis pihak ketiga) berpotensi
+mewarisi bias/interpretasi penulis artikel tsb, bukan murni observasi
+langsung. Jika suatu saat ada akses ke tool scraping video (headless
+browser) atau Agus punya transcript/link asli, ganti lagi ke kategori
+pertama — `buildCreatorBenchmarkFromContentUrls()` sudah siap pakai tanpa
+perubahan kode.
 
 ## 6. Originality check tidak dijalankan di titik akhir (quality gate)
 
