@@ -23,13 +23,25 @@ const KEYWORD_SPESIFIK_PROPERTI = [
 // baru "laundry in bali", bisnis laundry TIDAK terkait Pelangi/Harmoni sama sekali).
 // Proteksi ini SENGAJA dibuat khusus utk brand properti (harga kamar/fasilitas Pelangi/
 // Harmoni WAJIB footage asli, tidak boleh stok generik) - kalau brand-nya BUKAN properti
-// sama sekali (knowledgeSite null, lihat pelangiKnowledge.ts), tidak ada risiko klaim
-// harga/fasilitas PROPERTI ketempel footage generik - proteksi ini jadi tidak relevan &
-// JUSTRU jadi bug: skrip laundry yg sah-sah saja sebut "harga cuci sepatu" salah kena
-// blokir Pexels krn kata "harga"/"rp" ada di daftar, padahal tidak ada properti yg
-// dipertaruhkan sama sekali.
+// sama sekali, tidak ada risiko klaim harga/fasilitas PROPERTI ketempel footage generik -
+// proteksi ini jadi tidak relevan & JUSTRU jadi bug: skrip laundry yg sah-sah saja sebut
+// "harga cuci sepatu" salah kena blokir Pexels krn kata "harga"/"rp" ada di daftar,
+// padahal tidak ada properti yg dipertaruhkan sama sekali.
+//
+// Diperbaiki jadi whitelist eksplisit, bukan truthy-check (2026-09-02, bug nyata KEDUA
+// dari kelas yg sama - ditemukan lewat tes live Agustap Studio: `knowledgeSite` kolom
+// dipakai DUA tujuan berbeda sejak PRD Agustap [isAgustapExtensionActive di
+// featureFlag.ts] - Agustap Studio (bisnis marketing/konten, BUKAN properti) diberi
+// `knowledgeSite="agustap_studio"` [non-null] utk keperluan flag ITU, tapi truthy-check
+// di sini ikut menganggapnya "brand properti" juga, jadi topik marketing yg sah-sah saja
+// sebut "harga" [mis. "3 kesalahan harga yg bikin UMKM rugi"] salah diblokir minta
+// footage asli. Whitelist eksplisit brand properti sungguhan menutup KEDUA kasus
+// sekaligus & tahan thd brand properti baru lain nanti yg kebetulan dapat knowledgeSite
+// utk tujuan lain (pola sama, bukan cuma nge-patch Agustap doang).
+const KNOWLEDGE_SITE_PROPERTI = new Set(["pelangi", "harmoni"]);
+
 export function isIdeSpesifikProperti(script: string, knowledgeSite?: string | null): boolean {
-  if (!knowledgeSite) return false;
+  if (!knowledgeSite || !KNOWLEDGE_SITE_PROPERTI.has(knowledgeSite)) return false;
   const lower = script.toLowerCase();
   return KEYWORD_SPESIFIK_PROPERTI.some((kw) => lower.includes(kw));
 }
