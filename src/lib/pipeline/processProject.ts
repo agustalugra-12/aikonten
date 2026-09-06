@@ -252,12 +252,14 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
               imageUrl: photoUrls[0],
               copy: posterCopy,
               brandProfile: brand?.posterBrandProfile,
+              allowLogoInContent: brand?.allowLogoInAiContent,
             })
           : await generatePosterFullAi({
               brandId: project.brandId,
               projectId: id,
               copy: posterCopy,
               brandProfile: brand?.posterBrandProfile,
+              allowLogoInContent: brand?.allowLogoInAiContent,
             });
       const finalImageUrls = photoUrls.length === 1 ? [coverUrl] : [coverUrl, ...photoUrls.slice(1)];
 

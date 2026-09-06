@@ -80,6 +80,8 @@ export function BrandSettingsSidebar({
   const [knowledgeSite, setKnowledgeSite] = useState(brand?.knowledgeSite ?? "none");
   const [manualKnowledge, setManualKnowledge] = useState(brand?.manualKnowledge ?? "");
   const [posterBrandProfile, setPosterBrandProfile] = useState(brand?.posterBrandProfile ?? "");
+  const [allowLogoInAiContent, setAllowLogoInAiContent] = useState(brand?.allowLogoInAiContent ?? false);
+  const [logoInContentNote, setLogoInContentNote] = useState(brand?.logoInContentNote ?? "");
   const [savingKnowledge, setSavingKnowledge] = useState(false);
 
   // Content DNA (2026-08-26, PRD §4, Task Plan 5) - 1 object state (bukan 10 useState
@@ -113,6 +115,8 @@ export function BrandSettingsSidebar({
     setKnowledgeSite(brand?.knowledgeSite ?? "none");
     setManualKnowledge(brand?.manualKnowledge ?? "");
     setPosterBrandProfile(brand?.posterBrandProfile ?? "");
+    setAllowLogoInAiContent(brand?.allowLogoInAiContent ?? false);
+    setLogoInContentNote(brand?.logoInContentNote ?? "");
     setIdentity(identityFromBrand(brand));
     setVideoCount(brand?.dailyVideoCount ?? 7);
     setFotoCount(brand?.dailySinglePhotoCount ?? 3);
@@ -181,6 +185,10 @@ export function BrandSettingsSidebar({
   }
 
   async function handleSaveKnowledge() {
+    if (allowLogoInAiContent && !logoInContentNote.trim()) {
+      toast.error("Isi catatan dulu kalau mengizinkan logo/identitas di konten AI");
+      return;
+    }
     setSavingKnowledge(true);
     const identityPayload = Object.fromEntries(
       IDENTITY_FIELDS.map((f) => [f, identity[f].trim() || null])
@@ -189,6 +197,8 @@ export function BrandSettingsSidebar({
       knowledgeSite: knowledgeSite === "none" ? null : knowledgeSite,
       manualKnowledge: manualKnowledge.trim() || null,
       posterBrandProfile: posterBrandProfile.trim() || null,
+      allowLogoInAiContent,
+      logoInContentNote: allowLogoInAiContent ? logoInContentNote.trim() : null,
       ...identityPayload,
     });
     setSavingKnowledge(false);
@@ -375,6 +385,47 @@ export function BrandSettingsSidebar({
                 onChange={(e) => setPosterBrandProfile(e.target.value)}
                 placeholder={"Contoh:\nWARNA: Biru tua #005D9E, putih, aksen oranye khusus promo.\nSTYLE: Modern minimalis, premium, terpercaya.\nICON: mesin cuci, setrika, water splash.\nTARGET AUDIENS: mahasiswa & karyawan sibuk."}
               />
+            </div>
+            <div className="space-y-2 border-t pt-4">
+              <label htmlFor="allowLogoInAiContent" className="flex items-start gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="allowLogoInAiContent"
+                  className="mt-0.5"
+                  checked={allowLogoInAiContent}
+                  onChange={(e) => setAllowLogoInAiContent(e.target.checked)}
+                />
+                <span>
+                  🔖 Izinkan AI menyertakan elemen logo/identitas (mis. ikon media sosial, badge brand) di gambar
+                  yang di-generate untuk brand ini
+                </span>
+              </label>
+              <p className="text-xs text-muted-foreground pl-6">
+                DEFAULT (tidak dicentang): AI dilarang keras menaruh elemen apa pun yang menyerupai
+                logo/identitas/badge di gambar - termasuk di zona pojok kanan-atas yang direservasi untuk logo
+                asli brand (ditempel otomatis terpisah sesudahnya). Kalau dicentang, larangan itu dilonggarkan
+                khusus brand ini.
+              </p>
+              <p className="text-xs text-amber-600 pl-6">
+                ⚠️ Konsekuensi biaya: kalau hasil generate ternyata melanggar aturan desain lain (QC gagal),
+                sistem otomatis generate ULANG 1x untuk perbaikan - artinya biaya kredit/token generate gambar
+                bisa 2x lipat dari biasanya. Isi catatan di bawah untuk konfirmasi brand/owner sudah paham &amp;
+                setuju.
+              </p>
+              {allowLogoInAiContent && (
+                <div className="space-y-1 pl-6">
+                  <Label htmlFor="logoInContentNote" className="text-xs">
+                    Catatan konfirmasi (wajib diisi)
+                  </Label>
+                  <textarea
+                    id="logoInContentNote"
+                    className="flex min-h-16 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs"
+                    value={logoInContentNote}
+                    onChange={(e) => setLogoInContentNote(e.target.value)}
+                    placeholder="Contoh: Owner AgustaP sudah setuju biaya generate bisa 2x lipat karena desainnya butuh ikon media sosial."
+                  />
+                </div>
+              )}
             </div>
             <div className="space-y-3 border-t pt-4">
               <div>

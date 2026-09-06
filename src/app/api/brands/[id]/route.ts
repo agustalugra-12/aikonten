@@ -132,6 +132,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     update.posterBrandProfile = body.posterBrandProfile;
   }
 
+  // Izinkan Logo/Identitas di Konten AI (2026-09-06, permintaan Agus - "buat fitur
+  // centang dan isi note... jika centang owner siap bayar biaya lebih") - note WAJIB
+  // diisi (bukan opsional) kalau togglenya TRUE, supaya tidak mungkin tersimpan
+  // "izinkan logo" tanpa jejak konfirmasi/alasan (sama semangat validasi gabungan
+  // publishMode+autoPublishTimes di atas - kombinasi yg tidak masuk akal dicegah di
+  // sini, bukan diserahkan ke UI saja).
+  if ("allowLogoInAiContent" in body || "logoInContentNote" in body) {
+    const allowLogo = "allowLogoInAiContent" in body ? body.allowLogoInAiContent : existing.allowLogoInAiContent;
+    const note = "logoInContentNote" in body ? body.logoInContentNote : existing.logoInContentNote;
+    if (typeof allowLogo !== "boolean") {
+      return NextResponse.json({ error: "allowLogoInAiContent harus boolean" }, { status: 400 });
+    }
+    if (note !== null && typeof note !== "string") {
+      return NextResponse.json({ error: "logoInContentNote harus string atau null" }, { status: 400 });
+    }
+    if (allowLogo && !note?.trim()) {
+      return NextResponse.json({ error: "logoInContentNote wajib diisi kalau allowLogoInAiContent diaktifkan" }, { status: 400 });
+    }
+    update.allowLogoInAiContent = allowLogo;
+    update.logoInContentNote = allowLogo ? note.trim() : null;
+  }
+
   // Content DNA (2026-08-26, PRD §4, Task Plan 5) - 10 field identitas brand, semua
   // teks bebas nullable (lihat catatan lengkap di schema.ts's brands table) - validasi
   // SAMA utk semua field ini (string atau null), cukup 1 loop drpd 10 blok if berulang.

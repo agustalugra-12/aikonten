@@ -52,10 +52,33 @@ EFEK: soft shadow natural (bukan hard shadow), soft glow, gradient overlay, ligh
 OUTPUT: resolusi tinggi, social media ready (4:5 atau 1:1), margin rapi, semua tulisan mudah dibaca, tidak ada elemen yang saling bertabrakan/tumpang tindih.
 
 KONTAK: JANGAN PERNAH menambahkan nomor telepon/WhatsApp, alamat website/domain, atau handle media sosial di poster kecuali disebutkan eksplisit di KONTEN POSTER INI di bawah - lebih baik tidak ada info kontak sama sekali daripada info yang salah/mengarang.
+`.trim();
 
-LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified"/"certified", watermark, atau simbol apa pun yang menyerupai identitas brand - JANGAN sekalipun sekadar elemen dekoratif. Logo ASLI brand (kalau ada) ditempel TERPISAH sesudah gambar ini jadi, lewat proses lain di luar kendalimu - tugasmu HANYA desain poster tanpa logo apa pun, jangan mengisi "kekosongan" itu dengan logo karangan.
+// LOGO section (2026-09-06, diperkuat - permintaan Agus "jangan berisi logo kecuali
+// owner minta logo dilampirkan" - temuan kasus AgustaP Studio: draft AI menaruh IKON
+// GENERIK (Instagram/TikTok) di zona logo, QC menandai ini sbg "logo/badge tidak
+// seharusnya ada" krn MENYERUPAI identitas walau bukan logo brand sungguhan yg
+// digambar ulang. Larangan versi LAMA cuma sebut "logo, badge brand, seal, watermark"
+// - diperluas eksplisit sebut ikon aplikasi/medsos & elemen dekoratif apa pun yg bisa
+// disalahartikan sbg identitas, supaya celah yg sama tidak lolos lagi). Dipisah jadi
+// fungsi (bukan konstanta tunggal) krn sekarang PER-BRAND: default STRICT (larangan
+// penuh), brand dgn allowLogoInAiContent=true (lihat schema.ts, dgn logoInContentNote
+// wajib terisi sbg bukti persetujuan biaya) dapat versi RELAXED yg mengizinkan elemen
+// identitas tampil di gambar - staf SUDAH diberi tahu konsekuensi biaya 2x lewat UI
+// (BrandSettingsSidebar) sebelum mengaktifkan toggle ini.
+function buildLogoSection(allowLogoInContent: boolean): string {
+  if (allowLogoInContent) {
+    return `
+LOGO/IDENTITAS (brand ini MENGIZINKAN): brand ini secara eksplisit mengizinkan elemen logo/identitas/ikon brand tampil di gambar - boleh menyertakan ikon aplikasi/media sosial, badge, atau elemen visual lain yang relevan dgn PROFIL BRAND di bawah, SELAMA tetap rapi & tidak mengganggu keterbacaan headline/CTA/harga. Logo ASLI brand (kalau ada) tetap akan ditempel TERPISAH sesudah gambar ini jadi di pojok kanan-atas (lihat ZONA AMAN LOGO) - jangan gambar ulang logo ASLI brand itu sendiri (hindari duplikasi), tapi elemen identitas LAIN (ikon medsos, badge fitur, dst) boleh dipakai bebas di luar zona itu.
+`.trim();
+  }
+  return `
+LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified"/"certified", watermark, ikon aplikasi/media sosial (Instagram/TikTok/WhatsApp/dst), atau simbol/elemen dekoratif apa pun yang bisa disalahartikan sbg identitas brand - JANGAN sekalipun sekadar elemen dekoratif atau "biar ramai". Logo ASLI brand (kalau ada) ditempel TERPISAH sesudah gambar ini jadi, lewat proses lain di luar kendalimu - tugasmu HANYA desain poster tanpa elemen identitas apa pun, jangan mengisi "kekosongan" itu dengan logo/ikon karangan.
+`.trim();
+}
 
-ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira ${LOGO_SIZE_RATIO * 100}% dari sisi PENDEK gambar dan margin sekitar ${LOGO_MARGIN_RATIO * 100}% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% lebar x ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, logo/badge/elemen dekoratif apa pun, atau elemen penting lain - boleh diisi background/langit/warna polos/blur di area itu, TAPI JANGAN taruh huruf/kata/ikon/lambang di sana sama sekali, walau cuma sebagian. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo.
+const ZONA_AMAN_LOGO = `
+ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira ${LOGO_SIZE_RATIO * 100}% dari sisi PENDEK gambar dan margin sekitar ${LOGO_MARGIN_RATIO * 100}% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% lebar x ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, logo/badge/ikon/elemen dekoratif apa pun, atau elemen penting lain - boleh diisi background/langit/warna polos/blur di area itu, TAPI JANGAN taruh huruf/kata/ikon/lambang di sana sama sekali, walau cuma sebagian - ATURAN INI BERLAKU WALAU brand mengizinkan elemen identitas di bagian LAIN gambar (lihat LOGO di atas), zona ini TETAP harus kosong krn sudah direservasi utk logo ASLI. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo.
 `.trim();
 
 const REAL_PHOTO_VISUAL_RULE = `
@@ -95,7 +118,12 @@ const INFOGRAFIS_LAYOUT_RULE = `
 LAYOUT INFOGRAFIS (mode konten edukasi/tips - OVERRIDE bagian KOMPOSISI/HIERARKI di atas): tujuan poster ini INFORMATIF, konsumen harus dapat SELURUH info dari poster ini sendiri tanpa perlu baca teks lain. SEMUA poin di INFOGRAFISPOINTS di bawah WAJIB tampil LENGKAP & mudah dibaca (bukan cuma judulnya, TERJEMAHKAN teks penuh tiap poin ke dalam gambar apa adanya, JANGAN dipotong/diringkas lagi) - gunakan layout numbered-list/step-card yang jelas (nomor besar 1/2/3/dst + 1 ikon relevan kecil + teks poin lengkap per baris/card), susun vertikal atau grid rapi tergantung jumlah poin. Visual (foto/AI) jadi BACKGROUND/aksen kecil di satu sisi/belakang (BUKAN dominan 60-70% lagi) - PRIORITASKAN ruang & keterbacaan teks poin di atas ukuran visual. CTA dibuat JAUH lebih kecil/halus di pojok bawah (bukan tombol besar mencolok) krn ini bukan poster hard-sell.
 `.trim();
 
-function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undefined, mode: "real-photo" | "full-ai"): string {
+function buildPosterPrompt(
+  copy: PosterCopy,
+  brandProfile: string | null | undefined,
+  mode: "real-photo" | "full-ai",
+  allowLogoInContent: boolean = false
+): string {
   const isInfografis = !!copy.infografisPoints && copy.infografisPoints.length > 0;
   const baris = [
     `Headline: "${copy.headline}"`,
@@ -126,8 +154,10 @@ function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undef
       ? "Buat SATU poster promosi dengan visual utama HASIL AI GENERATION SEPENUHNYA (tidak ada foto asli)."
       : "Buat SATU poster promosi memakai foto yang diberikan sebagai visual utama.";
 
+  const logoSection = buildLogoSection(allowLogoInContent);
+
   return (
-    `${SHARED_STRUCTURAL_RULES}\n\n${visualRule}\n\n${batasan}${layoutOverride}\n\n---\n\n` +
+    `${SHARED_STRUCTURAL_RULES}\n\n${logoSection}\n\n${ZONA_AMAN_LOGO}\n\n${visualRule}\n\n${batasan}${layoutOverride}\n\n---\n\n` +
     `PROFIL BRAND (warna/font/ikon/tone brand ini - ` +
     `WAJIB diikuti, ini yang membedakan brand ini dari brand lain):\n${profile}\n\n---\n\n` +
     `KONTEN POSTER INI (isi teks yang harus muncul, TERJEMAHKAN ke elemen visual sesuai ` +
@@ -175,13 +205,14 @@ async function applyPosterFix(opts: { brandId: string; projectId: string }, flaw
 // awal + 1x perbaikan bertarget) - frugal, sama semangat dgn checkAndHandleDuplicate
 // (KontenPilot repo lain) yg SENGAJA dibatasi drpd retry tak terbatas.
 async function runPosterWithQualityCheck(
-  opts: { brandId: string; projectId: string },
+  opts: { brandId: string; projectId: string; allowLogoInContent?: boolean },
   generateInitial: () => Promise<string>
 ): Promise<string> {
+  const allowLogo = !!opts.allowLogoInContent;
   const url = await generateInitial();
   let qc: { passed: boolean; issues: string[] };
   try {
-    qc = await checkPosterQuality(url);
+    qc = await checkPosterQuality(url, allowLogo);
   } catch (err) {
     console.error(`[posterDesign] QC gagal dijalankan (project ${opts.projectId}), pakai hasil apa adanya:`, err);
     return url;
@@ -191,7 +222,7 @@ async function runPosterWithQualityCheck(
   console.warn(`[posterDesign] QC gagal percobaan awal (project ${opts.projectId}): ${qc.issues.join("; ")} - coba perbaikan otomatis`);
   try {
     const fixedUrl = await applyPosterFix(opts, url, qc.issues);
-    const qc2 = await checkPosterQuality(fixedUrl);
+    const qc2 = await checkPosterQuality(fixedUrl, allowLogo);
     if (qc2.passed) return fixedUrl;
     console.warn(
       `[posterDesign] QC MASIH gagal setelah perbaikan (project ${opts.projectId}): ${qc2.issues.join("; ")} - ` +
@@ -217,10 +248,11 @@ export async function applyPosterDesign(opts: {
   imageUrl: string;
   copy: PosterCopy;
   brandProfile?: string | null;
+  allowLogoInContent?: boolean;
 }): Promise<string> {
   return runPosterWithQualityCheck(opts, async () => {
     const image = await generateImageWithGemini({
-      prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "real-photo"),
+      prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "real-photo", opts.allowLogoInContent),
       imageUrls: [opts.imageUrl],
       aspectRatio: "4:5",
       usageLabel: "gemini-3.1-flash-image-poster",
@@ -241,10 +273,11 @@ export async function generatePosterFullAi(opts: {
   projectId: string;
   copy: PosterCopy;
   brandProfile?: string | null;
+  allowLogoInContent?: boolean;
 }): Promise<string> {
   return runPosterWithQualityCheck(opts, async () => {
     const image = await generateImageWithGemini({
-      prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "full-ai"),
+      prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "full-ai", opts.allowLogoInContent),
       aspectRatio: "4:5",
       usageLabel: "gemini-3.1-flash-image-poster-full-ai",
     });

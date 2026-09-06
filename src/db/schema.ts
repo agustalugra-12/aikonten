@@ -133,6 +133,26 @@ export const brands = sqliteTable("brands", {
   // generatePosterFullAi di posterDesign.ts) drpd gagal/paksa pakai foto asli yg tidak
   // relevan.
   allowAiGeneratedPhotos: integer("allow_ai_generated_photos", { mode: "boolean" }).notNull().default(false),
+  // Izinkan Logo/Identitas di Konten AI (2026-09-06, permintaan Agus - "jangan berisi
+  // logo kecuali owner minta logo dilampirkan") - DEFAULT semua brand: prompt poster
+  // (posterDesign.ts, SHARED_STRUCTURAL_RULES bagian LOGO) MELARANG KERAS AI menaruh
+  // elemen apa pun yang menyerupai identitas/logo/badge (termasuk ikon generik spt
+  // Instagram/TikTok yang mengisi ZONA LOGO reserved) - ditemukan dari kasus nyata
+  // poster AgustaP Studio (QC gagal krn ikon medsos di pojok kanan-atas, memicu 1x
+  // auto-fix = 2x biaya generate gambar). Toggle ini per-brand, default FALSE (brand
+  // lain TIDAK berubah perilakunya) - kalau TRUE, brand SECARA SADAR mengizinkan AI
+  // menyertakan elemen logo/identitas di gambar yg di-generate (larangan LOGO di
+  // prompt dilonggarkan utk brand ini), staf WAJIB isi `logoInContentNote` sbg bukti
+  // brand sudah diberi tahu & setuju konsekuensi biaya (lihat catatan di sana).
+  allowLogoInAiContent: integer("allow_logo_in_ai_content", { mode: "boolean" }).notNull().default(false),
+  // Catatan wajib saat allowLogoInAiContent=true (2026-09-06) - bukan cuma checkbox
+  // kosong, staf HARUS menuliskan alasan/konfirmasi (mis. "Owner AgustaP sudah setuju
+  // biaya generate 2x krn butuh ikon medsos di desainnya") - jejak audit kenapa brand
+  // ini boleh keluar dari default aman, & mengingatkan staf sendiri saat centang ini
+  // konsekuensinya biaya kredit/token generate gambar bisa 2x lipat (auto-fix QC lebih
+  // sering jalan kalau logo/identitas sengaja diizinkan tampil). Nullable - kosong
+  // kalau toggle di atas FALSE (tidak relevan).
+  logoInContentNote: text("logo_in_content_note"),
   // Content Pillar Override (2026-08-11, permintaan Agus - brand "laundry in bali":
   // "aku mau kembangkan jenis kontennya ada konten edukasi dan tips... aku mau juga
   // konsumen mendapat konten jualan") - SEBELUM ini pilar konten HANYA py 2 opsi:

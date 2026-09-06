@@ -302,6 +302,13 @@
       "when": 1788347098396,
       "tag": "0042_dapper_captain_america",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1788664478758,
+      "tag": "0043_harsh_doctor_strange",
+      "breakpoints": true
     }
   ]
 }
