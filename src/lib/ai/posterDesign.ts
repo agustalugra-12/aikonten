@@ -1,7 +1,7 @@
 import { generateImageWithGemini, type GeneratedImage } from "./geminiImage";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { checkPosterQuality } from "./posterQualityCheck";
-import { LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "./logoOverlay";
+import { LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO, clearLogoZone } from "./logoOverlay";
 import type { PosterCopy } from "./posterCopy";
 
 // Brand Design System (2026-08-06, permintaan Agus - "jangan hanya membuat prompt 'buat
@@ -77,8 +77,16 @@ LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified
 `.trim();
 }
 
+// (2026-09-06, root cause ditemukan - kasus AgustaP Studio) posterBrandProfile brand
+// ini SENDIRI eksplisit minta visual utama & floating label ikon ditaruh "kanan atas"
+// (bagian VISUAL COMPOSITION/DEVICE MOCKUP di profil AgustaP) - bentrok LANGSUNG dgn
+// zona ini. Prompt brand profile ditulis BELAKANGAN dgn penekanan "WAJIB diikuti" (lihat
+// buildPosterPrompt), jadi rawan "menang" atas aturan zona yg ditulis lebih awal kalau
+// tidak ditegaskan eksplisit siapa yg menang - kalimat precedence terakhir di bawah
+// ditambahkan khusus utk itu (berlaku general utk brand MANAPUN yg profilnya kebetulan
+// minta posisi serupa, bukan cuma AgustaP).
 const ZONA_AMAN_LOGO = `
-ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira ${LOGO_SIZE_RATIO * 100}% dari sisi PENDEK gambar dan margin sekitar ${LOGO_MARGIN_RATIO * 100}% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% lebar x ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, logo/badge/ikon/elemen dekoratif apa pun, atau elemen penting lain - boleh diisi background/langit/warna polos/blur di area itu, TAPI JANGAN taruh huruf/kata/ikon/lambang di sana sama sekali, walau cuma sebagian - ATURAN INI BERLAKU WALAU brand mengizinkan elemen identitas di bagian LAIN gambar (lihat LOGO di atas), zona ini TETAP harus kosong krn sudah direservasi utk logo ASLI. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo.
+ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira ${LOGO_SIZE_RATIO * 100}% dari sisi PENDEK gambar dan margin sekitar ${LOGO_MARGIN_RATIO * 100}% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% lebar x ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, logo/badge/ikon/elemen dekoratif apa pun, atau elemen penting lain - boleh diisi background/langit/warna polos/blur di area itu, TAPI JANGAN taruh huruf/kata/ikon/lambang di sana sama sekali, walau cuma sebagian - ATURAN INI BERLAKU WALAU brand mengizinkan elemen identitas di bagian LAIN gambar (lihat LOGO di atas), zona ini TETAP harus kosong krn sudah direservasi utk logo ASLI. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo. PRIORITAS: kalau PROFIL BRAND di bawah (nanti) menyebutkan posisi visual utama/mockup/label/ikon di "kanan atas"/"kanan"/"pojok kanan", aturan ZONA AMAN LOGO ini TETAP MENANG - geser visual/label itu SEDIKIT ke kiri/bawah supaya TIDAK masuk area reserved ini, JANGAN korbankan zona ini demi mengikuti instruksi posisi di PROFIL BRAND.
 `.trim();
 
 const REAL_PHOTO_VISUAL_RULE = `
@@ -149,17 +157,29 @@ function buildPosterPrompt(
   const visualRule = mode === "full-ai" ? FULL_AI_VISUAL_RULE : REAL_PHOTO_VISUAL_RULE;
   const batasan = mode === "full-ai" ? FULL_AI_BATASAN : REAL_PHOTO_BATASAN;
   const layoutOverride = isInfografis ? `\n\n${INFOGRAFIS_LAYOUT_RULE}` : "";
+  // (2026-09-06) diulang di baris PALING AKHIR prompt (bukan cuma sekali di tengah
+  // dekat PROFIL BRAND) - kasus AgustaP Studio: reminder 1x saja TERBUKTI belum cukup
+  // kuat lawan instruksi brand profile yg sangat eksplisit/detail soal posisi "kanan
+  // atas" (live test 3x masih gagal QC pojok kanan-atas setelah reminder pertama
+  // ditambahkan). Kalimat penutup PALING AKHIR yg dibaca model sebelum generate biasanya
+  // dapat bobot perhatian lebih besar (recency) - diulang lagi di sini sbg lapisan
+  // ketiga (SHARED_STRUCTURAL_RULES awal -> reminder dekat PROFIL BRAND -> sini).
+  const zonaFinalReminder =
+    " INGAT SEKALI LAGI SEBELUM GENERATE: pojok kanan-atas gambar (kira-kira " +
+    `${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% lebar x ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% tinggi dari sisi pendek) ` +
+    "WAJIB kosong total/background polos - TIDAK ADA pengecualian utk instruksi posisi apa pun di PROFIL BRAND (kalau PROFIL BRAND minta visual/mockup/label/ikon di kanan/kanan-atas, geser ke kiri/tengah/bawah sebagai gantinya).";
   const closingLine =
-    mode === "full-ai"
+    (mode === "full-ai"
       ? "Buat SATU poster promosi dengan visual utama HASIL AI GENERATION SEPENUHNYA (tidak ada foto asli)."
-      : "Buat SATU poster promosi memakai foto yang diberikan sebagai visual utama.";
+      : "Buat SATU poster promosi memakai foto yang diberikan sebagai visual utama.") + zonaFinalReminder;
 
   const logoSection = buildLogoSection(allowLogoInContent);
 
   return (
     `${SHARED_STRUCTURAL_RULES}\n\n${logoSection}\n\n${ZONA_AMAN_LOGO}\n\n${visualRule}\n\n${batasan}${layoutOverride}\n\n---\n\n` +
     `PROFIL BRAND (warna/font/ikon/tone brand ini - ` +
-    `WAJIB diikuti, ini yang membedakan brand ini dari brand lain):\n${profile}\n\n---\n\n` +
+    `WAJIB diikuti, ini yang membedakan brand ini dari brand lain):\n${profile}\n\n` +
+    `PENGINGAT (kalau PROFIL BRAND di atas menyebut posisi "kanan atas"/"kanan"/"pojok kanan" utk visual/mockup/label/ikon apa pun): ZONA AMAN LOGO yg sudah dijelaskan di awal TETAP MENANG - jangan taruh elemen apa pun dari PROFIL BRAND di area itu, geser ke kiri/bawah.\n\n---\n\n` +
     `KONTEN POSTER INI (isi teks yang harus muncul, TERJEMAHKAN ke elemen visual sesuai ` +
     `seluruh aturan gaya di atas - jangan tampilkan teks lain di luar ini):\n` +
     `${baris.join("\n")}\n\n${closingLine}`
@@ -167,13 +187,19 @@ function buildPosterPrompt(
 }
 
 async function uploadPosterResult(opts: { brandId: string; projectId: string }, image: GeneratedImage): Promise<string> {
+  // clearLogoZone dipanggil di SINI (2026-09-06) - satu-satunya titik pertemuan SEMUA
+  // pemanggil generateImageWithGemini di file ini (applyPosterDesign, generatePosterFullAi,
+  // applyPosterFix) - bersihkan zona logo SEBELUM upload/QC, lihat catatan lengkap di
+  // logoOverlay.ts. sharp mempertahankan format input (jpeg tetap jpeg) - image.mimeType
+  // di bawah TETAP akurat sesudah proses ini.
+  const cleanedBuffer = await clearLogoZone(image.buffer);
   // Ekstensi & content-type ikut mimeType ASLI dari Gemini (kadang image/jpeg, bukan
   // selalu png - lihat catatan di geminiImage.ts) - jangan hardcode png lagi.
   const ext = image.mimeType === "image/jpeg" ? "jpg" : "png";
   // buildAssetKey SUDAH prefix timestamp sendiri (lihat storage.ts) - key tetap unik
   // tiap panggilan (percobaan awal vs hasil perbaikan QC) walau nama filenya sama.
   const key = buildAssetKey(opts.brandId, opts.projectId, `poster.${ext}`);
-  return uploadBuffer(key, image.buffer, image.mimeType);
+  return uploadBuffer(key, cleanedBuffer, image.mimeType);
 }
 
 // Perbaikan bertarget (2026-08-13, lihat catatan lengkap di posterQualityCheck.ts) -

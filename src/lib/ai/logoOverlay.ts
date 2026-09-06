@@ -82,6 +82,40 @@ export async function buildCircularLogoPng(logoUrl: string, sizePx: number): Pro
   return png;
 }
 
+// Bersihkan Zona Logo SECARA DETERMINISTIK (2026-09-06, permintaan Agus - "cari solusi
+// terbaik agar bisa generate 1x saja tanpa logo dan hasilnya sesuai") - root cause
+// masalah "AI tetap menaruh ikon di pojok kanan-atas" (kasus AgustaP Studio: brand
+// profile brand ini SENDIRI eksplisit minta visual/floating label di "kanan atas",
+// bentrok dgn zona reserved logo) TERBUKTI TIDAK BISA diselesaikan tuntas lewat
+// instruksi teks ke model (sudah dicoba 2x reinforcement prompt, live test tetap 6/6
+// gagal) - Nano Banana 2/Gemini image TIDAK PUNYA mask piksel, jadi kepatuhan spasial
+// tidak pernah 100% terjamin dari sisi prompt. Fix SESUNGGUHNYA: jangan andalkan model
+// patuh, PAKSA zona itu bersih lewat kode (blur berat, bukan hapus/crop - SHARED_
+// STRUCTURAL_RULES di posterDesign.ts sendiri sudah bilang "boleh diisi background/
+// blur" utk zona ini, jadi blur SESUAI spesifikasi awal, bukan tempelan asing). Dipanggil
+// SEBELUM checkPosterQuality (lihat posterDesign.ts) - kalau zona sudah pasti bersih dari
+// kode, kategori kegagalan QC "pojok kanan atas kotor" nyaris tidak akan pernah trigger
+// lagi, artinya generate ULANG (auto-fix, $0.067 lagi) jadi jauh lebih jarang perlu -
+// pencapaian "generate 1x saja" yg diminta, TANPA mengorbankan hasil (blur di pojok yg
+// memang akan ditimpa logo asli tidak terlihat aneh sama sekali).
+export async function clearLogoZone(buffer: Buffer): Promise<Buffer> {
+  const meta = await sharp(buffer).metadata();
+  const width = meta.width || 1080;
+  const height = meta.height || 1080;
+  const shortSide = Math.min(width, height);
+  const zoneSize = Math.round(shortSide * (LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO));
+  const box = { left: Math.max(0, width - zoneSize), top: 0, width: Math.min(zoneSize, width), height: Math.min(zoneSize, height) };
+
+  const blurredZone = await sharp(buffer)
+    .extract(box)
+    .blur(Math.max(15, zoneSize * 0.15))
+    .toBuffer();
+
+  return sharp(buffer)
+    .composite([{ input: blurredZone, left: box.left, top: box.top }])
+    .toBuffer();
+}
+
 // Tempel logo lingkaran ke foto FINAL (poster/carousel) - pojok kanan-atas dgn margin,
 // ukuran proporsional terhadap sisi PENDEK foto (supaya konsisten baik foto potret
 // maupun persegi, tidak kegedean di foto sempit).
