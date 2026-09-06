@@ -1,25 +1,8 @@
-import { fal } from "@fal-ai/client";
-import { subscribeFalWithRetry } from "./falRetry";
+import { generateImageWithGemini, type GeneratedImage } from "./geminiImage";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
-import { logNonTokenUsage } from "./openaiClient";
 import { checkPosterQuality } from "./posterQualityCheck";
 import { LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "./logoOverlay";
 import type { PosterCopy } from "./posterCopy";
-
-function ensureFalConfigured(): void {
-  const apiKey = process.env.FAL_KEY;
-  if (!apiKey) throw new Error("FAL_KEY belum diisi di .env");
-  fal.config({ credentials: apiKey });
-}
-
-// Pencatatan biaya (2026-08-10, permintaan Agus - dashboard "Biaya AI Hari Ini"
-// sebelumnya CUMA nangkep OpenAI, biaya gambar fal.ai harus dicek terpisah manual di
-// dashboard fal.ai). $0.08/gambar @ resolusi 1K (dicek 2x: harga resmi fal.ai model
-// page, DAN sudah cocok dgn observasi Agus sendiri dari playground fal.ai - lihat
-// komentar applyPosterDesign di bawah). logNonTokenUsage() sama fungsi dipakai
-// kokoro-tts (dubbing.ts) - tabel llm_usage_log memang generik lintas provider,
-// bukan cuma OpenAI walau namanya begitu.
-const NANO_BANANA_PRICE_PER_IMAGE_1K = 0.08;
 
 // Brand Design System (2026-08-06, permintaan Agus - "jangan hanya membuat prompt 'buat
 // poster'... buatlah Brand Design System Prompt sehingga semua poster memiliki identitas
@@ -153,14 +136,14 @@ function buildPosterPrompt(copy: PosterCopy, brandProfile: string | null | undef
   );
 }
 
-async function fetchAndUploadPosterResult(opts: { brandId: string; projectId: string }, imageUrl: string): Promise<string> {
-  const res = await fetch(imageUrl);
-  if (!res.ok) throw new Error(`Gagal ambil hasil poster dari fal.ai: ${res.status}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
+async function uploadPosterResult(opts: { brandId: string; projectId: string }, image: GeneratedImage): Promise<string> {
+  // Ekstensi & content-type ikut mimeType ASLI dari Gemini (kadang image/jpeg, bukan
+  // selalu png - lihat catatan di geminiImage.ts) - jangan hardcode png lagi.
+  const ext = image.mimeType === "image/jpeg" ? "jpg" : "png";
   // buildAssetKey SUDAH prefix timestamp sendiri (lihat storage.ts) - key tetap unik
   // tiap panggilan (percobaan awal vs hasil perbaikan QC) walau nama filenya sama.
-  const key = buildAssetKey(opts.brandId, opts.projectId, "poster.png");
-  return uploadBuffer(key, buffer, "image/png");
+  const key = buildAssetKey(opts.brandId, opts.projectId, `poster.${ext}`);
+  return uploadBuffer(key, image.buffer, image.mimeType);
 }
 
 // Perbaikan bertarget (2026-08-13, lihat catatan lengkap di posterQualityCheck.ts) -
@@ -173,15 +156,13 @@ async function fetchAndUploadPosterResult(opts: { brandId: string; projectId: st
 async function applyPosterFix(opts: { brandId: string; projectId: string }, flawedPosterUrl: string, issues: string[]): Promise<string> {
   const prompt = `Ini poster promosi yang SUDAH dibuat, tapi pemeriksaan kualitas menemukan masalah berikut yang WAJIB diperbaiki:\n${issues.map((i) => `- ${i}`).join("\n")}\n\nINSTRUKSI PERBAIKAN: perbaiki HANYA masalah di atas. JANGAN ubah elemen lain yang sudah benar (headline, layout, warna, foto, badge, CTA, dst harus tetap SAMA PERSIS kecuali yang perlu diperbaiki). Kalau masalahnya elemen logo/badge/lambang tambahan (termasuk di pojok kanan-atas) - HAPUS elemen itu sepenuhnya, biarkan areanya kosong/bersih (logo ASLI brand akan ditempel terpisah sesudah ini, jangan gambar logo apa pun sbg gantinya). Hasil akhir tetap 1 poster utuh, resolusi & rasio sama seperti sebelumnya.`;
 
-  const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
+  const image = await generateImageWithGemini({
     prompt,
-    image_urls: [flawedPosterUrl],
-    resolution: "1K",
+    imageUrls: [flawedPosterUrl],
+    aspectRatio: "4:5",
+    usageLabel: "gemini-3.1-flash-image-poster-fix",
   });
-  const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
-  if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil perbaikan poster");
-  await logNonTokenUsage("nano-banana-2-poster-fix", NANO_BANANA_PRICE_PER_IMAGE_1K);
-  return fetchAndUploadPosterResult(opts, imageUrl);
+  return uploadPosterResult(opts, image);
 }
 
 // QC + 1x perbaikan otomatis (2026-08-13, permintaan Agus - laporan nyata "hasil
@@ -224,13 +205,12 @@ async function runPosterWithQualityCheck(
 }
 
 // Poster foto tunggal penuh (BEDA dari applyPromoOverlay yg cuma badge kecil 1 pojok) -
-// Nano Banana 2 (fal.ai, gemini-3.1-flash-image via fal-ai/nano-banana-2/edit) TANPA
-// mask - model ini sama sekali TIDAK PUNYA fitur mask biner (2026-08-05, dicek langsung
-// ke dokumentasi resmi: "no masks needed", editing murni lewat instruksi natural
-// language/"semantic masking") - keamanan foto asli TIDAK ditegakkan lewat mask, murni
-// lewat instruksi tegas di MASTER_STYLE_PROMPT (bagian FOTO & BATASAN KERAS). Sebelumnya
-// pakai gpt-image-1 (OpenAI) - diganti ke sini atas permintaan Agus (resolusi 1K,
-// ~$0,08/gambar dari playground fal.ai beliau).
+// Gemini API LANGSUNG (2026-09-06, migrasi dari fal.ai - lihat geminiImage.ts) model
+// gemini-3.1-flash-image TANPA mask - model ini sama sekali TIDAK PUNYA fitur mask
+// biner (2026-08-05, dicek langsung ke dokumentasi resmi: "no masks needed", editing
+// murni lewat instruksi natural language/"semantic masking") - keamanan foto asli
+// TIDAK ditegakkan lewat mask, murni lewat instruksi tegas di MASTER_STYLE_PROMPT
+// (bagian FOTO & BATASAN KERAS).
 export async function applyPosterDesign(opts: {
   brandId: string;
   projectId: string;
@@ -238,47 +218,36 @@ export async function applyPosterDesign(opts: {
   copy: PosterCopy;
   brandProfile?: string | null;
 }): Promise<string> {
-  ensureFalConfigured();
-
   return runPosterWithQualityCheck(opts, async () => {
-    const result = await subscribeFalWithRetry("fal-ai/nano-banana-2/edit", {
+    const image = await generateImageWithGemini({
       prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "real-photo"),
-      image_urls: [opts.imageUrl],
-      resolution: "1K",
+      imageUrls: [opts.imageUrl],
+      aspectRatio: "4:5",
+      usageLabel: "gemini-3.1-flash-image-poster",
     });
-    const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
-    if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil poster");
-    await logNonTokenUsage("nano-banana-2-poster", NANO_BANANA_PRICE_PER_IMAGE_1K);
-    return fetchAndUploadPosterResult(opts, imageUrl);
+    return uploadPosterResult(opts, image);
   });
 }
 
 // Poster full AI-generate, TANPA foto asli sama sekali (2026-08-11, permintaan Agus -
 // brand "laundry in bali" - lihat catatan panjang di FULL_AI_VISUAL_RULE di atas soal
-// kenapa & batasannya). Endpoint text-to-image BEDA dari applyPosterDesign
-// (`fal-ai/nano-banana-2`, TANPA "/edit" & TANPA `image_urls` - dicek langsung ke
-// dokumentasi resmi fal.ai, bukan tebak) - model & resolusi 1K SAMA, jadi HARGA SAMA
-// PERSIS ($0.08/gambar, "harganya sama saja" sesuai permintaan Agus). aspect_ratio
-// "4:5" (bukan "auto") - samakan dgn konvensi poster foto asli yg SUDAH ada
-// (OUTPUT: "4:5 atau 1:1" di SHARED_STRUCTURAL_RULES), supaya hasil kedua mode
-// konsisten dipakai di slot yang sama (feed/carousel).
+// kenapa & batasannya). Text-to-image (imageUrls kosong) - model & resolusi 1K SAMA
+// dgn applyPosterDesign, jadi HARGA SAMA PERSIS. aspect_ratio "4:5" (bukan "auto") -
+// samakan dgn konvensi poster foto asli yg sudah ada (OUTPUT: "4:5 atau 1:1" di
+// SHARED_STRUCTURAL_RULES), supaya hasil kedua mode konsisten dipakai di slot yang
+// sama (feed/carousel).
 export async function generatePosterFullAi(opts: {
   brandId: string;
   projectId: string;
   copy: PosterCopy;
   brandProfile?: string | null;
 }): Promise<string> {
-  ensureFalConfigured();
-
   return runPosterWithQualityCheck(opts, async () => {
-    const result = await subscribeFalWithRetry("fal-ai/nano-banana-2", {
+    const image = await generateImageWithGemini({
       prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "full-ai"),
-      aspect_ratio: "4:5",
-      resolution: "1K",
+      aspectRatio: "4:5",
+      usageLabel: "gemini-3.1-flash-image-poster-full-ai",
     });
-    const imageUrl = (result.data as { images?: Array<{ url: string }> })?.images?.[0]?.url;
-    if (!imageUrl) throw new Error("Nano Banana 2 (fal.ai) tidak mengembalikan hasil poster full-AI");
-    await logNonTokenUsage("nano-banana-2-poster-full-ai", NANO_BANANA_PRICE_PER_IMAGE_1K);
-    return fetchAndUploadPosterResult(opts, imageUrl);
+    return uploadPosterResult(opts, image);
   });
 }

@@ -12,7 +12,7 @@
     "@aws-sdk/client-s3": "^3.1098.0",
     "@aws-sdk/s3-request-presigner": "^3.1098.0",
     "@base-ui/react": "^1.6.0",
-    "@fal-ai/client": "^1.10.1",
+    "@google/genai": "^2.21.0",
     "@react-pdf/renderer": "^4.6.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.11.1",
