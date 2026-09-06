@@ -95,7 +95,17 @@ export async function applyLogoToImage(imageUrl: string, logoUrl: string): Promi
   const margin = Math.round(shortSide * LOGO_MARGIN_RATIO);
   const logoPng = await buildCircularLogoPng(logoUrl, logoSize);
 
+  // .png() eksplisit (2026-09-06, ditemukan sekalian audit migrasi Gemini) - TANPA ini
+  // sharp mempertahankan format INPUT apa adanya (JPEG kalau posternya JPEG) krn tidak
+  // ada encoder eksplisit dipanggil. Sebelum migrasi ke Gemini API ini TIDAK PERNAH
+  // ketahuan krn fal.ai selalu balikin PNG - sekarang Gemini kadang balikin JPEG (lihat
+  // geminiImage.ts), sementara SATU-SATUNYA pemanggil (processProject.ts) hardcode
+  // upload sbg "logo_N.png"/"image/png" - tanpa .png() di sini, hasil JPEG bisa
+  // ke-upload dgn ekstensi/content-type png yg salah (bug yg sama persis sudah
+  // diperbaiki di posterDesign.ts, di sini dibetulkan dgn cara SEBALIKNYA - paksa
+  // output PNG selalu, bukan ikutkan mimeType asli, krn caller sudah menganggap PNG).
   return sharp(imageBuffer)
     .composite([{ input: logoPng, top: margin, left: Math.max(0, width - logoSize - margin) }])
+    .png()
     .toBuffer();
 }
