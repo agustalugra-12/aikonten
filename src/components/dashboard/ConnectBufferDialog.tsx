@@ -37,18 +37,32 @@ export function ConnectBufferDialog({ brandId, onConnected }: { brandId: string;
 
   async function handleLoadChannels() {
     setLoading(true);
-    const url = customToken.trim()
-      ? `/api/auth/buffer/channels?token=${encodeURIComponent(customToken.trim())}`
-      : "/api/auth/buffer/channels";
-    const res = await fetch(url);
-    const data = await res.json();
-    setLoading(false);
-    if (!res.ok) {
-      toast.error(data.error || "Gagal ambil daftar channel Buffer");
+    // try/catch (2026-09-06, bug nyata ditemukan - laporan Agus "klik Muat Channel,
+    // tidak ada respons sama sekali") - SEBELUM ini TIDAK ADA try/catch di sini sama
+    // sekali. Kalau fetch gagal (network error) ATAU res.json() gagal parse (server
+    // balikin HTML/non-JSON, mis. error 502/504 dari upstream), exception ini TIDAK
+    // TERTANGKAP - loading tetap true selamanya (macet diam-diam), TIDAK ADA toast
+    // error, persis simptom yg dilaporkan. Sekarang exception apa pun ditangkap &
+    // ditampilkan sbg toast, loading SELALU direset di finally.
+    try {
+      const url = customToken.trim()
+        ? `/api/auth/buffer/channels?token=${encodeURIComponent(customToken.trim())}`
+        : "/api/auth/buffer/channels";
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Gagal ambil daftar channel Buffer");
+        setChannels([]);
+        return;
+      }
+      setChannels(data);
+    } catch (err) {
+      console.error("[ConnectBufferDialog] gagal muat channel:", err);
+      toast.error(err instanceof Error ? `Gagal muat channel: ${err.message}` : "Gagal muat channel (error tidak diketahui)");
       setChannels([]);
-      return;
+    } finally {
+      setLoading(false);
     }
-    setChannels(data);
   }
 
   async function handleOpenChange(next: boolean) {
@@ -60,24 +74,33 @@ export function ConnectBufferDialog({ brandId, onConnected }: { brandId: string;
 
   async function handleAttach(channel: BufferChannel) {
     setAttaching(channel.id);
-    const res = await fetch(`/api/brands/${brandId}/social-accounts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        bufferChannelId: channel.id,
-        username: channel.name,
-        platform: channel.service,
-        bufferAccessToken: customToken.trim() || null,
-      }),
-    });
-    setAttaching(null);
-    if (res.ok) {
-      toast.success(`${channel.name} tersambung ke brand ini`);
-      setOpen(false);
-      onConnected();
-    } else {
-      const data = await res.json().catch(() => ({}));
-      toast.error(data.error || "Gagal menyambungkan channel");
+    // try/catch + finally (2026-09-06, pola bug sama dgn handleLoadChannels di atas) -
+    // network error di sini SEBELUMNYA jg tidak tertangkap, attaching bisa macet true
+    // selamanya (tombol "Menyambungkan..." tidak pernah kembali normal) tanpa toast.
+    try {
+      const res = await fetch(`/api/brands/${brandId}/social-accounts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bufferChannelId: channel.id,
+          username: channel.name,
+          platform: channel.service,
+          bufferAccessToken: customToken.trim() || null,
+        }),
+      });
+      if (res.ok) {
+        toast.success(`${channel.name} tersambung ke brand ini`);
+        setOpen(false);
+        onConnected();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Gagal menyambungkan channel");
+      }
+    } catch (err) {
+      console.error("[ConnectBufferDialog] gagal menyambungkan channel:", err);
+      toast.error(err instanceof Error ? `Gagal menyambungkan: ${err.message}` : "Gagal menyambungkan channel (error tidak diketahui)");
+    } finally {
+      setAttaching(null);
     }
   }
 
