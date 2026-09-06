@@ -110,12 +110,12 @@ export async function generateImageWithGemini(opts: {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const image = await generateOnce({ prompt: opts.prompt, inputImages, aspectRatio: opts.aspectRatio });
-      await logNonTokenUsage(opts.usageLabel, GEMINI_IMAGE_PRICE_1K);
+      await logNonTokenUsage(opts.usageLabel, GEMINI_IMAGE_PRICE_1K, "gemini");
       return image;
     } catch (err) {
       lastError = err;
       console.error(`[gemini-image] percobaan ${attempt}/${MAX_ATTEMPTS} gagal (${opts.usageLabel}): ${describeError(err)}`);
-      await logNonTokenUsage(`${opts.usageLabel}-attempt-failed`, 0);
+      await logNonTokenUsage(`${opts.usageLabel}-attempt-failed`, 0, "gemini");
       if (err instanceof NonRetryableGeminiImageError) {
         console.error(`[gemini-image] penolakan konten - input tidak akan berubah di percobaan berikutnya, nyerah sekarang (tidak retry).`);
         throw err;

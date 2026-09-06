@@ -70,13 +70,19 @@ export async function logOpenAIUsage(
 // Dipakai Whisper (per-menit) & TTS (per-karakter) di transcribe.ts/dubbing.ts - beda
 // skema harga dari chat.completions (bukan token-based), biaya sudah dihitung pemanggil
 // sendiri (masing2 tahu harga per-unit-nya), fungsi ini cuma tulis ke DB yg sama.
-export async function logNonTokenUsage(model: string, costUsd: number): Promise<void> {
+// `provider` opsional (2026-09-06, migrasi gemini image gen - geminiImage.ts) - default
+// "openai" (perilaku lama, backward compatible utk whisper/TTS yg genuinely OpenAI),
+// tapi caller non-OpenAI (mis. Gemini) WAJIB isi eksplisit - sebelum ini SEMUA baris
+// (termasuk yg dulu fal.ai) salah tercatat provider="openai" hardcode, walau kolom
+// `provider` sendiri tidak dipakai dashboard usage-summary (group by `model`, bukan
+// `provider`) jadi tidak kelihatan di UI - tetap dibetulkan supaya data mentahnya benar.
+export async function logNonTokenUsage(model: string, costUsd: number, provider: string = "openai"): Promise<void> {
   try {
     const ctx = getCurrentUsageContext();
     await db.insert(llmUsageLog).values({
       id: newId("usage"),
       ts: new Date(),
-      provider: "openai",
+      provider,
       model,
       promptTokens: null,
       completionTokens: null,
