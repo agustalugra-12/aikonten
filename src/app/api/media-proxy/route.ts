@@ -40,10 +40,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: `Gagal ambil media: ${upstream.status}` }, { status: 502 });
   }
 
-  return new NextResponse(upstream.body, {
-    headers: {
-      "Content-Type": upstream.headers.get("content-type") || "application/octet-stream",
-      "Cache-Control": "public, max-age=86400",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": upstream.headers.get("content-type") || "application/octet-stream",
+    "Cache-Control": "public, max-age=86400",
+  };
+
+  // Download poster/foto (2026-09-06, permintaan Agus - "buat fitur download konten
+  // foto") - `?download=1` opsional (default TETAP preview inline apa adanya, tidak
+  // ubah perilaku lama sama sekali) - browser TIDAK menghormati atribut `<a download>`
+  // utk resource CROSS-ORIGIN (R2/Cloudinary, beda domain dari aplikasi ini) - proxy
+  // ini SATU-SATUNYA cara paksa download sungguhan (server yg tempel header
+  // Content-Disposition: attachment, bukan browser yg menebak dari atribut HTML).
+  // Nama file dari query param `filename` (opsional, staf isi biar rapi di folder
+  // Download, mis. "poster-agustap-1788683.jpg") - fallback ke nama asli di URL kalau
+  // tidak dikirim.
+  if (req.nextUrl.searchParams.get("download") === "1") {
+    const fallbackName = url.split("/").pop() || "download";
+    const filename = req.nextUrl.searchParams.get("filename") || fallbackName;
+    headers["Content-Disposition"] = `attachment; filename="${filename.replace(/"/g, "")}"`;
+  }
+
+  return new NextResponse(upstream.body, { headers });
 }

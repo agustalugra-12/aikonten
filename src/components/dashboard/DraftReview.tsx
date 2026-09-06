@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -21,6 +22,14 @@ const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
 // sama sekali jadi tidak terdampak).
 function previewUrl(fileUrl: string): string {
   return `/api/media-proxy?url=${encodeURIComponent(fileUrl)}`;
+}
+
+// Download foto (2026-09-06, permintaan Agus - "buat fitul download konten untuk foto")
+// - lewat media-proxy?download=1 (lihat catatan lengkap di api/media-proxy/route.ts),
+// BUKAN link R2 langsung - `<a download>` browser TIDAK dihormati utk resource cross-
+// origin, proxy ini yg paksa Content-Disposition: attachment dari sisi server.
+function downloadUrl(fileUrl: string): string {
+  return `/api/media-proxy?url=${encodeURIComponent(fileUrl)}&download=1`;
 }
 
 // Draft review (2026-08-04, permintaan Agus - "biar aku cek di draft AI konten" sblm
@@ -212,17 +221,31 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
         // (aspect-square + object-cover) - poster teks/badge/layout-nya jadi hilang
         // sebagian/nyaris tidak kelihatan. object-contain (bukan cover) supaya rasio asli
         // poster (1:1/4:5) tetap utuh, tidak dipaksa persegi.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={previewUrl(finalImages[0].fileUrl)}
-          alt=""
-          className="w-full max-h-[520px] object-contain rounded-md bg-muted"
-        />
+        <div className="space-y-1.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewUrl(finalImages[0].fileUrl)}
+            alt=""
+            className="w-full max-h-[520px] object-contain rounded-md bg-muted"
+          />
+          <a href={downloadUrl(finalImages[0].fileUrl)} download>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Download className="w-3.5 h-3.5" /> Unduh Foto
+            </Button>
+          </a>
+        </div>
       ) : finalImages.length > 1 ? (
         <div className="grid grid-cols-3 gap-2">
-          {finalImages.map((img) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={img.id} src={previewUrl(img.fileUrl)} alt="" className="w-full aspect-square object-cover rounded-md" />
+          {finalImages.map((img, i) => (
+            <div key={img.id} className="space-y-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={previewUrl(img.fileUrl)} alt="" className="w-full aspect-square object-cover rounded-md" />
+              <a href={downloadUrl(img.fileUrl)} download>
+                <Button variant="outline" size="sm" className="w-full gap-1 text-xs">
+                  <Download className="w-3 h-3" /> Foto {i + 1}
+                </Button>
+              </a>
+            </div>
           ))}
         </div>
       ) : (
