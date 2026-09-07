@@ -65,10 +65,18 @@ async function publishProjectInner(projectId: string): Promise<void> {
       .update(projects)
       .set({ status: "failed", errorMessage: "Belum ada aset final (video/gambar) utk dipublikasikan", updatedAt: new Date() })
       .where(eq(projects.id, projectId));
-    await sendTelegramNotification(
-      `⚠️ <b>${brandName}</b> - project ${projectId} siap secara teks (caption/hashtag) ` +
-        `tapi rendering video/gambar final BELUM tersedia, publish dibatalkan.`
-    );
+    // try/catch (2026-09-07, sama pengamanan dgn notif ringkasan di bawah) - status DB
+    // sudah "failed" di atas SEBELUM notif ini, jadi tidak kritis spt kasus notif
+    // ringkasan, tapi tetap dijaga konsisten - notifikasi gagal kirim tidak boleh jadi
+    // unhandled exception yg merambat ke pemanggil (cron/manual publish).
+    try {
+      await sendTelegramNotification(
+        `⚠️ <b>${brandName}</b> - project ${projectId} siap secara teks (caption/hashtag) ` +
+          `tapi rendering video/gambar final BELUM tersedia, publish dibatalkan.`
+      );
+    } catch (err) {
+      console.error(`[orchestrate] Gagal kirim notifikasi Telegram (project ${projectId} tetap ditandai failed):`, err);
+    }
     return;
   }
 
@@ -261,8 +269,25 @@ async function publishProjectInner(projectId: string): Promise<void> {
   // sudah sukses dari sebelumnya - seharusnya tidak pernah masuk sini krn cron retry
   // cuma manggil project "partial", tapi jaring pengaman tetap aman kalau dipanggil
   // manual di project yg sudah "published" penuh).
+  //
+  // try/catch (2026-09-07, bug KRITIS nyata ditemukan - laporan Agus "AI konten semua
+  // gagal upload"): panggilan ini TIDAK PERNAH dibungkus try/catch, jadi begitu
+  // Telegram API timeout/network gagal (nyata terjadi 2x hari ini,
+  // ConnectTimeoutError ke 149.154.166.110), exception-nya MERAMBAT KELUAR dan
+  // MENGGAGALKAN SISA FUNGSI INI - termasuk penghitungan finalStatus & update
+  // projects.status di bawah TIDAK PERNAH jalan. Dicek langsung ke DB: proj_znjTrcP0OmOn
+  // publish-nya SUKSES PENUH ke kedua akun sosmed Harmoni (publishLogs status=success,
+  // platform_post_id terisi) TAPI projects.status nyangkut selamanya di "publishing" &
+  // cron melaporkannya "publish gagal" - laporan Agus jadi salah total (konten SUDAH
+  // tayang, bukan gagal). Pola pengamanan SAMA dgn verifyPublishSucceeded beberapa
+  // baris di atas (notifikasi/verifikasi tambahan tidak boleh menggagalkan alur utama)
+  // - HANYA belum diterapkan konsisten di panggilan notifikasi RINGKASAN ini.
   if (notifyResults.length > 0) {
-    await sendTelegramNotification(formatPublishSummaryNotification({ brandName, projectId, results: notifyResults }));
+    try {
+      await sendTelegramNotification(formatPublishSummaryNotification({ brandName, projectId, results: notifyResults }));
+    } catch (err) {
+      console.error(`[orchestrate] Gagal kirim notifikasi ringkasan Telegram (publish project ${projectId} TETAP lanjut diproses):`, err);
+    }
   }
 
   // Status akhir dihitung dari SEMUA publishLogs (lama + baru), bukan cuma anySuccess
