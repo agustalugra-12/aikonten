@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { brands, projects } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { getWeeklyReportData } from "@/lib/reports/weeklyReportData";
 
 // Agency Dashboard (2026-08-26, PRD §32, Task Plan 4) - dipisah dari route.ts supaya
@@ -14,8 +14,19 @@ export type AgencyBrandSummary = {
   weekly: Awaited<ReturnType<typeof getWeeklyReportData>>;
 };
 
-export async function getLocalAgencySummaries(): Promise<AgencyBrandSummary[]> {
-  const allBrands = await db.select({ id: brands.id, name: brands.name }).from(brands);
+// brandIds (2026-09-07, Fase 1 Alur D, fork multi-tenant) - repo asal (single-admin)
+// selalu ambil SEMUA brand ("agency" = seluruh brand milik Agus). Di fork INI, "semua
+// brand" tanpa filter berarti membocorkan ringkasan brand SEMUA pelanggan lain ke
+// siapa pun yang login - WAJIB dibatasi ke brand milik userId yang login (lihat
+// pemanggil di /api/agency/dashboard). Optional (bukan required) supaya
+// brands-summary/route.ts (jalur server-ke-server lama, sudah dinonaktifkan di fork
+// ini - lihat catatan di sana) tidak perlu diubah signature-nya kalau suatu saat
+// diaktifkan lagi dgn model otorisasi yang benar.
+export async function getLocalAgencySummaries(brandIds?: string[]): Promise<AgencyBrandSummary[]> {
+  const allBrands = await db
+    .select({ id: brands.id, name: brands.name })
+    .from(brands)
+    .where(brandIds ? inArray(brands.id, brandIds) : undefined);
 
   return Promise.all(
     allBrands.map(async (b) => {

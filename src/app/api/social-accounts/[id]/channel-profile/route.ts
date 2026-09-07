@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { channelProfiles, socialAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Channel Profile CRUD (2026-08-10, PRD Agus "YouTube Long Form Content Engine" +
 // "YouTube Shorts Engine" - "buat dia memiliki editorial policy dan YouTube growth
@@ -15,10 +16,16 @@ import { newId } from "@/lib/ids";
 // Top-level /api/social-accounts/[id]/... (BUKAN nested /api/brands/[id]/social-
 // accounts/[id]/...) krn socialAccountId sudah unik global & channel profile murni
 // milik akun itu, tidak perlu context brand tambahan di URL.
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+//
+// Isolasi (2026-09-07, Fase 1 Alur D) - socialAccounts TIDAK punya userId langsung,
+// kepemilikan lewat brandId -> getOwnedBrand (2 langkah, sama pola dgn getOwnedProject).
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: socialAccountId } = await params;
   const [account] = await db.select().from(socialAccounts).where(eq(socialAccounts.id, socialAccountId));
-  if (!account) return NextResponse.json({ error: "Akun sosial media tidak ditemukan" }, { status: 404 });
+  if (!account || !(await getOwnedBrand(userId, account.brandId))) {
+    return NextResponse.json({ error: "Akun sosial media tidak ditemukan" }, { status: 404 });
+  }
 
   const [profile] = await db.select().from(channelProfiles).where(eq(channelProfiles.socialAccountId, socialAccountId));
   if (!profile) return NextResponse.json(null);
@@ -37,9 +44,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: socialAccountId } = await params;
   const [account] = await db.select().from(socialAccounts).where(eq(socialAccounts.id, socialAccountId));
-  if (!account) return NextResponse.json({ error: "Akun sosial media tidak ditemukan" }, { status: 404 });
+  if (!account || !(await getOwnedBrand(userId, account.brandId))) {
+    return NextResponse.json({ error: "Akun sosial media tidak ditemukan" }, { status: 404 });
+  }
   if (account.platform !== "youtube") {
     return NextResponse.json({ error: "Channel Profile/editorial policy hanya relevan utk akun YouTube" }, { status: 400 });
   }

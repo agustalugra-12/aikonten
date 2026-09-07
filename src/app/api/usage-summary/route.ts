@@ -1,37 +1,18 @@
 import { NextResponse } from "next/server";
-import { db } from "@/db";
-import { llmUsageLog } from "@/db/schema";
-import { gte } from "drizzle-orm";
-import { sql } from "drizzle-orm";
 
-// Ringkasan biaya AI KontenPilot (2026-08-06, permintaan Agus - "cek ai blok dan ai
-// konten juga agar transparan") - GLOBAL (fal.ai + OpenAI blm dipisah per-brand, cukup
-// utk jawab "berapa biaya KontenPilot total hari ini", sama semangat dgn AI Blog/ai-
-// chat-bot yg sudah dibuat hari yg sama.
+// DINONAKTIFKAN utk fork multi-tenant (2026-09-07, Fase 1 Alur D). Endpoint asli
+// (repo internal KontenPilot) balikin total biaya AI GLOBAL (semua brand digabung,
+// dalam USD) ke siapa pun yang login - benar utk single-admin (Agus SATU-SATUNYA yang
+// bisa login, wajar dia lihat biaya asli), tapi kontradiksi langsung dgn keputusan
+// bisnis PRD "AI Konten by Agustap Studio" §09: pelanggan SaaS TIDAK PERNAH melihat
+// biaya API asli (USD), cuma saldo KREDIT (abstraksi) - lihat plans/creditTransactions
+// di schema.ts. Endpoint kredit pengganti (baca users.saldoKredit +
+// creditTransactions per akun yang login) belum dibangun - JANGAN aktifkan endpoint
+// ini lagi tanpa itu, walau cuma utk "sementara" - resiko bocor angka biaya asli ke
+// pelanggan lebih besar drpd manfaat sementara.
 export async function GET() {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const rows = await db
-    .select({
-      model: llmUsageLog.model,
-      calls: sql<number>`count(*)`,
-      totalTokens: sql<number>`sum(${llmUsageLog.totalTokens})`,
-      costUsd: sql<number>`sum(${llmUsageLog.costUsd})`,
-    })
-    .from(llmUsageLog)
-    .where(gte(llmUsageLog.ts, startOfDay))
-    .groupBy(llmUsageLog.model);
-
-  const totalCostToday = rows.reduce((sum, r) => sum + (r.costUsd || 0), 0);
-
-  return NextResponse.json({
-    totalCostToday,
-    byModel: rows.map((r) => ({
-      model: r.model,
-      calls: r.calls,
-      totalTokens: r.totalTokens || null,
-      costUsd: r.costUsd || 0,
-    })),
-  });
+  return NextResponse.json(
+    { error: "Endpoint biaya global dinonaktifkan di instalasi multi-tenant - lihat saldo kredit akun Anda" },
+    { status: 410 }
+  );
 }

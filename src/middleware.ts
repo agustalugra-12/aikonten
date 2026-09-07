@@ -15,7 +15,10 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 // - /api/auth/* - login/signup itu sendiri (belum ada sesi saat request ini terjadi,
 //   ATAU OAuth callback pihak ketiga spt Buffer/Meta/YouTube connect).
 // - /api/cron/* - dijaga verifyCronSecret sendiri (secret header, bukan sesi user).
-const EXCLUDED_PREFIXES = ["/api/auth/", "/api/cron/"];
+// - /api/version - health check ops (commit SHA/waktu start doang, TANPA data bisnis/
+//   PII) - repo asal sengaja diekspos publik lewat proxy.ts PUBLIC_PATHS, dipertahankan
+//   sama di sini.
+const EXCLUDED_PREFIXES = ["/api/auth/", "/api/cron/", "/api/version"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
