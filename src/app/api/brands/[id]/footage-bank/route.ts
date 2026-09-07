@@ -5,9 +5,14 @@ import { eq, desc } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { describeFootage } from "@/lib/ai/describeFootage";
 import { extractVideoFrame } from "@/lib/render/cloudinary";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const rows = await db
     .select()
     .from(footageBank)
@@ -20,7 +25,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // upload-url di atas) ke bank brand ini, lalu AI otomatis deskripsikan+tag isinya -
 // Agus TIDAK perlu ketik deskripsi manual.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const { fileUrl, mediaType, durationSeconds, categoryId } = await req.json();
 
   if (typeof fileUrl !== "string" || !fileUrl) {
