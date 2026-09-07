@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { brands, storyboards } from "@/db/schema";
+import { storyboards } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { generateStoryboard } from "@/lib/ai/storyboard";
 import { newId } from "@/lib/ids";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const rows = await db
     .select()
     .from(storyboards)
@@ -21,13 +26,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // ke pipeline upload/process project yg sudah ada - Agus generate ini SEBELUM syuting,
 // baca sbg panduan, baru upload footage asli spt biasa lewat "+ Konten Baru".
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
   const { script } = await req.json();
   if (typeof script !== "string" || !script.trim()) {
     return NextResponse.json({ error: "Skrip/topik wajib diisi" }, { status: 400 });
   }
 
-  const [brand] = await db.select().from(brands).where(eq(brands.id, brandId));
+  const brand = await getOwnedBrand(userId, brandId);
   if (!brand) {
     return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }

@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { competitors, brands } from "@/db/schema";
+import { competitors } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getMonthlyReportData } from "@/lib/reports/monthlyReportData";
 import { generateTrendAdaptation } from "@/lib/ai/trendAdaptation";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Trend Adaptation (PRD §40) - ON-DEMAND (tombol, BUKAN auto tiap load).
 // Pola sama dgn competitor-analysis/route.ts: satu GPT call, zero cost baru.
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
 
-  const brand = await db.select({ name: brands.name }).from(brands).where(eq(brands.id, brandId)).limit(1);
-  if (brand.length === 0) {
+  const brand = await getOwnedBrand(userId, brandId);
+  if (!brand) {
     return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }
 
@@ -23,6 +25,6 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ trends: [], summary: "Belum ada data cukup untuk analisis tren (minimal 3 konten tayang)." });
   }
 
-  const result = await generateTrendAdaptation(brand[0].name, comps, ownPerformance);
+  const result = await generateTrendAdaptation(brand.name, comps, ownPerformance);
   return NextResponse.json(result);
 }

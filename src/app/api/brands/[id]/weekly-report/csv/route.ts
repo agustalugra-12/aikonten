@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { brands } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { getWeeklyReportData } from "@/lib/reports/weeklyReportData";
 import { sanitizeCell } from "@/lib/reports/csvExport";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // CSV export untuk Laporan Mingguan (Phase 6, PRD §49).
 // Format: beberapa block (ringkasan, per pilar, top 5 konten) dipisah baris kosong.
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
   const searchParams = req.nextUrl.searchParams;
   const days = Number(searchParams.get("days") || "7");
 
-  const [brand] = await db.select({ name: brands.name }).from(brands).where(eq(brands.id, brandId));
+  const brand = await getOwnedBrand(userId, brandId);
+  if (!brand) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const data = await getWeeklyReportData(brandId, days);
 
   const brandName = brand?.name || brandId;

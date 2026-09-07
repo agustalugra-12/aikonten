@@ -1,12 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { socialAccounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { ensurePlatformPolicyEnabled } from "@/lib/policy/platformPolicy";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
+  if (!(await getOwnedBrand(userId, id))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const rows = await db.select().from(socialAccounts).where(eq(socialAccounts.brandId, id));
   // Jangan pernah kirim accessToken/refreshToken ke client - cuma info yg perlu
   // ditampilkan di dashboard.
@@ -35,8 +40,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 // `service` channel itu, BUKAN di-hardcode.
 const SUPPORTED_BUFFER_PLATFORMS = ["instagram", "facebook", "tiktok", "youtube"] as const;
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const { bufferChannelId, username, platform, bufferAccessToken } = await req.json();
 
   if (typeof bufferChannelId !== "string" || !bufferChannelId) {

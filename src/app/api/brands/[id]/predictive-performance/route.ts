@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { brands } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { getMonthlyReportData, getPerformanceTrendSplit } from "@/lib/reports/monthlyReportData";
 import { generatePredictivePerformance } from "@/lib/ai/predictivePerformance";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Predictive Performance (P2 High) - ON-DEMAND (tombol, BUKAN auto tiap load).
 // Prediksi performa konten di periode mendatang berdasarkan data historical.
 // Zero cost: hanyalah extrapolasi statistik dari data brand sendiri, tanpa model ML.
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
 
-  const brand = await db.select({ name: brands.name }).from(brands).where(eq(brands.id, brandId)).limit(1);
-  if (brand.length === 0) {
+  if (!(await getOwnedBrand(userId, brandId))) {
     return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }
 
