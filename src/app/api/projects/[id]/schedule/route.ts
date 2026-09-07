@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getUserId, getOwnedProject } from "@/lib/session";
 
 // Manual Per-Post Scheduling (2026-08-25, PRD "AI Konten Intelligence & Agency Upgrade"
 // §26) - BEDA dari brand.autoPublishTimes (jadwal RECURRING harian per-brand, lihat
@@ -9,6 +10,7 @@ import { eq } from "drizzle-orm";
 // tanggal+jam tertentu utk 1 project, apa pun publishMode brand-nya. cron/auto-publish.ts
 // cek status "scheduled" ini TERPISAH dari loop slot per-brand yang sudah ada.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const scheduledFor = typeof body.scheduledFor === "string" ? new Date(body.scheduledFor) : null;
@@ -19,7 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "scheduledFor harus di masa depan - kalau mau publish sekarang, pakai tombol Publikasikan Sekarang" }, { status: 400 });
   }
 
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
+  const project = await getOwnedProject(userId, id);
   if (!project) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
   }
@@ -37,9 +39,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
 // Batalkan jadwal - kembalikan ke "ready" (draft biasa, publish manual/slot brand
 // normal lagi) tanpa perlu regenerate ulang kontennya.
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
+  const project = await getOwnedProject(userId, id);
   if (!project) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
   }

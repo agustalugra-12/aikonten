@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { projects, mediaAssets } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { eq, desc, inArray } from "drizzle-orm";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Preview ringkas per project (2026-08-13, permintaan Agus - "rapikan tampilan AI
 // konten spt Buffer, jelaskan jam publish & video pendek/panjang") - SEBELUM ini
@@ -12,9 +13,13 @@ import { eq, desc, inArray } from "drizzle-orm";
 // konten yg bisa puluhan/ratusan baris). 1 query tambahan (bukan N+1) ambil SEMUA
 // final_video/final_image milik brand ini sekaligus, dikelompokkan per project di JS.
 export async function GET(req: NextRequest) {
+  const userId = getUserId(req);
   const brandId = req.nextUrl.searchParams.get("brandId");
   if (!brandId) {
     return NextResponse.json({ error: "brandId wajib diisi" }, { status: 400 });
+  }
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }
   const rows = await db
     .select()
@@ -49,9 +54,13 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const userId = getUserId(req);
   const { brandId, type, script } = await req.json();
   if (typeof brandId !== "string" || !brandId) {
     return NextResponse.json({ error: "brandId wajib diisi" }, { status: 400 });
+  }
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }
   if (type !== "video" && type !== "carousel") {
     return NextResponse.json({ error: "type harus 'video' atau 'carousel'" }, { status: 400 });

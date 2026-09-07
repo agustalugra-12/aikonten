@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { projects, brands, socialAccounts } from "@/db/schema";
+import { brands, socialAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { buildContentBrief } from "@/lib/ai/contentBrief";
+import { getUserId, getOwnedProject } from "@/lib/session";
 
 // Content Brief (PRD §12, Task Plan 6) - READ-ONLY, tidak ada panggilan AI di sini sama
 // sekali (lihat catatan lengkap di contentBrief.ts) - murni assembly dari project + brand.
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
+  const project = await getOwnedProject(userId, id);
   if (!project) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
   }

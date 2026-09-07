@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processProject } from "@/lib/pipeline/processProject";
 import { LockBusyError } from "@/lib/concurrency/locks";
+import { getUserId, getOwnedProject } from "@/lib/session";
 
 // Trigger manual dari NewProjectDialog.tsx setelah upload footage selesai. Logika
 // pipeline-nya sendiri ada di lib/pipeline/processProject.ts (dipakai bareng dgn
 // /api/brands/[id]/auto-content, lihat memory proyek).
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
+  if (!(await getOwnedProject(userId, id))) {
+    return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
+  }
 
   try {
     const result = await processProject(id);

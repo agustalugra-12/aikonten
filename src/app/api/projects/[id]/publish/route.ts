@@ -4,12 +4,17 @@ import { LockBusyError } from "@/lib/concurrency/locks";
 import { db } from "@/db";
 import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getUserId, getOwnedProject } from "@/lib/session";
 
 // Retry manual - dipakai kalau publish otomatis (dipanggil dari /process) gagal krn
 // alasan sementara (mis. rendering final belum ada saat itu, token expired, dst) dan
 // Agus mau coba lagi tanpa harus regenerate ulang seluruh konten dari awal.
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
+  if (!(await getOwnedProject(userId, id))) {
+    return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
+  }
   try {
     await publishProject(id);
   } catch (err) {

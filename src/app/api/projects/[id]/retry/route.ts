@@ -5,6 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { processProject } from "@/lib/pipeline/processProject";
 import { publishProject } from "@/lib/publish/orchestrate";
 import { LockBusyError } from "@/lib/concurrency/locks";
+import { getUserId, getOwnedProject } from "@/lib/session";
 
 // "Coba Lagi" pintar (2026-08-07, permintaan Agus - konten yg SUDAH jadi videonya/
 // gambarnya sempat "tampil" [status ready] lalu "hilang lagi" krn status jatuh ke
@@ -15,10 +16,11 @@ import { LockBusyError } from "@/lib/concurrency/locks";
 // tepat: kalau final_video/final_image SUDAH ada, publish-only; kalau belum ada sama
 // sekali (gagal duluan sebelum render selesai, mis. "Video hasil render cuma 23
 // detik"), generate ulang penuh via processProject.
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
 
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
+  const project = await getOwnedProject(userId, id);
   if (!project) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
   }

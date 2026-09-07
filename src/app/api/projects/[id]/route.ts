@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { projects, mediaAssets, publishLogs } from "@/db/schema";
+import { mediaAssets, publishLogs, projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { runPrePublishQC } from "@/lib/ai/prePublishQC";
+import { getUserId, getOwnedProject } from "@/lib/session";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
+  const project = await getOwnedProject(userId, id);
   if (!project) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
   }
@@ -17,10 +19,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // Tolak/hapus draft (2026-08-04, permintaan Agus - dipakai DraftReview.tsx kalau
 // hasil AI tidak dipakai). Hapus baris terkait dulu (media_assets/publish_logs) sblm
 // project-nya sendiri - schema tidak pakai FK cascade.
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
-  if (!project) {
+  if (!(await getOwnedProject(userId, id))) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
   }
   await db.delete(publishLogs).where(eq(publishLogs.projectId, id));
@@ -30,9 +32,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 }
 
 // Pre-Publishing QC (PRD §37) - quality check sebelum publish
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
+  const project = await getOwnedProject(userId, id);
   if (!project) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
   }
