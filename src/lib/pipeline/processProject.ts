@@ -41,7 +41,7 @@ import { factCheckCaption } from "@/lib/ai/factCheck";
 import { isAgustapExtensionActive } from "@/lib/agustap/featureFlag";
 import { checkContentClarity, type ServiceCatalog, type ClarityCheckResult } from "@/lib/agustap/contentClarity";
 import { AGUSTAP_FINANCIAL_BLOCKLIST } from "@/lib/agustap/contextualFootage";
-import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
+import { deriveBrollKeywordsFromScript, pickBrollKeyword } from "@/lib/ai/deriveBrollKeywords";
 import { distributeChapters, type YoutubeMetadata } from "@/lib/ai/youtubeEditorial";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { newId } from "@/lib/ids";
@@ -491,7 +491,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // (fakta konten dokumenter itu pengetahuan umum, bukan data properti).
     const youtubeMeta: YoutubeMetadata | null = project.youtubeMetadata ? JSON.parse(project.youtubeMetadata) : null;
 
-    let caption: string, hashtags: string[], brollKeywords: string | null, thumbnailText: string | null,
+    let caption: string, hashtags: string[], brollKeywords: string[] | null, thumbnailText: string | null,
       structureTemplate: string, pillar: string | null, angle: ContentAngle | null,
       hookType: string | null, contentType: string | null, targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string,
       visualDirection: string | null, ctaText: string | null, hookText: string | null,
@@ -657,10 +657,11 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       const stockBudget = computeFootageBudgets(isDestinationContent(project.script), durationConfig.target).stockBudgetSeconds;
       brollClips = await fetchDestinationBrollClips(project.script, stockBudget, recentlyUsedUrls);
     }
-    if (brollClips.length === 0 && brollKeywords && !internalOnly) {
+    if (brollClips.length === 0 && brollKeywords && brollKeywords.length > 0 && !internalOnly) {
       // Fallback lama - skrip tidak menyebut landmark spesifik apa pun, tetap kasih 1
       // klip suasana umum spt sebelumnya (mis. "tropical homestay garden").
-      const broll = await searchBrollVideo(brollKeywords, recentlyUsedUrls, undefined, agustapFootageBlock);
+      const kw = pickBrollKeyword(brollKeywords, 0);
+      const broll = await searchBrollVideo(kw, recentlyUsedUrls, undefined, agustapFootageBlock);
       if (broll) {
         brollClips = [{
           videoUrl: broll.videoUrl,
@@ -668,7 +669,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           source: broll.source,
           sourceCreator: broll.creator,
           sourceUrl: broll.sourceUrl,
-          sourceQuery: brollKeywords,
+          sourceQuery: kw,
         }];
       }
     }
@@ -767,7 +768,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       }
     }
 
-    if (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && brollKeywords && !internalOnly) {
+    if (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && brollKeywords && brollKeywords.length > 0 && !internalOnly) {
       // Footage asli sudah habis (atau ini jalur 100% stok) - top-up pakai B-roll
       // GENERIK tambahan (bukan destinasi spesifik - itu sengaja dibatasi 1 klip per
       // landmark, lihat destinationBroll.ts). Exclude set terus bertambah tiap iterasi
@@ -786,8 +787,12 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       const maxAttempts = Math.ceil(gapSeconds / MAX_CLIP_DURATION) + 10;
       let attempts = 0;
       while (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && attempts < maxAttempts) {
+        // pickBrollKeyword (2026-09-07, laporan Agus "footage jangan monoton") - GANTI
+        // teratur antar variant keyword tiap iterasi, bukan query yg sama berulang -
+        // lihat catatan lengkap di deriveBrollKeywords.ts.
+        const kw = pickBrollKeyword(brollKeywords, attempts);
         attempts += 1;
-        const broll = await searchBrollVideo(brollKeywords, usedBrollUrls, undefined, agustapFootageBlock);
+        const broll = await searchBrollVideo(kw, usedBrollUrls, undefined, agustapFootageBlock);
         if (!broll) break;
         usedBrollUrls.add(broll.videoUrl);
         brollClips.push({
@@ -796,7 +801,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           source: broll.source,
           sourceCreator: broll.creator,
           sourceUrl: broll.sourceUrl,
-          sourceQuery: brollKeywords,
+          sourceQuery: kw,
         });
       }
     }
@@ -857,8 +862,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
 
     // Langkah 1: broaden keyword B-roll & ulang top-up SEKALI (hanya kalau ini benar2
     // jalur B-roll - brollKeywords null utk cabang lain yg tidak relevan).
-    if (currentTotalDuration() < effectiveMinDuration && brollKeywords && !internalOnly) {
-      const semula = brollKeywords;
+    if (currentTotalDuration() < effectiveMinDuration && brollKeywords && brollKeywords.length > 0 && !internalOnly) {
+      const semula = brollKeywords.join(" / ");
       autoFixLog.push({
         step: "footage_insufficient",
         action: `broaden keyword B-roll (semula: "${semula}", ~${Math.round(currentTotalDuration())}dtk dari ${effectiveMinDuration}dtk)`,
@@ -871,8 +876,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         const maxAttempts2 = Math.ceil(gapSeconds2 / MAX_CLIP_DURATION) + 10;
         let attempts2 = 0;
         while (currentTotalDuration() < PRE_RENDER_TARGET_SECONDS && attempts2 < maxAttempts2) {
+          const kw = pickBrollKeyword(broaderKeywords, attempts2);
           attempts2 += 1;
-          const broll = await searchBrollVideo(broaderKeywords, usedBrollUrls2, undefined, agustapFootageBlock);
+          const broll = await searchBrollVideo(kw, usedBrollUrls2, undefined, agustapFootageBlock);
           if (!broll) break;
           usedBrollUrls2.add(broll.videoUrl);
           brollClips.push({
@@ -881,12 +887,12 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
             source: broll.source,
             sourceCreator: broll.creator,
             sourceUrl: broll.sourceUrl,
-            sourceQuery: broaderKeywords,
+            sourceQuery: kw,
           });
         }
         autoFixLog[autoFixLog.length - 1].result =
           currentTotalDuration() >= effectiveMinDuration
-            ? `berhasil (keyword baru: "${broaderKeywords}", ~${Math.round(currentTotalDuration())}dtk)`
+            ? `berhasil (keyword baru: "${broaderKeywords.join(" / ")}", ~${Math.round(currentTotalDuration())}dtk)`
             : `masih kurang (~${Math.round(currentTotalDuration())}dtk)`;
       } catch (err) {
         autoFixLog[autoFixLog.length - 1].result = `gagal dicoba: ${err instanceof Error ? err.message : String(err)}`;

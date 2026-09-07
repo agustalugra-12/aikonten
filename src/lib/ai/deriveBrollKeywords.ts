@@ -24,7 +24,20 @@ import { getOpenAIClient } from "./openaiClient";
 // "lifestyle" generik) + kata gerak (flying/swimming/running/close-up/slow motion) yg
 // bikin klip lebih dinamis - TETAP generik lintas brand (bukan HARDCODE "animal", brand
 // laundry/lain tetap dapat instruksi yg sama masuk akal utk subjek MEREKA sendiri).
-export async function deriveBrollKeywordsFromScript(script: string, broaden: boolean = false): Promise<string> {
+//
+// ARRAY, bukan 1 string (2026-09-07, laporan Agus - "footage jangan monoton", audit
+// "AI Konten Fase 7-10" §addendum Context-Aware Footage) - SEBELUM ini 1 keyword dipakai
+// BERULANG-ULANG di tiap iterasi loop top-up durasi (processProject.ts) begitu footage
+// asli habis/video butuh banyak klip B-roll (long-form/footage bank kecil), jadi SEMUA
+// klip padding di 1 video bertema visual persis sama. Sengaja TIDAK direstrukturisasi
+// jadi "per-scene dgn timestamp presis" (dicoba, ternyata brollClips SELALU ditumpuk di
+// AKHIR urutan klip di processProject.ts - alignment presisi ke scene butuh rombak alur
+// render, risiko tinggi ke sistem yg sudah stabil, Agus eksplisit minta jangan). Ini
+// versi AMAN: 1 panggilan AI YANG SAMA (nol biaya tambahan), cuma minta beberapa VARIAN
+// sudut/aspek berbeda dari topik yg sama, dipakai BERGANTIAN (pickBrollKeyword di bawah)
+// tiap loop top-up butuh klip baru - variasi visual dlm pool padding, tanpa menyentuh
+// urutan/waktu klip di timeline sama sekali.
+export async function deriveBrollKeywordsFromScript(script: string, broaden: boolean = false): Promise<string[]> {
   const client = getOpenAIClient();
   // `broaden` (2026-08-12, Fase 2b PRD Animal Story & Co - auto-fix ladder utk reject
   // point "footage tidak cukup") - dipanggil KEDUA KALINYA kalau top-up dgn keyword
@@ -46,18 +59,53 @@ export async function deriveBrollKeywordsFromScript(script: string, broaden: boo
       {
         role: "system",
         content:
-          "Convert this content idea/script (any language) into 2-4 short English keywords to search for " +
-          "stock video footage. PRIORITIZE the SPECIFIC concrete subject the script is actually about (a named " +
-          "animal, object, place, or activity) over vague mood/scenery words - e.g. for a script about how owls " +
-          "hunt at night, prefer 'owl flying night hunting' over just 'forest night'. When the subject can " +
-          "plausibly be filmed in motion, include an action/movement word (flying, swimming, running, close-up, " +
-          "slow motion) so the result is dynamic footage rather than a static scenic shot. " +
+          "Convert this content idea/script (any language) into 2-3 SEPARATE sets of short English keywords to " +
+          "search for stock video footage - each set representing a DIFFERENT angle/aspect of the SAME topic " +
+          "(not synonyms of the same thing), so a video needing many B-roll clips doesn't end up visually " +
+          "repetitive. PRIORITIZE the SPECIFIC concrete subject the script is actually about (a named animal, " +
+          "object, place, or activity) over vague mood/scenery words - e.g. for a script about how owls hunt at " +
+          "night, prefer sets like 'owl flying night hunting' and 'owl perched watching prey' over just 'forest " +
+          "night'. When the subject can plausibly be filmed in motion, include an action/movement word (flying, " +
+          "swimming, running, close-up, slow motion) so results are dynamic footage rather than static scenic " +
+          "shots. " +
           broadenInstruction +
-          "Reply with ONLY the keywords (max 8 words total), no quotes/explanation.",
+          "Reply with ONLY the keyword sets, one per line, max 8 words per line, no quotes/numbering/explanation.",
       },
       { role: "user", content: script },
     ],
     temperature: 0.3,
   });
-  return completion.choices[0]?.message?.content?.trim() || "nature scenery";
+  const raw = completion.choices[0]?.message?.content?.trim() || "";
+  return parseBrollKeywordVariants(raw);
+}
+
+// Fungsi MURNI (2026-09-07) - pisahkan parsing dari panggilan AI supaya bisa diuji tanpa
+// API beneran. Terima baik hasil deriveBrollKeywordsFromScript (baris per baris) MAUPUN
+// array dari generateContent.ts (JSON) - dipanggil dgn tipe input yg sesuai di masing2
+// pemanggil (lihat overload penggunaan di generateContent.ts yg langsung terima array).
+export function parseBrollKeywordVariants(raw: string): string[] {
+  const lines = raw
+    .split("\n")
+    .map((l) => l.replace(/^[-*\d.)\s]+/, "").trim())
+    .filter((l) => l.length > 0);
+  return lines.length > 0 ? lines : ["nature scenery"];
+}
+
+// Fungsi MURNI (2026-09-07) - validasi hasil AI utk brollKeywords ARRAY dari
+// generateContent.ts (JSON, beda jalur dari deriveBrollKeywordsFromScript di atas yg
+// balas teks baris-per-baris) - jaring pengaman KODE kalau model balas bukan array
+// string atau array kosong, bukan cuma percaya instruksi prompt.
+export function parseBrollKeywordArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((k): k is string => typeof k === "string" && k.trim().length > 0).map((k) => k.trim());
+}
+
+// Fungsi MURNI (2026-09-07) - pilih keyword variant SECARA BERGANTIAN (round-robin)
+// per iterasi loop top-up B-roll (processProject.ts) - modulo supaya aman dipanggil
+// berapa kali pun (attemptIndex bisa jauh lebih besar dari jumlah variant yg tersedia,
+// lihat maxAttempts di processProject.ts yg diskalakan ke gap durasi). Array kosong =
+// fallback netral, sama filosofi dgn fallback lama "nature scenery".
+export function pickBrollKeyword(keywords: string[], attemptIndex: number): string {
+  if (keywords.length === 0) return "nature scenery";
+  return keywords[attemptIndex % keywords.length];
 }

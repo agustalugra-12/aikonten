@@ -5,7 +5,7 @@ import { suggestContentIdeas } from "@/lib/ai/researchTopics";
 import { matchFootageForScript, pickAnyRealPhoto } from "@/lib/ai/matchFootageBank";
 import { processProject, type ProcessResult } from "@/lib/pipeline/processProject";
 import { isIdeSpesifikProperti } from "@/lib/ai/classifyIdea";
-import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
+import { deriveBrollKeywordsFromScript, pickBrollKeyword } from "@/lib/ai/deriveBrollKeywords";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { getFootageUsageRecency, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, selectBalancedRealFootage } from "@/lib/ai/footageVariety";
 import { getDurationConfig } from "@/lib/ai/clipSelect";
@@ -292,7 +292,7 @@ export async function runAutoContent(
         // konkret UMKM/small-business + blocklist finansial, brand lain 0% berubah.
         const { query: keywords, blockTitleKeywords } = isAgustapExtensionActive(brand.knowledgeSite)
           ? await deriveAgustapBrollQuery(script)
-          : { query: await deriveBrollKeywordsFromScript(script), blockTitleKeywords: [] as string[] };
+          : { query: pickBrollKeyword(await deriveBrollKeywordsFromScript(script), 0), blockTitleKeywords: [] as string[] };
         const broll = await searchBrollVideo(keywords, undefined, undefined, blockTitleKeywords);
         if (broll) {
           type = "video";

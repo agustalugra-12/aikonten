@@ -1,4 +1,5 @@
 import { getOpenAIClient } from "./openaiClient";
+import { parseBrollKeywordArray } from "./deriveBrollKeywords";
 import type { ScoredSegment } from "./clipSelect";
 import type { TranscriptSegment } from "./transcribe";
 import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
@@ -251,7 +252,14 @@ export type GeneratedVideoContent = GeneratedContent & {
   // interior") - null kalau topiknya tidak cocok disandingkan stok footage generik.
   // Bahasa Inggris krn metadata Pexels mayoritas Inggris, hasil jauh lebih relevan drpd
   // query Bahasa Indonesia.
-  brollKeywords: string | null;
+  // ARRAY, bukan 1 string (2026-09-07, laporan Agus - "footage jangan monoton") -
+  // SEBELUM ini 1 keyword dipakai berulang-ulang tiap kali loop top-up durasi butuh
+  // klip B-roll tambahan (lihat processProject.ts), jadi SEMUA klip padding 1 video
+  // panjang bertema visual persis sama (mis. selalu "tropical homestay garden").
+  // Sekarang minta 2-4 VARIAN sudut/aspek berbeda dari skrip yang sama, dipakai
+  // BERGANTIAN (pickBrollKeyword, deriveBrollKeywords.ts) - variasi visual tanpa
+  // panggilan AI tambahan (masih 1 call yang sama, cuma output field ini jadi array).
+  brollKeywords: string[] | null;
   // Teks hook singkat (2-5 kata) utk thumbnail YouTube (lihat thumbnail.ts) - cuma
   // dipakai kalau brand ini punya akun YouTube tersambung (lihat process/route.ts),
   // tapi tetap di-generate di sini skalian biar hemat 1 panggilan GPT terpisah.
@@ -606,9 +614,15 @@ export async function generateCaptionAndHashtags(
     "kami\" atau \"hubungi WA admin kami\", boleh divariasikan kalimatnya tapi maksudnya " +
     "harus itu) - JANGAN pakai CTA generik lain (mis. \"pesan sekarang\", \"booking " +
     "sekarang\") tanpa menyebut kontak admin. " +
-    "Sertakan juga brollKeywords: 2-4 kata kunci Bahasa INGGRIS singkat utk cari video " +
-    "stok (B-roll) pendamping yg relevan dgn suasana/topik ini (mis. \"tropical homestay " +
-    "garden\"), atau null kalau topiknya tidak cocok disandingkan stok footage generik. " +
+    "Sertakan juga brollKeywords: ARRAY berisi 2-3 SET kata kunci Bahasa INGGRIS singkat " +
+    "(masing2 2-4 kata) utk cari video stok (B-roll) pendamping - tiap set mewakili SUDUT/" +
+    "ASPEK BERBEDA dari topik yg sama (BUKAN sinonim dari hal yg sama, mis. utk topik " +
+    "\"tips hemat listrik di rumah\" jangan cuma [\"home electricity\", \"house electricity " +
+    "bill\", \"electric home\"] - itu semua sama - pakai sudut BEDA spt [\"person checking " +
+    "electricity meter\", \"turning off lights room\", \"unplugging appliance\"]), supaya " +
+    "kalau video butuh banyak klip B-roll (durasi panjang/footage asli sedikit) hasilnya " +
+    "tidak semua bertema visual persis sama. Balas array kosong [] kalau topiknya tidak " +
+    "cocok disandingkan stok footage generik sama sekali. " +
     // Contextual Footage (2026-09-02, PRD Agustap Studio "Contextual Footage & Visual
     // Relevance") - brollKeywords di sini SATU LLM call bareng caption (bukan panggilan
     // terpisah spt deriveBrollKeywordsFromScript), jadi instruksi kontekstual UMKM
@@ -641,7 +655,7 @@ export async function generateCaptionAndHashtags(
     (avoidHashtags.length > 0
       ? `\n\nIMPORTANT: The following hashtags have been used TOO FREQUENTLY recently and MUST be AVOIDED: ${avoidHashtags.join(", ")}. Generate DIFFERENT, fresh hashtags.`
       : "");
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": "..." atau null, "thumbnailText": "..." atau null, "visualDirection": "...", "ctaText": "...", "hookText": "...", "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": ["...", "..."], "thumbnailText": "..." atau null, "visualDirection": "...", "ctaText": "...", "hookText": "...", "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -659,7 +673,7 @@ export async function generateCaptionAndHashtags(
   return {
     caption: parsed.caption || "",
     hashtags: capHashtags(stripHashPrefix(Array.isArray(parsed.hashtags) ? parsed.hashtags : [])),
-    brollKeywords: parsed.brollKeywords || null,
+    brollKeywords: parseBrollKeywordArray(parsed.brollKeywords),
     thumbnailText: parsed.thumbnailText || null,
     visualDirection: typeof parsed.visualDirection === "string" ? parsed.visualDirection : null,
     ctaText: typeof parsed.ctaText === "string" ? parsed.ctaText : null,

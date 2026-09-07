@@ -1,5 +1,5 @@
 import { getOpenAIClient } from "@/lib/ai/openaiClient";
-import { deriveBrollKeywordsFromScript } from "@/lib/ai/deriveBrollKeywords";
+import { deriveBrollKeywordsFromScript, pickBrollKeyword } from "@/lib/ai/deriveBrollKeywords";
 
 // Contextual Footage & Visual Relevance (PRD "Agustap Studio - Contextual Footage &
 // Visual Relevance System", 2026-09-02). Masalah nyata: deriveBrollKeywordsFromScript
@@ -85,7 +85,7 @@ export async function deriveAgustapBrollQuery(script: string, broaden: boolean =
     };
   } catch (err) {
     console.error("[agustap] deriveAgustapBrollQuery gagal, fallback ke deriveBrollKeywordsFromScript + blocklist default-ON:", err);
-    const fallbackQuery = await deriveBrollKeywordsFromScript(script, broaden);
+    const fallbackQuery = pickBrollKeyword(await deriveBrollKeywordsFromScript(script, broaden), 0);
     // Default aman kalau parsing/LLM gagal: BLOKIR footage finansial (§10) - risiko
     // false-positive (skrip Agustap yg genuinely soal trading, sangat jarang) jauh
     // lebih kecil drpd risiko nyata (candlestick chart muncul di konten UMKM).
