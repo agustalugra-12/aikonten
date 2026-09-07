@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { brands, plans, users } from "@/db/schema";
-import { and, count, eq } from "drizzle-orm";
+import { brands, plans, projects, users } from "@/db/schema";
+import { and, count, eq, inArray } from "drizzle-orm";
 
 // Helper isolasi antar-pelanggan (2026-09-07, PRD "AI Konten by Agustap Studio" Fase 1,
 // Alur D). middleware.ts SUDAH memverifikasi sesi & menaruh userId di header `x-user-id`
@@ -28,6 +28,28 @@ export async function getOwnedBrand(userId: string, brandId: string) {
     .from(brands)
     .where(and(eq(brands.id, brandId), eq(brands.userId, userId)));
   return brand ?? null;
+}
+
+// Daftar ID brand milik userId - dipakai route yang perlu SEMUA brand milik akun
+// sekaligus (mis. agency dashboard), bukan 1 brand spesifik.
+export async function listOwnedBrandIds(userId: string): Promise<string[]> {
+  const rows = await db.select({ id: brands.id }).from(brands).where(eq(brands.userId, userId));
+  return rows.map((r) => r.id);
+}
+
+// Kunci isolasi utama utk PROJECT (2026-09-07) - project sendiri tidak punya kolom
+// userId langsung, kepemilikannya lewat brandId -> brands.userId (2 langkah, BUKAN
+// diflatten jadi kolom projects.userId sendiri - projects.brandId sudah cukup & satu2nya
+// sumber kebenaran, duplikasi kolom cuma bikin celah baru kalau suatu saat brand
+// project dipindah tapi kolom kedua lupa diupdate). Balikin null (404, bukan 403) -
+// alasan sama dgn getOwnedBrand.
+export async function getOwnedProject(userId: string, projectId: string) {
+  const [row] = await db
+    .select({ project: projects, brand: brands })
+    .from(projects)
+    .innerJoin(brands, eq(projects.brandId, brands.id))
+    .where(and(eq(projects.id, projectId), eq(brands.userId, userId)));
+  return row?.project ?? null;
 }
 
 // Cek kuota maxBrand plan SEBELUM izinkan bikin brand baru (2026-09-07) - dibaca dari

@@ -7,6 +7,7 @@ import {
   buildCreatorBenchmarkFromContentUrls,
   tryDiscoverContentUrlsFromAccount,
 } from "@/lib/agustap/creatorBenchmark";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Competitor Intelligence - CRUD data kompetitor (2026-08-19, PRD §5, "tanpa API
 // berbayar"). Input MANUAL staf - lihat catatan lengkap di db/schema.ts & AI
@@ -17,14 +18,22 @@ import {
 // `{name, notes}` dari brand LAIN (SWOT manual) berperilaku 100% SAMA PERSIS
 // seperti sebelumnya (tidak ada field baru dikirim -> tidak ada analisis
 // dijalankan, row polos spt biasa).
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const rows = await db.select().from(competitors).where(eq(competitors.brandId, brandId)).orderBy(desc(competitors.updatedAt));
   return NextResponse.json({ competitors: rows });
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const body = await req.json();
   const { name, notes, role, contentUrls, accountUrl } = body as {
     name?: string;

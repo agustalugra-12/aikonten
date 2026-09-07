@@ -1,16 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { brands, projects } from "@/db/schema";
+import { projects } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { suggestContentIdeas } from "@/lib/ai/researchTopics";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // "Research Engine" ringan (lihat memory proyek) - usul ide konten berdasarkan niche
 // brand + histori skrip brand ini, BUKAN data tren real-time (keputusan Agus: pakai
 // pengetahuan GPT saja, bukan API tren berbayar).
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
 
-  const [brand] = await db.select().from(brands).where(eq(brands.id, brandId));
+  const brand = await getOwnedBrand(userId, brandId);
   if (!brand) {
     return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }

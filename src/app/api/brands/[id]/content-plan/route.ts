@@ -4,6 +4,7 @@ import { dailyIdeas, projects, contentTypes } from "@/db/schema";
 import { and, eq, gte, desc } from "drizzle-orm";
 import { getMediumPerformance, classifyIdeaExperimentTier } from "@/lib/ai/contentVariety";
 import { parseStoredPlatformFitScores } from "@/lib/ai/dailyContentPlanner";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Content Planning Engine (2026-08-19, PRD "AI Content Intelligence" §22-23) - SCOPE
 // DIKURANGI dari PRD asli: PRD minta planning berbasis SWOT+Competitor+Audience+Content
@@ -35,7 +36,11 @@ type PlanRow = {
 };
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const days = Number(req.nextUrl.searchParams.get("days")) || DEFAULT_WINDOW_DAYS;
   const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const windowStartDateStr = windowStart.toISOString().slice(0, 10);

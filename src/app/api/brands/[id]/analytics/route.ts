@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { socialAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getAggregatedMetrics } from "@/lib/publish/bufferAuth";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Analitik "ambil dari Buffer saja" (keputusan Agus - bukan integrasi terpisah ke tiap
 // API platform native). Cuma berlaku utk akun yg publishVia="buffer" - akun native
@@ -27,7 +28,11 @@ const DEFAULT_WINDOW_DAYS = 30;
 const CACHE_MS = 12 * 60 * 60 * 1000;
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const accounts = await db.select().from(socialAccounts).where(eq(socialAccounts.brandId, brandId));
 
   const days = Number(req.nextUrl.searchParams.get("days")) || DEFAULT_WINDOW_DAYS;

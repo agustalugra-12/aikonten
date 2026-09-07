@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { brands } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { getMonthlyReportData } from "@/lib/reports/monthlyReportData";
 import { generateAudienceSegmentation } from "@/lib/ai/audienceSegmentation";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Audience Segmentation (P2 Medium) - ON-DEMAND (tombol, BUKAN auto tiap load).
 // Menganalisis kombinasi pillar/content type/hook/structure yang performa-nya baik
 // untuk mengidentifikasi segmen audiens yang sejalan. Zero cost: hanya GPT-4.1-mini
 // menganalisis data performa brand sendiri, tanpa model ML atau clustering matematika.
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
 
-  const brand = await db.select({ name: brands.name }).from(brands).where(eq(brands.id, brandId)).limit(1);
-  if (brand.length === 0) {
+  const brand = await getOwnedBrand(userId, brandId);
+  if (!brand) {
     return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }
 
@@ -28,6 +27,6 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     });
   }
 
-  const result = await generateAudienceSegmentation(brand[0].name, ownPerformance);
+  const result = await generateAudienceSegmentation(brand.name, ownPerformance);
   return NextResponse.json(result);
 }

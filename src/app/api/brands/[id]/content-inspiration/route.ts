@@ -4,13 +4,18 @@ import { manualIdeas } from "@/db/schema";
 import { and, eq, isNotNull, desc } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { analyzeInspiration } from "@/lib/agustap/inspirationAnalyzer";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Content Inspiration (PRD Agustap Studio §2.1.B, §2.13, §2.16, 2026-09-02) -
 // REUSE tabel `manual_ideas` existing (docs/REUSE_MAP.md) - source="agustap_content_inspiration"
 // jadi penanda row ini beda dari excel-import biasa, `used` reuse semantik "sudah
 // dipakai generate atau belum" (§2.1.B "dapat dipilih kembali").
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const rows = await db
     .select()
     .from(manualIdeas)
@@ -20,7 +25,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const body = await req.json();
   const { referenceUrl, transcript, summary, screenshotDescription, creatorName, userNote } = body as {
     referenceUrl?: string;

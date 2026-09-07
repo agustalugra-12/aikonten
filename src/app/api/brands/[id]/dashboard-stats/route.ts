@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { projects, publishLogs, socialAccounts, llmUsageLog } from "@/db/schema";
 import { eq, and, gte, lt, inArray } from "drizzle-orm";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Statistik dashboard (2026-08-13, permintaan Agus - konsep dashboard baru gaya app
 // musik [kartu statistik+chart+greeting], TAPI semua angka di sini WAJIB data nyata,
@@ -13,8 +14,12 @@ function startOfDayLocal(d: Date): Date {
   return x;
 }
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const now = new Date();
   const today = startOfDayLocal(now);
 
