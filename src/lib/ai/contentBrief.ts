@@ -59,7 +59,7 @@ export function buildContentBrief(
   };
 }
 
-function parseRetentionRisks(raw: string | null): string[] {
+export function parseRetentionRisks(raw: string | null): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);

@@ -42,6 +42,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     generatedHashtags: project.generatedHashtags,
     similarityScore: project.similarityScore,
     pillar: project.pillar,
+    retentionRisks: project.retentionRisks,
+    factCheckConfidence: project.factCheckConfidence,
+    factCheckFlags: project.factCheckFlags,
   });
   return NextResponse.json(result);
 }

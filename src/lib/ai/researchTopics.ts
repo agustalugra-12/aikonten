@@ -313,6 +313,14 @@ export type ScoredIdea = {
   score: number; // 0-100
   reasoning: string;
   contentType: "video" | "foto" | "carousel";
+  // Content Genre (2026-09-07, audit "AI Konten Fase 7-10" §7.8 - "tidak semua konten
+  // pakai formula sama, educational lebih berat relevansi/evergreen, entertainment lebih
+  // berat hook/shareability, storytelling lebih berat hook/tension/payoff"). TIDAK nambah
+  // panggilan AI baru - genre & bobot penilaiannya diminta SEKALIGUS dlm 1 call scoring yg
+  // sudah ada (lihat scoredSystem di bawah), murni instruksi prompt tambahan + 1 field
+  // JSON baru. "other" = fallback kalau model tidak jelas/tidak menyebut (JANGAN dipaksa
+  // salah satu dari 3, ide brand kecil sering tidak murni salah satu genre).
+  contentGenre: "educational" | "entertainment" | "storytelling" | "other";
   // Platform Fit Score (2026-08-26, PRD §19, Task Plan 5) - skor 0-100 per platform yg
   // brand ini PUNYA akun terhubung (tidak menebak platform yg tidak dipakai brand ini).
   // OBSERVATIONAL SAJA (sama honest scoping dgn Experiment Engine, Plan 1) - brand publish
@@ -321,6 +329,14 @@ export type ScoredIdea = {
   // visibility utk Agus liat konsep ini paling cocok dituju platform mana.
   platformFitScores: Record<string, number>;
 };
+
+// Fungsi MURNI (2026-09-07) - validasi hasil AI utk contentGenre, pola sama dgn
+// parsePlatformFitScores di bawah (jangan percaya model bisa saja balas nilai di luar 4
+// pilihan, atau field-nya hilang total kalau model lupa/gagal ikuti instruksi JSON).
+export function parseContentGenre(raw: unknown): ScoredIdea["contentGenre"] {
+  if (raw === "educational" || raw === "entertainment" || raw === "storytelling") return raw;
+  return "other";
+}
 
 // Fungsi MURNI (2026-08-26) - validasi hasil AI utk platformFitScores: HANYA platform yg
 // benar2 ada di connectedPlatforms (jangan percaya model bisa saja karang platform lain),
@@ -412,7 +428,15 @@ export async function suggestScoredContentIdeas(
   const scoredSystem =
     system +
     ` SETIAP ide WAJIB diberi score 0-100 (integer) berdasarkan ${scoreCriteria.length} kriteria PERSIS ini ` +
-    `(pertimbangkan SEMUA, bukan cuma 1): ${scoreCriteriaText} Sertakan jg reasoning ` +
+    `(pertimbangkan SEMUA, bukan cuma 1): ${scoreCriteriaText} TAPI bobot antar kriteria ini ` +
+    "TIDAK SAMA rata utk semua ide - sesuaikan dgn sifat dasar ide itu sendiri: ide EDUCATIONAL " +
+    "(tips/how-to/fakta) beratkan relevansi & variasi (nilai evergreen-nya lebih penting drpd " +
+    "sekadar menarik sesaat); ide ENTERTAINMENT (lucu/menghibur/relatable) beratkan potensi " +
+    "menarik/shareability; ide STORYTELLING (narasi/kisah/journey) beratkan potensi menarik " +
+    "DI AWAL cerita & variasi (angle cerita yg belum pernah dipakai). Sertakan jg contentGenre " +
+    "(\"educational\", \"entertainment\", \"storytelling\", atau \"other\" kalau tidak jelas masuk " +
+    "kategori mana) utk tiap ide - JUJUR sesuai sifat ASLI idenya, jangan dipaksa salah satu. " +
+    "Sertakan jg reasoning " +
     "SINGKAT (1 kalimat, Bahasa Indonesia) kenapa skor itu diberikan - WAJIB jujur & " +
     "spesifik (mis. \"skor tinggi krn isi kekosongan salah satu pilar yg jarang dipakai " +
     "& keyword Level 1 blm pernah dipakai\", atau \"pilar ini terbukti performa tinggi " +
@@ -439,7 +463,7 @@ export async function suggestScoredContentIdeas(
       : "");
   const scoredUser =
     `${user}${performanceBlock}${mustIncludeBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
-    `{"ideas": [{"idea": "...", "score": 0, "reasoning": "...", "contentType": "video"` +
+    `{"ideas": [{"idea": "...", "score": 0, "reasoning": "...", "contentType": "video", "contentGenre": "educational"` +
     (connectedPlatforms.length > 0 ? `, "platformFitScores": {${connectedPlatforms.map((p) => `"${p}": 0-100`).join(", ")}}` : "") +
     `}, ...]}`;
 
@@ -457,7 +481,7 @@ export async function suggestScoredContentIdeas(
   const parsed = JSON.parse(cleaned);
   const rawIdeas: unknown[] = Array.isArray(parsed.ideas) ? parsed.ideas : [];
   const scored: ScoredIdea[] = rawIdeas
-    .filter((i): i is { idea: string; score: number; reasoning: string; contentType?: unknown; platformFitScores?: unknown } =>
+    .filter((i): i is { idea: string; score: number; reasoning: string; contentType?: unknown; contentGenre?: unknown; platformFitScores?: unknown } =>
       !!i && typeof i === "object" && typeof (i as Record<string, unknown>).idea === "string"
     )
     .map((i) => ({
@@ -468,6 +492,7 @@ export async function suggestScoredContentIdeas(
         i.contentType === "carousel" ? ("carousel" as const) :
         i.contentType === "foto" ? ("foto" as const) :
         ("video" as const),
+      contentGenre: parseContentGenre(i.contentGenre),
       platformFitScores: parsePlatformFitScores(i.platformFitScores, connectedPlatforms),
     }));
 

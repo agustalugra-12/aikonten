@@ -28,7 +28,8 @@ import { imageToVideoClip } from "@/lib/render/imageToClip";
 import { generatePosterCopy } from "@/lib/ai/posterCopy";
 import { applyPosterDesign, generatePosterFullAi } from "@/lib/ai/posterDesign";
 import { validatePriceClaims, stripInvalidPrices } from "@/lib/ai/priceValidator";
-import { extractThumbnailFrame } from "@/lib/render/frameExtract";
+import { extractThumbnailCandidates } from "@/lib/render/frameExtract";
+import { scoreThumbnailCandidates } from "@/lib/ai/thumbnailScoring";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { fetchDestinationBrollClips, isDestinationContent, type DestinationBrollClip } from "@/lib/ai/destinationBroll";
 import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
@@ -1323,18 +1324,29 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       });
     }
 
-    // Thumbnail dari potongan video ASLI, TANPA biaya AI (2026-08-10, permintaan Agus -
-    // "jangan ada biaya thumbnail, gunakan potongan video terbaik saja") - GANTI dari
-    // generateThumbnail() (Nano Banana 2, $0.08/gambar + teks overlay AI). thumbnailText
-    // (konsep teks dari youtubeEditorial.ts) TIDAK DIPAKAI LAGI di sini - dibiarkan tetap
-    // dihasilkan di tempat lain (masih relevan sbg ide, cuma tidak dibakar ke gambar).
+    // Thumbnail dari potongan video ASLI, TANPA biaya generate gambar (2026-08-10,
+    // permintaan Agus - "jangan ada biaya thumbnail, gunakan potongan video terbaik saja")
+    // - GANTI dari generateThumbnail() (Nano Banana 2, $0.08/gambar + teks overlay AI).
+    // thumbnailText (konsep teks dari youtubeEditorial.ts) TIDAK DIPAKAI LAGI di sini -
+    // dibiarkan tetap dihasilkan di tempat lain (masih relevan sbg ide, cuma tidak
+    // dibakar ke gambar).
+    //
+    // Diaktifkan 2026-09-07 (audit "AI Konten Fase 7-10" - thumbnailScoring.ts sudah
+    // dibangun sejak PRD §15/Task Plan 7 tapi TIDAK PERNAH dipanggil dari pipeline ini,
+    // cuma extractThumbnailFrame single-frame lama yg jalan) - sekarang ambil BEBERAPA
+    // kandidat frame dari jendela hook (extractThumbnailCandidates, tetap 100% FFmpeg
+    // lokal/gratis) lalu 1 panggilan vision murah (gpt-4.1-mini, BUKAN image-generation)
+    // memilih yg paling menarik jadi thumbnail - biaya vision-teks jauh lebih kecil dari
+    // generate gambar, dan tetap nol biaya di tahap ekstraksi framenya sendiri.
     {
       const [ytAccount] = await db
         .select()
         .from(socialAccounts)
         .where(and(eq(socialAccounts.brandId, project.brandId), eq(socialAccounts.platform, "youtube")));
       if (ytAccount) {
-        const thumbnailUrl = await extractThumbnailFrame(rendered.videoUrl, rendered.durationSeconds, project.brandId, id);
+        const candidateUrls = await extractThumbnailCandidates(rendered.videoUrl, rendered.durationSeconds, project.brandId, id);
+        const scored = await scoreThumbnailCandidates(candidateUrls, caption, brand.name);
+        const thumbnailUrl = scored[0]?.url || candidateUrls[0];
         await db.insert(mediaAssets).values({
           id: newId("asset"),
           projectId: id,
