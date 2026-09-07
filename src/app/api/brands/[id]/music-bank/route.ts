@@ -4,9 +4,14 @@ import { musicBank } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { getAudioDurationSeconds } from "@/lib/ai/dubbing";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const rows = await db
     .select()
     .from(musicBank)
@@ -21,7 +26,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // penilaian subjektif, tidak proporsional dianalisis otomatis dari audio utk skala app
 // ini) - durasi SATU-SATUNYA yg dihitung otomatis (ffprobe, akurat, drpd nanya manual).
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
   const { fileUrl, title, mood } = await req.json();
 
   if (typeof fileUrl !== "string" || !fileUrl) {
