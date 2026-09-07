@@ -1,9 +1,12 @@
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 
-// Single-admin auth only (Agus is the only user) - no multi-provider OAuth, no signup
-// flow. Password hash + session secret come from env, set once during deploy.
-const SESSION_COOKIE = "kontenpilot_session";
+// Multi-tenant auth (2026-09-07, fork dari KontenPilot internal untuk produk SaaS
+// aikonten.agustapstudio.com - PRD "AI Konten by Agustap Studio", Fase 1). Repo ASAL
+// (internal) tetap single-admin (1 ADMIN_PASSWORD_HASH_B64 di .env, lihat versi lama
+// file ini) - fork INI ganti total ke sesi per-akun sungguhan: JWT menyimpan userId,
+// password diverifikasi per-baris `users.passwordHash` (bukan 1 hash global).
+const SESSION_COOKIE = "aikonten_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 hari
 
 function getSessionSecret(): Uint8Array {
@@ -12,30 +15,34 @@ function getSessionSecret(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-export async function verifyAdminPassword(password: string): Promise<boolean> {
-  // Hash disimpan sbg base64 di .env (ADMIN_PASSWORD_HASH_B64), BUKAN string bcrypt
-  // mentah - lihat scripts/hash-password.mjs utk alasan (bug ekspansi "$VAR" Next.js
-  // pada value .env yang mengandung "$", yang selalu ada di hash bcrypt).
-  const encoded = process.env.ADMIN_PASSWORD_HASH_B64;
-  if (!encoded) throw new Error("ADMIN_PASSWORD_HASH_B64 belum diisi di .env");
-  const hash = Buffer.from(encoded, "base64").toString("utf-8");
+export async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 12);
+}
+
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return bcrypt.compare(password, hash);
 }
 
-export async function createSessionToken(): Promise<string> {
-  return new SignJWT({ role: "admin" })
+// Sesi berisi userId (BUKAN cuma role:"admin" spt versi lama) - inilah yang membuat
+// middleware.ts & tiap route API tahu PERSIS akun mana yang sedang login, dasar dari
+// seluruh isolasi antar-pelanggan (Alur D, PRD Fase 1).
+export async function createSessionToken(userId: string): Promise<string> {
+  return new SignJWT({ userId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${SESSION_TTL_SECONDS}s`)
     .sign(getSessionSecret());
 }
 
-export async function verifySessionToken(token: string): Promise<boolean> {
+// Balikin userId kalau token valid, null kalau tidak (kadaluarsa/rusak/dipalsukan) -
+// BEDA dari versi lama yang cuma balikin boolean, krn sekarang perlu tahu SIAPA yang
+// login, bukan cuma "apakah ada yang login".
+export async function verifySessionToken(token: string): Promise<string | null> {
   try {
-    await jwtVerify(token, getSessionSecret());
-    return true;
+    const { payload } = await jwtVerify(token, getSessionSecret());
+    return typeof payload.userId === "string" ? payload.userId : null;
   } catch {
-    return false;
+    return null;
   }
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { brands } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getUserId, getOwnedBrand } from "@/lib/session";
 
 // Update brand - awalnya khusus logoUrl (2026-08-05), sekarang jg dailyVideoCount/
 // dailyCarouselCount (2026-08-05, permintaan Agus - "dari 10 konten ini 3 dibuat foto
@@ -9,10 +10,14 @@ import { eq } from "drizzle-orm";
 // sebagian field, konsisten dgn pola REST project lain. Semua field OPSIONAL - kirim
 // yg mau diubah saja.
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
   const { id } = await params;
   const body = await req.json();
 
-  const [existing] = await db.select().from(brands).where(eq(brands.id, id));
+  // getOwnedBrand (2026-09-07, Fase 1 Alur D) - GANTI dari db.select() polos (versi
+  // lama, repo asal KontenPilot internal) - 404 kalau brand tidak ada ATAU bukan milik
+  // userId yang login (pesan SAMA utk keduanya, jangan bocorkan mana yg terjadi).
+  const existing = await getOwnedBrand(userId, id);
   if (!existing) {
     return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }
