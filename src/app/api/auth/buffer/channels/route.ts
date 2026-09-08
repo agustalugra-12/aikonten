@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listBufferChannels } from "@/lib/publish/bufferAuth";
+import { getSessionUserIdOrNull } from "@/lib/session";
 
 // Buffer TIDAK pakai alur OAuth redirect (beda dari YouTube/Meta) - channel-nya
 // disambungkan Agus langsung di dashboard Buffer sendiri, app ini cuma perlu
@@ -11,6 +12,15 @@ import { listBufferChannels } from "@/lib/publish/bufferAuth";
 // kalau tidak, fallback ke BUFFER_ACCESS_TOKEN di .env (perilaku lama, tetap jalan utk
 // brand yg pakai akun Buffer bersama/default).
 export async function GET(req: NextRequest) {
+  // Login-required (2026-09-08, Fase 1 Alur D) - route ini dikecualikan middleware.ts
+  // sengaja utk grup /api/auth/* (perlu terima redirect OAuth pihak ketiga), tapi route
+  // INI SENDIRI bukan bagian alur redirect (murni fetch JSON), jadi tetap wajib sesi valid
+  // - tanpa ini, kalau `token` tidak diisi, fallback BUFFER_ACCESS_TOKEN di bufferAuth.ts
+  // bisa membocorkan daftar channel akun Buffer bersama ke siapa pun yang belum login.
+  const userId = await getSessionUserIdOrNull(req);
+  if (!userId) {
+    return NextResponse.json({ error: "Belum login atau sesi kadaluarsa" }, { status: 401 });
+  }
   const token = req.nextUrl.searchParams.get("token") || undefined;
   try {
     const channels = await listBufferChannels(token);

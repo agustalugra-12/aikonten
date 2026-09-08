@@ -7,6 +7,7 @@ import {
   storePendingSelection,
   saveMetaAccountsForBrand,
 } from "@/lib/publish/metaAuth";
+import { getSessionUserIdOrNull, getOwnedBrand } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
@@ -20,6 +21,17 @@ export async function GET(req: NextRequest) {
   }
   if (!code || !brandId) {
     return NextResponse.redirect(`${appUrl}/?meta_error=missing_code_or_state`);
+  }
+
+  // Isolasi antar-pelanggan (2026-09-08, Fase 1 Alur D) - verifikasi ULANG di sini juga
+  // (bukan cuma di connect/route.ts): `state` cuma dijaga Facebook apa adanya, siapa pun
+  // bisa memicu callback ini langsung dgn `state` (brandId) bebas tanpa pernah lewat
+  // connect/route.ts sama sekali - cek ownership WAJIB di titik yang benar2 menulis token
+  // ke DB, bukan cuma di titik masuk. Cookie sesi tetap terkirim di redirect Facebook->
+  // sini krn SameSite=Lax (top-level GET navigation).
+  const userId = await getSessionUserIdOrNull(req);
+  if (!userId || !(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.redirect(`${appUrl}/?meta_error=${encodeURIComponent("Brand tidak ditemukan atau sesi kadaluarsa")}`);
   }
 
   try {

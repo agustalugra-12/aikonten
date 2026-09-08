@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { brands, plans, projects, users } from "@/db/schema";
 import { and, count, eq, inArray } from "drizzle-orm";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
 // Helper isolasi antar-pelanggan (2026-09-07, PRD "AI Konten by Agustap Studio" Fase 1,
 // Alur D). middleware.ts SUDAH memverifikasi sesi & menaruh userId di header `x-user-id`
@@ -16,6 +17,18 @@ export function getUserId(req: NextRequest): string {
     throw new Error("x-user-id hilang - middleware auth tidak jalan utk route ini");
   }
   return userId;
+}
+
+// Verifikasi sesi MANUAL (2026-09-08, Fase 1 Alur D) - HANYA dipakai 6 route OAuth
+// (auth/meta/*, auth/youtube/*, auth/buffer/channels) yang SENGAJA dikecualikan
+// middleware.ts (perlu terima redirect balik dari Facebook/Google tanpa 401 JSON) -
+// jadi TIDAK dapat header x-user-id otomatis, harus baca+verifikasi cookie sendiri di
+// sini. Route lain WAJIB tetap pakai getUserId(req) (baca header, bukan verifikasi
+// ulang) - fungsi ini BUKAN pengganti itu, cuma utk celah middleware yang disengaja.
+// Balikin null (bukan throw) - pemanggil putuskan sendiri redirect kemana kalau gagal.
+export async function getSessionUserIdOrNull(req: NextRequest): Promise<string | null> {
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  return token ? verifySessionToken(token) : null;
 }
 
 // Kunci isolasi utama - pastikan brandId yang diminta BENAR milik userId yang login.

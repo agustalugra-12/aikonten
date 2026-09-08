@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { takePendingSelection, storePendingSelection, saveMetaAccountsForBrand } from "@/lib/publish/metaAuth";
+import { getSessionUserIdOrNull } from "@/lib/session";
 
 // Halaman pilih Page - HANYA muncul kalau akun Facebook Agus admin di LEBIH DARI SATU
 // Page (mis. Pelangi + Harmoni pakai 1 akun FB pribadi yg sama). Server-rendered HTML
@@ -12,6 +13,15 @@ export async function GET(req: NextRequest) {
 
   if (!token) {
     return NextResponse.redirect(`${appUrl}/?meta_error=missing_token`);
+  }
+
+  // Login-required (2026-09-08, Fase 1 Alur D) - brandId di sini datang dari
+  // pending-selection TOKEN (sudah divalidasi ownership di callback/route.ts saat token
+  // ini dibuat, bukan dari query param bebas), jadi TIDAK perlu getOwnedBrand ulang -
+  // cukup pastikan yang menyelesaikan pemilihan Page memang sesi yang sedang login,
+  // bukan siapa pun yang kebetulan tahu/mencegat URL token ini.
+  if (!(await getSessionUserIdOrNull(req))) {
+    return NextResponse.redirect(`${appUrl}/?meta_error=${encodeURIComponent("Sesi kadaluarsa, ulangi connect")}`);
   }
 
   if (pageId) {

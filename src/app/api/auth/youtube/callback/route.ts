@@ -4,6 +4,7 @@ import { socialAccounts } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { ensurePlatformPolicyEnabled } from "@/lib/policy/platformPolicy";
+import { getSessionUserIdOrNull, getOwnedBrand } from "@/lib/session";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
@@ -20,6 +21,14 @@ export async function GET(req: NextRequest) {
   }
   if (!code || !brandId) {
     return NextResponse.redirect(`${appUrl}/?youtube_error=missing_code_or_state`);
+  }
+
+  // Isolasi antar-pelanggan (2026-09-08, Fase 1 Alur D) - sama alasan dgn auth/meta/
+  // callback: cek ownership WAJIB di titik yang benar2 menulis social_accounts, bukan
+  // cuma di connect/route.ts.
+  const userId = await getSessionUserIdOrNull(req);
+  if (!userId || !(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.redirect(`${appUrl}/?youtube_error=${encodeURIComponent("Brand tidak ditemukan atau sesi kadaluarsa")}`);
   }
 
   const clientId = process.env.YOUTUBE_CLIENT_ID;
