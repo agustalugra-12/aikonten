@@ -7,6 +7,7 @@ import { publishProject } from "@/lib/publish/orchestrate";
 import { LockBusyError } from "@/lib/concurrency/locks";
 import { getUserId, getOwnedProject } from "@/lib/session";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
+import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
 
 // "Coba Lagi" pintar (2026-08-07, permintaan Agus - konten yg SUDAH jadi videonya/
 // gambarnya sempat "tampil" [status ready] lalu "hilang lagi" krn status jatuh ke
@@ -47,8 +48,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
   }
 
-  // Mode process - generate ulang penuh, biaya sama dgn /process (potong dulu, refund
-  // kalau gagal total - sama pola & alasan dgn process/route.ts).
+  // Mode process - generate ulang penuh, sama gate & biaya dgn /process (potong dulu,
+  // refund kalau gagal total - sama pola & alasan dgn process/route.ts).
+  try {
+    await pastikanAkunBolehGenerate(userId);
+  } catch (err) {
+    if (err instanceof AkunTerbatasError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    throw err;
+  }
+
   const biaya = CREDIT_COST_GENERATE[project.type];
   try {
     await potongKredit(userId, biaya, `generate_${project.type}`, id);

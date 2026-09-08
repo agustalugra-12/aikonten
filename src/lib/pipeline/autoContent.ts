@@ -11,6 +11,7 @@ import { getFootageUsageRecency, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, sele
 import { getDurationConfig } from "@/lib/ai/clipSelect";
 import { getChannelProfile } from "@/lib/ai/youtubeEditorial";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
+import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
 import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyContentPlanner";
 import { applyAgustapStrategyIfActive } from "@/lib/agustap/generationStrategy";
 import { isAgustapExtensionActive } from "@/lib/agustap/featureFlag";
@@ -378,6 +379,15 @@ export async function runAutoContent(
   // request/session) krn fungsi ini dipanggil DUA jalur: manual (route brands/[id]/
   // auto-content, ADA session) & cron auto-generate (TIDAK ADA session, secret-based) -
   // brand yg sudah di-fetch di atas SATU2NYA sumber kepemilikan yg selalu tersedia.
+  try {
+    await pastikanAkunBolehGenerate(brand.userId);
+  } catch (err) {
+    if (err instanceof AkunTerbatasError) {
+      throw new AutoContentError(err.message, 403);
+    }
+    throw err;
+  }
+
   const biaya = CREDIT_COST_GENERATE[type];
   try {
     await potongKredit(brand.userId, biaya, `generate_${type}`, projectId);

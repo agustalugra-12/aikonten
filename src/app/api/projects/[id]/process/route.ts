@@ -3,6 +3,7 @@ import { processProject } from "@/lib/pipeline/processProject";
 import { LockBusyError } from "@/lib/concurrency/locks";
 import { getUserId, getOwnedProject } from "@/lib/session";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
+import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
 
 // Trigger manual dari NewProjectDialog.tsx setelah upload footage selesai. Logika
 // pipeline-nya sendiri ada di lib/pipeline/processProject.ts (dipakai bareng dgn
@@ -13,6 +14,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const project = await getOwnedProject(userId, id);
   if (!project) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
+  }
+
+  // Gate status akun (2026-09-08, Fase 1 Alur C) - "terbatas" = paket kadaluarsa lewat
+  // masa tenggang, tidak boleh generate BARU (baca/download konten lama tetap boleh).
+  try {
+    await pastikanAkunBolehGenerate(userId);
+  } catch (err) {
+    if (err instanceof AkunTerbatasError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    throw err;
   }
 
   // Potong kredit SEBELUM generate (2026-09-08, Fase 1 Alur B) - biaya AI/render asli

@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { brands } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getUserId, getOwnedBrand } from "@/lib/session";
+import { planMengizinkanAutoPosting } from "@/lib/billing/planGate";
 
 // Update brand - awalnya khusus logoUrl (2026-08-05), sekarang jg dailyVideoCount/
 // dailyCarouselCount (2026-08-05, permintaan Agus - "dari 10 konten ini 3 dibuat foto
@@ -193,6 +194,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
       if (!Array.isArray(autoPublishTimes) || autoPublishTimes.length === 0 || !autoPublishTimes.every((t) => typeof t === "string" && timeRe.test(t))) {
         return NextResponse.json({ error: "autoPublishTimes wajib diisi minimal 1 jam format HH:MM (WITA) kalau publishMode='auto'" }, { status: 400 });
+      }
+      // Gate paket (2026-09-08, Fase 1) - "auto" cuma utk paket yang izinAutoPosting.
+      // Cek HANYA kalau publishMode barusan BERUBAH jadi "auto" (bukan tiap kali PATCH
+      // field lain di brand yang kebetulan sudah "auto" dari dulu) - supaya downgrade
+      // paket TIDAK diam-diam matikan auto-publish yang sudah berjalan tanpa Agus sadar
+      // (itu urusan cron/pengecekan status akun terpisah, bukan di sini).
+      if (existing.publishMode !== "auto" && !(await planMengizinkanAutoPosting(userId))) {
+        return NextResponse.json({ error: "Paket Anda tidak mengizinkan auto-publish - upgrade paket utk fitur ini" }, { status: 403 });
       }
     }
     update.publishMode = publishMode;
