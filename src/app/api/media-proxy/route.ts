@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/db";
+import { mediaAssets } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { getUserId, getOwnedBrand, getOwnedProject } from "@/lib/session";
 
 // Proxy media dari storage kita sendiri (R2) LEWAT domain aplikasi ini, bukan hotlink
 // langsung ke pub-*.r2.dev (2026-08-05, bug nyata dilaporkan Agus - draft foto tidak
@@ -33,6 +37,28 @@ export async function GET(req: NextRequest) {
 
   if (allowedPrefixes.length === 0 || !allowedPrefixes.some((prefix) => url.startsWith(prefix))) {
     return NextResponse.json({ error: "URL tidak diizinkan" }, { status: 403 });
+  }
+
+  // Isolasi antar-pelanggan (2026-09-08, Fase 1 Alur D) - validasi di atas cuma pastikan
+  // URL berasal dari storage KITA (bukan open proxy/SSRF), TAPI tidak cek APAKAH file itu
+  // milik brand userId yang login - siapa pun yang login bisa proxy file tenant LAIN kalau
+  // kebetulan tahu URL-nya. Risiko rendah (key R2/public_id Cloudinary random, tidak
+  // ditebak), tapi produk komersial tidak boleh mengandalkan "untraktakan" sbg satu-satunya
+  // pertahanan. R2: brandId SELALU segmen path pertama (lihat buildAssetKey di storage.ts,
+  // semua pemanggil upload-url pakai ini) - parse langsung, tidak perlu query. Cloudinary:
+  // public_id sengaja FLAT (tanpa folder, keterbatasan sintaks overlay - lihat cloudinary.ts),
+  // brandId tidak ada di URL - cari lewat media_assets.fileUrl -> projectId -> brands.userId.
+  const userId = getUserId(req);
+  if (r2Base && url.startsWith(`${r2Base}/`)) {
+    const brandId = url.slice(r2Base.length + 1).split("/")[0];
+    if (!brandId || !(await getOwnedBrand(userId, brandId))) {
+      return NextResponse.json({ error: "Media tidak ditemukan" }, { status: 404 });
+    }
+  } else {
+    const [asset] = await db.select().from(mediaAssets).where(eq(mediaAssets.fileUrl, url));
+    if (!asset || !(await getOwnedProject(userId, asset.projectId))) {
+      return NextResponse.json({ error: "Media tidak ditemukan" }, { status: 404 });
+    }
   }
 
   const upstream = await fetch(url);
