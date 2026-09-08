@@ -1,5 +1,5 @@
 import { getOpenAIClient } from "./openaiClient";
-import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
+import { fetchPelangiKnowledge, mergeManualKnowledge, KNOWN_KNOWLEDGE_SITES } from "./pelangiKnowledge";
 import { pillarsForSite, pillarTargetPercentForSite, CONTENT_ANGLES, type ContentAngle } from "./generateContent";
 import { buildSeasonalContext } from "./seasonalContext";
 import { buildKeywordPriorityBlock, type KeywordClassification } from "./keywordPriority";
@@ -156,7 +156,7 @@ async function buildIdeaPromptBase(
   // generateContent.ts buildKnowledgeGroundingBlock) - brand tanpa knowledgeSite eksplisit
   // (mis. brand baru yg tidak terkait Pelangi/Harmoni sama sekali) TIDAK BOLEH diam-diam
   // dapat fakta kamar/harga Pelangi Homestay.
-  const autoKnowledge = knowledgeSite ? await fetchPelangiKnowledge(knowledgeSite) : "";
+  const autoKnowledge = knowledgeSite && KNOWN_KNOWLEDGE_SITES.has(knowledgeSite) ? await fetchPelangiKnowledge(knowledgeSite) : "";
   const knowledge = mergeManualKnowledge(autoKnowledge, manualKnowledge);
   const distributionBlock = buildDistributionBlock(recentClassifications, knowledgeSite, customPillarsJson);
   const seasonalBlock = buildSeasonalContext();

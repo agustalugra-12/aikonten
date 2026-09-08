@@ -24,6 +24,16 @@
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const cache = new Map<string, { text: string; fetchedAt: number }>();
 
+// Situs yg benar2 dilayani backend web-pelangi (SITE_HOST_MAP di server.py) - SAMA
+// dgn KNOWLEDGE_SITE_PROPERTI di classifyIdea.ts. Ditambahkan 2026-09-08 - bug nyata
+// ditemukan sendiri: caller lama cek `knowledgeSite` truthy SEMBARANG (lihat komentar
+// buildKnowledgeGroundingBlock di generateContent.ts), jadi brand dgn knowledgeSite
+// non-pelangi (mis. "agustap_studio", dipakai HANYA sbg flag fitur lain, lihat
+// classifyIdea.ts) tetap memanggil endpoint ini tiap generate konten - gagal-diam
+// (return "") tapi tetap 1 network round-trip + log error percuma tiap kali,
+// ketahuan dari log ECONNREFUSED di server yg tidak menjalankan web-pelangi backend.
+export const KNOWN_KNOWLEDGE_SITES = new Set(["pelangi", "harmoni"]);
+
 export async function fetchPelangiKnowledge(site: string = "pelangi"): Promise<string> {
   const cached = cache.get(site);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {

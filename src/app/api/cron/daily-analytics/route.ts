@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   const unauthorized = verifyCronSecret(req);
   if (unauthorized) return unauthorized;
 
-  const accounts = await db.select().from(socialAccounts);
+  const accounts = await db.select().from(socialAccounts).where(eq(socialAccounts.connected, true));
   const today = new Date();
   const dateRecorded = today.toISOString().slice(0, 10); // YYYY-MM-DD
   const windowStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);

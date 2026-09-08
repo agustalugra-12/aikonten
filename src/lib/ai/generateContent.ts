@@ -2,7 +2,7 @@ import { getOpenAIClient } from "./openaiClient";
 import { parseBrollKeywordArray } from "./deriveBrollKeywords";
 import type { ScoredSegment } from "./clipSelect";
 import type { TranscriptSegment } from "./transcribe";
-import { fetchPelangiKnowledge, mergeManualKnowledge } from "./pelangiKnowledge";
+import { fetchPelangiKnowledge, mergeManualKnowledge, KNOWN_KNOWLEDGE_SITES } from "./pelangiKnowledge";
 import { KEYWORD_PRIORITY_LIST } from "./keywordPriority";
 import {
   pickLeastUsedTemplate,
@@ -370,7 +370,7 @@ async function buildKnowledgeGroundingBlock(
   manualKnowledge?: string | null,
   brandIdentity?: BrandIdentityFields | null
 ): Promise<{ instruction: string; contextBlock: string; knowledge: string }> {
-  const autoKnowledge = knowledgeSite ? await fetchPelangiKnowledge(knowledgeSite) : "";
+  const autoKnowledge = knowledgeSite && KNOWN_KNOWLEDGE_SITES.has(knowledgeSite) ? await fetchPelangiKnowledge(knowledgeSite) : "";
   const knowledge = mergeManualKnowledge(autoKnowledge, manualKnowledge);
   const identityBlock = buildBrandIdentityBlock(brandIdentity);
   if (!knowledge) return { instruction: "", contextBlock: identityBlock, knowledge: "" };
