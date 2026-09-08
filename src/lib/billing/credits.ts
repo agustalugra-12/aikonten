@@ -9,11 +9,16 @@ import { newId } from "@/lib/ids";
 // keduanya WAJIB berubah bareng dalam 1 fungsi ini, tidak ada pemanggil lain yang boleh
 // UPDATE saldoKredit langsung.
 //
-// BELUM DIPASANG ke pipeline generate/render manapun (processProject.ts, generateContent.ts,
-// dst) - angka "berapa kredit per generate video/poster" belum ditentukan Agus ("masalah
-// kreditnya nanti kita tentukan"). Ini cuma primitif siap pakai; pemanggilan nyata
-// menyusul begitu tabel biaya-per-aksi sudah ada keputusan, supaya tidak menebak angka
-// & harus dibongkar ulang.
+// Dipasang ke /api/projects/[id]/process & /api/projects/[id]/retry (2 satu2nya titik
+// yang benar2 memanggil processProject.ts, generate konten sungguhan) via
+// CREDIT_COST_GENERATE di bawah - SEMUA ANGKA DI SITU PLACEHOLDER, Agus eksplisit
+// "penentuan jumlah dan harga kredit bisa kita atur nanti". Sengaja masih konstanta kode
+// (bukan tabel DB spt `plans`) supaya gampang ditemukan & diganti SATU tempat begitu ada
+// keputusan asli - jangan anggap angka ini sudah final/siap tagih pelanggan sungguhan.
+export const CREDIT_COST_GENERATE: Record<"video" | "carousel", number> = {
+  video: 10, // PLACEHOLDER
+  carousel: 3, // PLACEHOLDER
+};
 
 export class SaldoTidakCukupError extends Error {
   constructor(public saldoSekarang: number, public butuh: number) {

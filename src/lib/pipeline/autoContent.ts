@@ -10,6 +10,7 @@ import { searchBrollVideo } from "@/lib/assets/broll";
 import { getFootageUsageRecency, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, selectBalancedRealFootage } from "@/lib/ai/footageVariety";
 import { getDurationConfig } from "@/lib/ai/clipSelect";
 import { getChannelProfile } from "@/lib/ai/youtubeEditorial";
+import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
 import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyContentPlanner";
 import { applyAgustapStrategyIfActive } from "@/lib/agustap/generationStrategy";
 import { isAgustapExtensionActive } from "@/lib/agustap/featureFlag";
@@ -371,6 +372,27 @@ export async function runAutoContent(
     });
   }
 
-  const result = await processProject(projectId);
-  return { projectId, script, fromBroll, ...result };
+  // Potong kredit SEBELUM generate (2026-09-08, Fase 1 Alur B) - sama pola & alasan dgn
+  // /api/projects/[id]/process: biaya AI/render terjadi apa pun hasilnya, tagih di muka,
+  // refund penuh kalau processProject gagal total. Dipakai `brand.userId` (BUKAN dari
+  // request/session) krn fungsi ini dipanggil DUA jalur: manual (route brands/[id]/
+  // auto-content, ADA session) & cron auto-generate (TIDAK ADA session, secret-based) -
+  // brand yg sudah di-fetch di atas SATU2NYA sumber kepemilikan yg selalu tersedia.
+  const biaya = CREDIT_COST_GENERATE[type];
+  try {
+    await potongKredit(brand.userId, biaya, `generate_${type}`, projectId);
+  } catch (err) {
+    if (err instanceof SaldoTidakCukupError) {
+      throw new AutoContentError(err.message, 402);
+    }
+    throw err;
+  }
+
+  try {
+    const result = await processProject(projectId);
+    return { projectId, script, fromBroll, ...result };
+  } catch (err) {
+    await isiUlangKredit(brand.userId, biaya, "refund_gagal");
+    throw err;
+  }
 }
