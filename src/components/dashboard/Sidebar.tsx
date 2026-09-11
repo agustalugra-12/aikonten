@@ -10,7 +10,6 @@ import {
   Settings,
   BarChart3,
   CalendarDays,
-  Swords,
   Building2,
   Brain,
 } from "lucide-react";
@@ -43,13 +42,16 @@ const NAV_GROUPS: NavGroup[] = [
       { view: "overview", label: "Dashboard", icon: LayoutDashboard },
       { view: "buat", label: "Buat Konten", icon: PenSquare },
       { view: "konten", label: "Konten", icon: GalleryHorizontal },
-      { view: "ide", label: "Ide Konten", icon: Lightbulb },
-      { view: "rencana", label: "Rencana Konten", icon: CalendarDays },
+      { view: "rencana", label: "Planner", icon: CalendarDays },
+      { view: "laporan", label: "Analytics", icon: BarChart3 },
     ],
   },
   {
     section: "AI Intelligence",
-    items: [{ view: "kompetitor", label: "Kompetitor", icon: Swords }],
+    items: [
+      { view: "kompetitor", label: "AI Studio & R&D", icon: Brain },
+      { view: "ide", label: "Ide Konten", icon: Lightbulb },
+    ],
   },
   {
     section: "Library",
@@ -57,10 +59,6 @@ const NAV_GROUPS: NavGroup[] = [
       { view: "footage", label: "Footage Bank", icon: FolderOpen },
       { view: "musik", label: "Music Bank", icon: Music },
     ],
-  },
-  {
-    section: "Insight",
-    items: [{ view: "laporan", label: "Laporan", icon: BarChart3 }],
   },
   {
     section: "Settings",

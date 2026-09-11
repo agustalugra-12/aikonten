@@ -11,12 +11,11 @@ import { ProjectList } from "@/components/dashboard/ProjectList";
 import { DraftReview } from "@/components/dashboard/DraftReview";
 import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
-import { WeeklyReport } from "@/components/dashboard/WeeklyReport";
+import { Analytics } from "@/components/dashboard/Analytics";
 import { Planner } from "@/components/dashboard/Planner";
 import { FatigueSummary } from "@/components/dashboard/FatigueSummary";
-import { CompetitorIntelligence } from "@/components/dashboard/CompetitorIntelligence";
+import { AiStudio } from "@/components/dashboard/AiStudio";
 import { AgustapIntelligence } from "@/components/dashboard/AgustapIntelligence";
-import { MonthlyReport } from "@/components/dashboard/MonthlyReport";
 import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { DailyContentPlanner } from "@/components/dashboard/DailyContentPlanner";
@@ -55,7 +54,6 @@ function DashboardContent() {
   // Sidebar navigasi (2026-08-13, permintaan Agus - konsep dashboard baru gaya app
   // musik) - switch VIEW client-side, BUKAN routing Next.js baru (lihat Sidebar.tsx).
   const [activeView, setActiveView] = useState<DashboardView>("overview");
-  const [laporanTab, setLaporanTab] = useState<"mingguan" | "bulanan">("mingguan");
   // Diisi kalau Agus klik salah satu "Ide Konten"/Content Planner - lihat
   // ContentIdeas.tsx/DailyContentPlanner.tsx. Dipakai sbg `key` remount
   // NewProjectDialog di bawah biar initialScript-nya benar2 baru.
@@ -234,7 +232,7 @@ function DashboardContent() {
           ) : activeView === "rencana" ? (
             <Planner brandId={selectedBrandId} onGoBuat={() => setActiveView("buat")} />
           ) : activeView === "kompetitor" ? (
-            <CompetitorIntelligence brandId={selectedBrandId} />
+            <AiStudio brandId={selectedBrandId} brand={currentBrand} />
           ) : activeView === "agustap" ? (
             <AgustapIntelligence brandId={selectedBrandId} />
           ) : activeView === "footage" ? (
@@ -242,31 +240,28 @@ function DashboardContent() {
           ) : activeView === "musik" ? (
             <LibraryFootage brandId={selectedBrandId} defaultTab="music" />
           ) : activeView === "laporan" ? (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Button variant={laporanTab === "mingguan" ? "default" : "outline"} size="sm" onClick={() => setLaporanTab("mingguan")}>
-                  Laporan Mingguan
-                </Button>
-                <Button variant={laporanTab === "bulanan" ? "default" : "outline"} size="sm" onClick={() => setLaporanTab("bulanan")}>
-                  Laporan Bulanan
-                </Button>
-              </div>
-              {laporanTab === "mingguan" ? (
-                <WeeklyReport brandId={selectedBrandId} />
-              ) : (
-                <MonthlyReport brandId={selectedBrandId} />
-              )}
-            </div>
+            <Analytics brandId={selectedBrandId} />
           ) : (
-            <Card>
-              <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">
+            <div className="space-y-5">
+              <div>
+                <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-secondary">
+                  <span>Workspace Setup</span>
+                  <span className="text-outline">•</span>
+                  <span className="text-foreground font-semibold">Pengaturan</span>
+                </div>
+                <h1 className="font-heading text-2xl font-bold tracking-tight mt-1">Pengaturan Brand</h1>
+                <p className="text-sm text-muted-foreground mt-0.5 max-w-2xl">
+                  Konfigurasi brand identity &amp; voice, tone, target audiens, jadwal auto-publish, footage, dan knowledge — semuanya mempengaruhi cara AI membuat konten.
+                </p>
+              </div>
+              <div className="rounded-xl bg-card ring-1 ring-border p-5 flex items-center justify-between gap-4 flex-wrap">
                 <div>
-                  <p className="font-medium">Pengaturan Brand</p>
-                  <p className="text-sm text-muted-foreground">Profil desain, knowledge, jadwal auto-publish, dst.</p>
+                  <p className="font-medium">Brand Identity, Tone, Automasi &amp; Knowledge</p>
+                  <p className="text-sm text-muted-foreground mt-0.5">Buka panel pengaturan lengkap untuk brand {currentBrand?.name || "ini"}.</p>
                 </div>
                 <BrandSettingsSidebar brandId={selectedBrandId} brand={currentBrand} onChanged={loadBrands} />
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           )}
         </main>
       </div>

@@ -19,7 +19,7 @@ const FORMATS: { key: Fmt; label: string; icon: string; desc: string; ready: boo
   { key: "video", label: "Reels / Video", icon: "smart_display", desc: "Video pendek/panjang + footage otomatis", ready: true },
   { key: "carousel", label: "Carousel", icon: "auto_stories", desc: "Beberapa slide edukatif", ready: true },
   { key: "foto", label: "Poster Feed", icon: "image", desc: "Poster / infografis feed", ready: true },
-  { key: "caption", label: "Caption Only", icon: "notes", desc: "Caption saja (segera)", ready: false },
+  { key: "caption", label: "Caption Only", icon: "notes", desc: "Caption + hashtag saja", ready: true },
 ];
 
 const TONES = [
@@ -53,6 +53,7 @@ export function BuatKonten({
   const [ideas, setIdeas] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<ProjectDetail | null>(null);
+  const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[] } | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Inspiration chips dari ide harian nyata (bukan hardcode).
@@ -81,6 +82,7 @@ export function BuatKonten({
     }
     setGenerating(true);
     setResult(null);
+    setCaptionResult(null);
     try {
       // 1) Tulis-balik tone/audiens ke config brand existing (PRD §10) bila diisi/diubah.
       const patch: Record<string, string> = {};
@@ -92,6 +94,23 @@ export function BuatKonten({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patch),
         });
+      }
+
+      // Caption Only (jalur baru) - endpoint caption-only (reuse LLM caption existing).
+      if (fmt === "caption") {
+        const capRes = await fetch(`/api/brands/${brandId}/caption-only`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ script: prompt.trim() }),
+        });
+        const capBody = await capRes.json().catch(() => ({}));
+        if (!capRes.ok) {
+          toast.error(capBody.error || "Gagal membuat caption.");
+          return;
+        }
+        setCaptionResult({ caption: capBody.caption || "", hashtags: capBody.hashtags || [] });
+        toast.success("Caption dibuat - salin dari Studio Preview.");
+        return;
       }
 
       // 2) Generate lewat engine NYATA (runAutoContent) - prompt jadi `script`.
@@ -280,11 +299,36 @@ export function BuatKonten({
           </div>
 
           <div className="p-4">
-            {!result && !generating && (
+            {!result && !captionResult && !generating && (
               <div className="h-80 flex flex-col items-center justify-center text-center gap-2 text-[#555f6d]">
                 <span className="material-symbols-outlined text-[40px] text-[#c6c6cd]">movie_edit</span>
                 <p className="text-[13px]">Hasil generate akan muncul di sini.</p>
                 <p className="text-[11px]">Tulis ide di kiri, pilih format, lalu Generate.</p>
+              </div>
+            )}
+
+            {captionResult && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d]">Caption &amp; Hashtag</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const hz = captionResult.hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
+                      navigator.clipboard?.writeText(`${captionResult.caption}\n\n${hz}`);
+                      toast.success("Caption disalin");
+                    }}
+                    className="text-[11px] text-[#151c27] hover:underline flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">content_copy</span> Salin
+                  </button>
+                </div>
+                <div className="rounded-lg bg-[#f0f3ff] p-3 text-[13px] text-[#151c27] whitespace-pre-wrap max-h-[55vh] overflow-y-auto">
+                  {captionResult.caption}
+                  {captionResult.hashtags.length > 0 && (
+                    <p className="text-[#555f6d] mt-3">{captionResult.hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ")}</p>
+                  )}
+                </div>
               </div>
             )}
 
