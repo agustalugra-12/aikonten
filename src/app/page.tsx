@@ -181,15 +181,7 @@ function DashboardContent() {
           {!selectedBrandId ? null : activeView === "overview" ? (
             <DashboardOverview brand={currentBrand} projects={projects} accounts={accounts} onRetryProject={refreshProjects} />
           ) : activeView === "buat" ? (
-            <BuatKonten
-              brandId={selectedBrandId}
-              brand={currentBrand}
-              onRefresh={refreshProjects}
-              onPickIdea={(script, type) => {
-                setPrefillScript(script);
-                setPrefillType(type);
-              }}
-            />
+            <BuatKonten brandId={selectedBrandId} brand={currentBrand} onRefresh={refreshProjects} />
           ) : activeView === "konten" ? (
             <div className="space-y-6">
               <div className="flex items-center gap-2 flex-wrap">
