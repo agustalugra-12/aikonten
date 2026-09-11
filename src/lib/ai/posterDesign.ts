@@ -179,6 +179,21 @@ function buildPosterPrompt(
     `${SHARED_STRUCTURAL_RULES}\n\n${logoSection}\n\n${ZONA_AMAN_LOGO}\n\n${visualRule}\n\n${batasan}${layoutOverride}\n\n---\n\n` +
     `PROFIL BRAND (warna/font/ikon/tone brand ini - ` +
     `WAJIB diikuti, ini yang membedakan brand ini dari brand lain):\n${profile}\n\n` +
+    // (2026-09-11, bug nyata ditemukan lewat A/B test AgustaP Studio) PROFIL BRAND di
+    // atas = INSTRUKSI DESAIN utkmu (model gambar), BUKAN teks yang harus muncul di
+    // poster. Token teknis di dalamnya - kode warna hex (#1647D9/#FFFFFF/dst), rasio
+    // persen (60-70%), nama font (Montserrat/Inter/dst) - DAN contoh ilustratif (mis.
+    // "SEMUA PAKET TERMASUK", "Rp1,5 JUTA") berulang kali bocor ke-render HARFIAH sbg
+    // teks/badge di poster (mis. badge berisi "White #FFFFFF 60-70%"). Guard eksplisit
+    // di bawah: profil = cara mendesain, bukan isi yang digambar.
+    `PENTING - PROFIL BRAND di atas adalah PANDUAN GAYA utkmu (cara memilih warna/font/` +
+    `layout), BUKAN teks yang digambar di poster. JANGAN PERNAH menampilkan token teknis ` +
+    `dari profil sbg teks/badge/label di poster: kode warna hex (mis. #1647D9, #FFFFFF, ` +
+    `#171717), angka rasio/persen (mis. "60-70%"), nama font (mis. Montserrat/Inter/` +
+    `Poppins), maupun CONTOH ilustratif yang disebut di profil (mis. "SEMUA PAKET ` +
+    `TERMASUK", "Rp1,5 JUTA", "90 KONTEN/BULAN" - itu cuma contoh gaya, bukan konten ` +
+    `poster ini). Terapkan warnanya (pakai birunya, putihnya) TANPA menuliskan kode/nama/` +
+    `persennya. Satu-satunya teks yang boleh muncul di poster = KONTEN POSTER INI di bawah.\n\n` +
     `PENGINGAT (kalau PROFIL BRAND di atas menyebut posisi "kanan atas"/"kanan"/"pojok kanan" utk visual/mockup/label/ikon apa pun): ZONA AMAN LOGO yg sudah dijelaskan di awal TETAP MENANG - jangan taruh elemen apa pun dari PROFIL BRAND di area itu, geser ke kiri/bawah.\n\n---\n\n` +
     `KONTEN POSTER INI (isi teks yang harus muncul, TERJEMAHKAN ke elemen visual sesuai ` +
     `seluruh aturan gaya di atas - jangan tampilkan teks lain di luar ini):\n` +
