@@ -12,7 +12,7 @@ import { DraftReview } from "@/components/dashboard/DraftReview";
 import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
 import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
 import { WeeklyReport } from "@/components/dashboard/WeeklyReport";
-import { ContentPlan } from "@/components/dashboard/ContentPlan";
+import { Planner } from "@/components/dashboard/Planner";
 import { FatigueSummary } from "@/components/dashboard/FatigueSummary";
 import { CompetitorIntelligence } from "@/components/dashboard/CompetitorIntelligence";
 import { AgustapIntelligence } from "@/components/dashboard/AgustapIntelligence";
@@ -233,7 +233,7 @@ function DashboardContent() {
               </Card>
             </div>
           ) : activeView === "rencana" ? (
-            <ContentPlan brandId={selectedBrandId} />
+            <Planner brandId={selectedBrandId} onGoBuat={() => setActiveView("buat")} />
           ) : activeView === "kompetitor" ? (
             <CompetitorIntelligence brandId={selectedBrandId} />
           ) : activeView === "agustap" ? (
