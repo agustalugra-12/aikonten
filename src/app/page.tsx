@@ -21,10 +21,11 @@ import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { DailyContentPlanner } from "@/components/dashboard/DailyContentPlanner";
 import { StoryboardDialog } from "@/components/dashboard/StoryboardDialog";
-import { FootageBankDialog } from "@/components/dashboard/FootageBankDialog";
 import { MusicBankDialog } from "@/components/dashboard/MusicBankDialog";
 import { BrandSettingsSidebar } from "@/components/dashboard/BrandSettingsSidebar";
 import { AutoContentButton } from "@/components/dashboard/AutoContentButton";
+import { BuatKonten } from "@/components/dashboard/BuatKonten";
+import { LibraryFootage } from "@/components/dashboard/LibraryFootage";
 import { Sidebar, type DashboardView } from "@/components/dashboard/Sidebar";
 import { DashboardOverview } from "@/components/dashboard/DashboardOverview";
 import { toast } from "sonner";
@@ -149,7 +150,7 @@ function DashboardContent() {
       <Sidebar brand={currentBrand} activeView={activeView} onSelectView={setActiveView} />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="border-b px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+        <header className="h-14 shrink-0 border-b bg-card px-6 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <BrandSwitcher brands={brands} selectedBrandId={selectedBrandId} onSelect={setSelectedBrandId} />
             <NewBrandDialog onCreated={loadBrands} />
@@ -179,6 +180,16 @@ function DashboardContent() {
         <main className="flex-1 p-6 max-w-5xl w-full mx-auto overflow-y-auto">
           {!selectedBrandId ? null : activeView === "overview" ? (
             <DashboardOverview brand={currentBrand} projects={projects} accounts={accounts} onRetryProject={refreshProjects} />
+          ) : activeView === "buat" ? (
+            <BuatKonten
+              brandId={selectedBrandId}
+              brand={currentBrand}
+              onRefresh={refreshProjects}
+              onPickIdea={(script, type) => {
+                setPrefillScript(script);
+                setPrefillType(type);
+              }}
+            />
           ) : activeView === "konten" ? (
             <div className="space-y-6">
               <div className="flex items-center gap-2 flex-wrap">
@@ -236,15 +247,7 @@ function DashboardContent() {
           ) : activeView === "agustap" ? (
             <AgustapIntelligence brandId={selectedBrandId} />
           ) : activeView === "footage" ? (
-            <Card>
-              <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">
-                <div>
-                  <p className="font-medium">Footage Bank</p>
-                  <p className="text-sm text-muted-foreground">Kelola koleksi video/foto mentah brand ini.</p>
-                </div>
-                <FootageBankDialog brandId={selectedBrandId} />
-              </CardContent>
-            </Card>
+            <LibraryFootage brandId={selectedBrandId} />
           ) : activeView === "musik" ? (
             <Card>
               <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">

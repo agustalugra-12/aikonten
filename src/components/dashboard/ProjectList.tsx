@@ -1,16 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { useMemo, useState } from "react";
 import { PlatformIcon } from "@/components/dashboard/PlatformIcon";
 import { toast } from "sonner";
-import type { Brand, Project, SocialAccount } from "@/types";
-import { STATUS_LABEL, STATUS_VARIANT } from "@/types";
+import type { Brand, Project, ProjectStatus, SocialAccount } from "@/types";
+import { STATUS_LABEL } from "@/types";
 
-// Lewatkan pratinjau lewat domain aplikasi sendiri, bukan hotlink langsung ke r2.dev
-// (sama alasan dgn DraftReview.tsx - domain r2.dev kemungkinan kena blokir jaringan di
-// sisi Agus, publish sungguhan tidak lewat jalur ini sama sekali jadi tidak terdampak).
+// Port PERSIS dari mockup KontenPilot (2026-09-11, permintaan Agus "port persis").
+// Warna/ukuran/ikon pakai nilai langsung mockup (Material Symbols + hex surface-container
+// + font-size mockup) via arbitrary Tailwind values -> SELF-CONTAINED, tidak mengubah
+// token global / halaman lain. Data & handler tetap nyata (proxiedUrl/scheduleChipFor/
+// retry). Yg SENGAJA tidak diikut: kolom checkbox + bulk-action bar + atribusi "oleh
+// <user>" (belum ada API bulk & sistem single-admin) - lihat catatan reconciliation.
+
 function proxiedUrl(fileUrl: string): string {
   return `/api/media-proxy?url=${encodeURIComponent(fileUrl)}`;
 }
@@ -21,22 +23,32 @@ function formatDuration(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-// "Video Pendek/Panjang" (2026-08-13, permintaan Agus) - ambang 60 detik SAMA PERSIS
-// dgn konvensi Shorts/Reels/TikTok yg sudah dipakai di seluruh kode ini (lihat
-// processProject.ts isYoutubeShorts) - bukan angka baru yg diketok sendiri.
-function formatBadgeLabel(project: Project): string {
+function formatTypeLabel(project: Project): string {
   if (project.type === "carousel") return "Carousel";
   if (project.durationSeconds == null) return "Video";
   return project.durationSeconds <= 60 ? "Video Pendek" : "Video Panjang";
 }
 
+function typeIcon(project: Project): string {
+  return project.type === "carousel" ? "auto_stories" : "smart_display";
+}
+
+// Gaya pill status mengikuti mockup (Perlu Review/Terjadwal/Terbit/Draft/Gagal), dipetakan
+// ke ProjectStatus NYATA. Nilai warna = token surface-container/error mockup langsung.
+function statusPillClass(status: ProjectStatus): string {
+  if (status === "failed") return "bg-[#ffdad6] text-[#93000a]";
+  if (status === "published") return "bg-white text-[#151c27] ring-1 ring-[#dce2f3] shadow-sm";
+  if (status === "ready") return "bg-[#e7eefe] text-[#151c27]";
+  return "bg-[#e2e8f8] text-[#151c27]"; // uploaded/processing/publishing
+}
+function statusDotClass(status: ProjectStatus): string {
+  if (status === "failed") return "bg-[#ba1a1a]";
+  if (status === "published" || status === "ready") return "bg-black";
+  return "bg-[#555f6d]";
+}
+
 type ScheduleChip = { primary: string; sublabel?: string } | null;
 
-// Estimasi jam publish (2026-08-13, permintaan Agus - "detil konten akan di publis jam
-// brapa"). SENGAJA dilabeli "estimasi" - logika SEBENARNYA di cron/auto-publish.ts py
-// nuansa lebih (slot yg kelewat tanpa konten ready dianggap hilang PERMANEN, bukan
-// di-backfill) yg TIDAK direplikasi presisi di sini, cukup indikasi kasar drpd Agus
-// tidak tahu sama sekali kapan draft-nya bakal tayang.
 function scheduleChipFor(project: Project, brand: Brand | null, allProjects: Project[]): ScheduleChip {
   if (project.status === "published") {
     return {
@@ -46,11 +58,9 @@ function scheduleChipFor(project: Project, brand: Brand | null, allProjects: Pro
   }
   if (project.status === "publishing") return { primary: "Memproses" };
   if (project.status !== "ready") return null;
-  if (!brand || brand.publishMode !== "auto") return { primary: "Manual", sublabel: "menunggu publikasi" };
-
+  if (!brand || brand.publishMode !== "auto") return { primary: "Manual", sublabel: "menunggu" };
   const slots: string[] = brand.autoPublishTimes ? JSON.parse(brand.autoPublishTimes) : [];
-  if (slots.length === 0) return { primary: "Manual", sublabel: "menunggu publikasi" };
-
+  if (slots.length === 0) return { primary: "Manual", sublabel: "menunggu" };
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const remainingSlots = slots
@@ -60,61 +70,73 @@ function scheduleChipFor(project: Project, brand: Brand | null, allProjects: Pro
     })
     .filter((s) => s.minutes >= nowMinutes)
     .sort((a, b) => a.minutes - b.minutes);
-
   const readyQueue = allProjects
     .filter((p) => p.brandId === project.brandId && p.status === "ready" && !p.skipAutoPublish)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   const position = readyQueue.findIndex((p) => p.id === project.id);
-  if (position === -1) return { primary: "Manual", sublabel: "menunggu publikasi" };
-
-  if (position >= remainingSlots.length) {
-    return { primary: slots[0], sublabel: "besok · estimasi" };
-  }
+  if (position === -1) return { primary: "Manual", sublabel: "menunggu" };
+  if (position >= remainingSlots.length) return { primary: slots[0], sublabel: "besok · estimasi" };
   return { primary: remainingSlots[position].t, sublabel: "estimasi" };
 }
 
-// Pengelompokan per tanggal (2026-08-13) - "Hari Ini"/"Kemarin"/tanggal lengkap, gaya
-// Buffer Queue yg dibagi per hari drpd 1 daftar rata tanpa jeda visual.
-function dayGroupLabel(dateStr: string): string {
-  const d = new Date(dateStr);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-  if (sameDay(d, today)) return "Hari Ini";
-  if (sameDay(d, yesterday)) return "Kemarin";
-  return d.toLocaleDateString("id-ID", { weekday: "long", day: "2-digit", month: "long" });
+function relativeTime(dateStr: string): string {
+  const menit = Math.round((Date.now() - new Date(dateStr).getTime()) / 60000);
+  if (menit < 1) return "baru saja";
+  if (menit < 60) return `${menit} menit lalu`;
+  const jam = Math.round(menit / 60);
+  if (jam < 24) return `${jam} jam lalu`;
+  const hari = Math.round(jam / 24);
+  if (hari === 1) return "kemarin";
+  if (hari < 30) return `${hari} hari lalu`;
+  return new Date(dateStr).toLocaleDateString("id-ID", { day: "2-digit", month: "short" });
 }
 
-function groupByDay(projects: Project[]): Array<{ label: string; items: Project[] }> {
-  const groups: Array<{ label: string; items: Project[] }> = [];
-  for (const p of projects) {
-    const label = dayGroupLabel(p.createdAt);
-    const last = groups[groups.length - 1];
-    if (last && last.label === label) last.items.push(p);
-    else groups.push({ label, items: [p] });
+function parseHashtags(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) return arr.map(String);
+  } catch {
+    return raw.split(/[\s,]+/).filter(Boolean);
   }
-  return groups;
+  return [];
 }
 
-// Tampilan Buffer-style (2026-08-13, permintaan Agus - "rapikan tampilan AI konten
-// sperti buffer, warna hitam putih spt sekarang saja, aku mau mirip"). Elemen ciri
-// khas Buffer yg ditiru: kartu terpisah (bukan baris bergaris tipis), thumbnail besar
-// dgn badge ikon platform NEMPEL di pojok kanan-bawah thumbnail (bukan baris ikon
-// terpisah), chip jam publish yg menonjol, dikelompokkan per tanggal. Warna TETAP
-// tokens shadcn abu-abu/hitam yg sudah ada (lihat globals.css) - TIDAK ada warna baru.
+type FilterKey = "semua" | "ready" | "published" | "diproses" | "failed";
+const FILTERS: { key: FilterKey; label: string; match: (s: ProjectStatus) => boolean }[] = [
+  { key: "semua", label: "Semua", match: () => true },
+  { key: "ready", label: "Siap Publish", match: (s) => s === "ready" },
+  { key: "published", label: "Terbit", match: (s) => s === "published" },
+  { key: "diproses", label: "Diproses", match: (s) => s === "uploaded" || s === "processing" || s === "publishing" },
+  { key: "failed", label: "Gagal", match: (s) => s === "failed" },
+];
+
 export function ProjectList({
   projects,
   brand,
   accounts,
   onRetry,
+  embedded = false,
 }: {
   projects: Project[];
   brand: Brand | null;
   accounts: SocialAccount[];
   onRetry?: () => void;
+  embedded?: boolean;
 }) {
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterKey>("semua");
+
+  const counts = useMemo(() => {
+    const c: Record<FilterKey, number> = { semua: 0, ready: 0, published: 0, diproses: 0, failed: 0 };
+    for (const p of projects) for (const f of FILTERS) if (f.match(p.status)) c[f.key] += 1;
+    return c;
+  }, [projects]);
+
+  const visible = useMemo(() => {
+    const f = FILTERS.find((x) => x.key === filter)!;
+    return projects.filter((p) => f.match(p.status));
+  }, [projects, filter]);
 
   async function handleRetry(id: string) {
     setRetrying(id);
@@ -125,11 +147,7 @@ export function ProjectList({
         toast.error(body.error || "Gagal coba ulang, coba lagi nanti");
         return;
       }
-      toast.success(
-        body.mode === "publish"
-          ? "Konten sudah ada, coba publish ulang - cek status beberapa saat lagi"
-          : "Diproses ulang dari awal - cek status beberapa saat lagi"
-      );
+      toast.success(body.mode === "publish" ? "Coba publish ulang - cek status sebentar lagi" : "Diproses ulang - cek status sebentar lagi");
       onRetry?.();
     } catch {
       toast.error("Gagal coba ulang, coba lagi nanti");
@@ -139,93 +157,175 @@ export function ProjectList({
   }
 
   if (projects.length === 0) {
-    return <p className="text-sm text-muted-foreground py-8 text-center">Belum ada konten utk brand ini.</p>;
+    return <p className="text-[13px] text-[#555f6d] py-8 text-center">Belum ada konten utk brand ini.</p>;
   }
 
-  const groups = groupByDay(projects);
-
   return (
-    <div className="space-y-6">
-      {groups.map((group) => (
-        <div key={group.label} className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</h3>
-          <div className="space-y-3">
-            {group.items.map((p) => {
+    <div className={embedded ? "" : "rounded-xl bg-white shadow-sm overflow-hidden ring-1 ring-[#e7eefe]"}>
+      {/* Header + filter tabs (gaya mockup) */}
+      {!embedded && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 border-b border-[#e7eefe]">
+          <div>
+            <h2 className="font-heading font-semibold text-[15px] text-[#151c27]">Konten</h2>
+            <p className="text-[11px] text-[#555f6d] mt-0.5">
+              {projects.length} konten{brand ? ` · ${brand.name}` : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-[#f0f3ff] overflow-x-auto">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setFilter(f.key)}
+                className={
+                  "px-3 py-1 rounded-md text-[12px] font-medium whitespace-nowrap transition-colors " +
+                  (filter === f.key ? "bg-black text-white shadow-sm" : "text-[#555f6d] hover:text-[#151c27]")
+                }
+              >
+                {f.label}
+                <span className="ml-1.5 tabular-nums opacity-70">{counts[f.key]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[860px]">
+          <thead>
+            <tr className="bg-[#f0f3ff] text-[#555f6d] text-[11px] uppercase tracking-wider">
+              <th className="py-2.5 px-4 font-medium">Konten</th>
+              <th className="py-2.5 px-3 font-medium">Tipe</th>
+              <th className="py-2.5 px-3 font-medium">Kanal</th>
+              <th className="py-2.5 px-3 font-medium">Status</th>
+              <th className="py-2.5 px-3 font-medium">Jadwal</th>
+              <th className="py-2.5 px-3 font-medium">Diperbarui</th>
+              <th className="py-2.5 px-4 font-medium text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.length === 0 && (
+              <tr>
+                <td colSpan={7} className="py-8 text-center text-[13px] text-[#555f6d]">
+                  Tidak ada konten pada filter ini.
+                </td>
+              </tr>
+            )}
+            {visible.map((p) => {
               const chip = scheduleChipFor(p, brand, projects);
+              const tags = parseHashtags(p.generatedHashtags);
+              const shortId = p.id.slice(-6).toUpperCase();
               return (
-                <div
-                  key={p.id}
-                  className="flex items-start gap-4 rounded-xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md"
-                >
-                  <div className="relative shrink-0">
-                    <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted flex items-center justify-center ring-1 ring-border">
-                      {p.previewType === "video" ? (
-                        <video src={proxiedUrl(p.previewUrl!)} preload="metadata" muted className="w-full h-full object-cover" />
-                      ) : p.previewType === "image" ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={proxiedUrl(p.previewUrl!)} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground text-center px-1">Belum ada aset</span>
-                      )}
+                <tr key={p.id} className="border-t border-[#e7eefe] hover:bg-[#f0f3ff]/60 transition-colors align-middle">
+                  {/* Konten */}
+                  <td className="py-2.5 px-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-[#e7eefe] flex items-center justify-center shrink-0 shadow-sm">
+                        {p.previewType === "video" ? (
+                          <video src={proxiedUrl(p.previewUrl!)} preload="metadata" muted className="w-full h-full object-cover" />
+                        ) : p.previewType === "image" ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={proxiedUrl(p.previewUrl!)} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="material-symbols-outlined text-[24px] text-[#76777d]">movie_edit</span>
+                        )}
+                        {p.type === "video" && p.durationSeconds != null && (
+                          <span className="absolute bottom-1 right-1 px-1 rounded bg-[#2a313d]/80 text-[#ebf1ff] text-[10px] tabular-nums">
+                            {formatDuration(p.durationSeconds)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <span className="font-mono text-[11px] text-[#555f6d]">#{shortId}</span>
+                        <p className="text-[13px] font-medium text-[#151c27] truncate max-w-md mt-0.5">
+                          {p.generatedCaption || p.script || "(belum ada caption)"}
+                        </p>
+                        {tags.length > 0 && (
+                          <p className="text-[12px] text-[#555f6d] truncate max-w-md mt-0.5">
+                            {tags.slice(0, 4).map((t) => (t.startsWith("#") ? t : `#${t}`)).join(" ")}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    {/* Badge platform nempel di pojok thumbnail - ciri khas Buffer, ganti
-                        dari baris ikon terpisah di versi sebelumnya. */}
-                    {accounts.length > 0 && (
-                      <div className="absolute -bottom-1.5 -right-1.5 flex">
-                        {accounts.slice(0, 3).map((acc, i) => (
-                          <span
-                            key={acc.id}
-                            style={{ marginLeft: i === 0 ? 0 : -8, zIndex: accounts.length - i }}
-                            className="w-6 h-6 rounded-full bg-background border-2 border-card ring-1 ring-border flex items-center justify-center"
-                          >
-                            <PlatformIcon platform={acc.platform} className="w-3.5 h-3.5 text-foreground" />
+                  </td>
+
+                  {/* Tipe */}
+                  <td className="py-2.5 px-3">
+                    <div className="flex items-center gap-1.5 text-[#151c27]">
+                      <span className="material-symbols-outlined text-[16px] text-[#555f6d]">{typeIcon(p)}</span>
+                      <span className="text-[13px] whitespace-nowrap">{formatTypeLabel(p)}</span>
+                    </div>
+                  </td>
+
+                  {/* Kanal */}
+                  <td className="py-2.5 px-3">
+                    {accounts.length > 0 ? (
+                      <div className="flex items-center gap-1">
+                        {accounts.slice(0, 4).map((acc) => (
+                          <span key={acc.id} title={acc.username} className="w-6 h-6 rounded-full bg-[#e7eefe] flex items-center justify-center">
+                            <PlatformIcon platform={acc.platform} className="w-3.5 h-3.5 text-[#151c27]" />
                           </span>
                         ))}
                       </div>
+                    ) : (
+                      <span className="text-[12px] text-[#555f6d]">—</span>
                     )}
-                  </div>
+                  </td>
 
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="outline" className="text-xs font-normal">
-                          {formatBadgeLabel(p)}
-                          {p.durationSeconds != null && p.type === "video" ? ` · ${formatDuration(p.durationSeconds)}` : ""}
-                        </Badge>
-                        <Badge variant={STATUS_VARIANT[p.status]} className="text-xs">
-                          {STATUS_LABEL[p.status]}
-                        </Badge>
+                  {/* Status */}
+                  <td className="py-2.5 px-3">
+                    <span className={"inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap " + statusPillClass(p.status)}>
+                      <span className={"w-1.5 h-1.5 rounded-full inline-block " + statusDotClass(p.status)} />
+                      {STATUS_LABEL[p.status]}
+                    </span>
+                  </td>
+
+                  {/* Jadwal */}
+                  <td className="py-2.5 px-3">
+                    {chip ? (
+                      <div className="flex flex-col">
+                        <span className="text-[13px] font-medium text-[#151c27] flex items-center gap-1 tabular-nums">
+                          <span className="material-symbols-outlined text-[14px] text-[#555f6d]">calendar_today</span>
+                          {chip.primary}
+                        </span>
+                        {chip.sublabel && <span className="font-mono text-[11px] text-[#555f6d] mt-0.5">{chip.sublabel}</span>}
                       </div>
-                      {chip && (
-                        <div className="shrink-0 text-right rounded-lg bg-secondary px-2.5 py-1">
-                          <p className="text-sm font-semibold leading-tight tabular-nums">{chip.primary}</p>
-                          {chip.sublabel && <p className="text-[10px] text-muted-foreground leading-tight">{chip.sublabel}</p>}
-                        </div>
-                      )}
-                    </div>
+                    ) : (
+                      <span className="text-[11px] text-[#555f6d] italic">Belum diatur</span>
+                    )}
+                  </td>
 
-                    <p className="text-sm text-foreground/90 line-clamp-2">
-                      {p.generatedCaption || p.script || "(belum ada caption)"}
-                    </p>
+                  {/* Diperbarui */}
+                  <td className="py-2.5 px-3">
+                    <span className="text-[13px] text-[#151c27]">{relativeTime(p.updatedAt)}</span>
+                  </td>
 
+                  {/* Aksi */}
+                  <td className="py-2.5 px-4 text-right">
+                    {p.status === "failed" ? (
+                      <button
+                        type="button"
+                        disabled={retrying === p.id}
+                        onClick={() => handleRetry(p.id)}
+                        className="px-2 py-1 rounded bg-[#ffdad6] text-[#93000a] hover:bg-[#ba1a1a] hover:text-white text-[11px] font-medium transition-colors disabled:opacity-60"
+                      >
+                        {retrying === p.id ? "Memproses…" : "Coba Lagi"}
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-[#555f6d]">—</span>
+                    )}
                     {p.status === "failed" && p.errorMessage && (
-                      <p className="text-xs text-destructive truncate" title={p.errorMessage}>
+                      <p className="text-[10px] text-[#ba1a1a] truncate max-w-[160px] ml-auto mt-1" title={p.errorMessage}>
                         {p.errorMessage}
                       </p>
                     )}
-
-                    {p.status === "failed" && (
-                      <Button size="sm" variant="outline" disabled={retrying === p.id} onClick={() => handleRetry(p.id)}>
-                        {retrying === p.id ? "Memproses…" : "Coba Lagi"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                  </td>
+                </tr>
               );
             })}
-          </div>
-        </div>
-      ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
