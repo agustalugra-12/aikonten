@@ -21,7 +21,6 @@ import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { DailyContentPlanner } from "@/components/dashboard/DailyContentPlanner";
 import { StoryboardDialog } from "@/components/dashboard/StoryboardDialog";
-import { MusicBankDialog } from "@/components/dashboard/MusicBankDialog";
 import { BrandSettingsSidebar } from "@/components/dashboard/BrandSettingsSidebar";
 import { AutoContentButton } from "@/components/dashboard/AutoContentButton";
 import { BuatKonten } from "@/components/dashboard/BuatKonten";
@@ -241,15 +240,7 @@ function DashboardContent() {
           ) : activeView === "footage" ? (
             <LibraryFootage brandId={selectedBrandId} />
           ) : activeView === "musik" ? (
-            <Card>
-              <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">
-                <div>
-                  <p className="font-medium">Music Bank</p>
-                  <p className="text-sm text-muted-foreground">Kelola koleksi musik latar brand ini.</p>
-                </div>
-                <MusicBankDialog brandId={selectedBrandId} />
-              </CardContent>
-            </Card>
+            <LibraryFootage brandId={selectedBrandId} defaultTab="music" />
           ) : activeView === "laporan" ? (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
