@@ -9,20 +9,15 @@ import { NewBrandDialog } from "@/components/dashboard/NewBrandDialog";
 import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
 import { ProjectList } from "@/components/dashboard/ProjectList";
 import { DraftReview } from "@/components/dashboard/DraftReview";
-import { SocialAccounts } from "@/components/dashboard/SocialAccounts";
-import { AnalyticsSummary } from "@/components/dashboard/AnalyticsSummary";
 import { Analytics } from "@/components/dashboard/Analytics";
 import { Planner } from "@/components/dashboard/Planner";
-import { FatigueSummary } from "@/components/dashboard/FatigueSummary";
 import { AiStudio } from "@/components/dashboard/AiStudio";
 import { KanalTerhubung } from "@/components/dashboard/KanalTerhubung";
 import { AgustapIntelligence } from "@/components/dashboard/AgustapIntelligence";
-import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
 import { DailyContentPlanner } from "@/components/dashboard/DailyContentPlanner";
 import { StoryboardDialog } from "@/components/dashboard/StoryboardDialog";
 import { BrandSettingsSidebar } from "@/components/dashboard/BrandSettingsSidebar";
-import { AutoContentButton } from "@/components/dashboard/AutoContentButton";
 import { BuatKonten } from "@/components/dashboard/BuatKonten";
 import { LibraryFootage } from "@/components/dashboard/LibraryFootage";
 import { Sidebar, type DashboardView } from "@/components/dashboard/Sidebar";
@@ -181,27 +176,26 @@ function DashboardContent() {
           ) : activeView === "buat" ? (
             <BuatKonten brandId={selectedBrandId} brand={currentBrand} onRefresh={refreshProjects} />
           ) : activeView === "konten" ? (
-            <div className="space-y-6">
-              <div className="flex items-center gap-2 flex-wrap">
-                <AutoContentButton brandId={selectedBrandId} brand={currentBrand} onDone={refreshProjects} />
+            <div className="space-y-5">
+              {/* Toolbar - aksi buat konten (ke Studio) + storyboard. Panel analitik/
+                  usage/fatigue/social DIPINDAH ke halaman masing2 (Analytics/AI Studio/
+                  Kanal) - view Konten fokus manajemen konten (Stitch). */}
+              <div className="flex items-center justify-end gap-2 flex-wrap">
                 <StoryboardDialog brandId={selectedBrandId} />
+                <button
+                  type="button"
+                  onClick={() => setActiveView("buat")}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black text-white text-[13px] font-medium hover:bg-[#2a313d]"
+                >
+                  <span className="material-symbols-outlined text-[16px]">add</span> Buat Konten
+                </button>
               </div>
 
-              <UsageSummary />
-              <AnalyticsSummary brandId={selectedBrandId} />
-              <FatigueSummary brandId={selectedBrandId} />
+              {/* Draft perlu review/approval (publish/jadwal) - tak ada di tabel, jadi tetap di sini */}
               <DraftReview brandId={selectedBrandId} projects={projects} onChange={refreshProjects} />
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Semua Konten</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ProjectList projects={projects} brand={currentBrand} accounts={accounts} onRetry={refreshProjects} />
-                </CardContent>
-              </Card>
-
-              <SocialAccounts brandId={selectedBrandId} />
+              {/* Tabel manajemen konten (punya header + filter sendiri) */}
+              <ProjectList projects={projects} brand={currentBrand} accounts={accounts} onRetry={refreshProjects} />
             </div>
           ) : activeView === "ide" ? (
             <div className="space-y-4">
