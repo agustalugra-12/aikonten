@@ -86,6 +86,10 @@ export type SocialAccount = {
   platform: "instagram" | "facebook" | "tiktok" | "youtube";
   publishVia: "native" | "buffer";
   username: string;
+  // Status koneksi/token (2026-09-12, dipakai halaman Kanal Terhubung). Opsional -
+  // endpoint lama/komponen lain yg tak butuh ini tetap kompatibel.
+  connected?: boolean;
+  tokenExpiresAt?: number | null;
 };
 
 export const STATUS_LABEL: Record<ProjectStatus, string> = {

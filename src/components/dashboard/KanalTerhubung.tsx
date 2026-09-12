@@ -19,6 +19,20 @@ const PLATFORM_LABEL: Record<SocialAccount["platform"], string> = {
   tiktok: "TikTok",
 };
 
+// Status koneksi NYATA dari social_accounts (connected + token_expires_at). Bukan fiksi.
+// token_expires_at bisa detik/ms - normalisasi. Akun tanpa expiry (Buffer) = anggap OK.
+function accountStatus(acc: SocialAccount): { label: string; dot: string; cls: string } {
+  if (acc.connected === false) return { label: "Terputus", dot: "bg-[#ba1a1a]", cls: "bg-[#ffdad6] text-[#93000a]" };
+  const exp = acc.tokenExpiresAt;
+  if (exp) {
+    const ms = exp < 1e12 ? exp * 1000 : exp;
+    const daysLeft = (ms - Date.now()) / 86400000;
+    if (daysLeft < 0) return { label: "Token kedaluwarsa", dot: "bg-[#ba1a1a]", cls: "bg-[#ffdad6] text-[#93000a]" };
+    if (daysLeft < 7) return { label: `Token ${Math.max(0, Math.round(daysLeft))} hari lagi`, dot: "bg-[#555f6d]", cls: "bg-[#e2e8f8] text-[#151c27]" };
+  }
+  return { label: "Tersambung", dot: "bg-black", cls: "bg-[#e7eefe] text-[#151c27]" };
+}
+
 export function KanalTerhubung({ brandId }: { brandId: string }) {
   const { data: accountsRaw, loading, refetch } = useFetchedData<SocialAccount[]>(
     () => fetch(`/api/brands/${brandId}/social-accounts`).then((r) => r.json()),
@@ -54,7 +68,9 @@ export function KanalTerhubung({ brandId }: { brandId: string }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {accounts.map((acc) => (
+          {accounts.map((acc) => {
+            const st = accountStatus(acc);
+            return (
             <div key={acc.id} className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4 flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -66,9 +82,9 @@ export function KanalTerhubung({ brandId }: { brandId: string }) {
                     <p className="text-[11px] text-[#555f6d] truncate">@{acc.username}</p>
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#e7eefe] text-[11px] font-medium shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-black inline-block" />
-                  Tersambung
+                <span className={"inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 " + st.cls}>
+                  <span className={"w-1.5 h-1.5 rounded-full inline-block " + st.dot} />
+                  {st.label}
                 </span>
               </div>
               <div className="flex items-center justify-between pt-2 border-t border-[#e7eefe]">
@@ -80,7 +96,8 @@ export function KanalTerhubung({ brandId }: { brandId: string }) {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

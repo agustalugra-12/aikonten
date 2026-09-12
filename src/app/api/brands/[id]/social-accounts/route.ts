@@ -16,6 +16,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       platform: r.platform,
       publishVia: r.publishVia,
       username: r.username,
+      // Status koneksi/token (2026-09-12) - NON-sensitif (bukan token itu sendiri),
+      // dipakai halaman Kanal Terhubung utk tampilkan status nyata (tersambung/token
+      // segera kedaluwarsa/terputus). token_expires_at cuma relevan utk akun native
+      // (YouTube/Meta OAuth); akun Buffer null (tak apa).
+      connected: r.connected,
+      tokenExpiresAt: r.tokenExpiresAt ?? null,
     }))
   );
 }
