@@ -12,6 +12,7 @@ import {
   CalendarDays,
   Building2,
   Brain,
+  Share2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Brand } from "@/types";
@@ -22,6 +23,7 @@ export type DashboardView =
   | "konten"
   | "ide"
   | "rencana"
+  | "kanal"
   | "kompetitor"
   | "agustap"
   | "footage"
@@ -45,6 +47,10 @@ const NAV_GROUPS: NavGroup[] = [
       { view: "rencana", label: "Planner", icon: CalendarDays },
       { view: "laporan", label: "Analytics", icon: BarChart3 },
     ],
+  },
+  {
+    section: "Social Channels",
+    items: [{ view: "kanal", label: "Kanal Terhubung", icon: Share2 }],
   },
   {
     section: "AI Intelligence",

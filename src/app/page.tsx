@@ -15,6 +15,7 @@ import { Analytics } from "@/components/dashboard/Analytics";
 import { Planner } from "@/components/dashboard/Planner";
 import { FatigueSummary } from "@/components/dashboard/FatigueSummary";
 import { AiStudio } from "@/components/dashboard/AiStudio";
+import { KanalTerhubung } from "@/components/dashboard/KanalTerhubung";
 import { AgustapIntelligence } from "@/components/dashboard/AgustapIntelligence";
 import { UsageSummary } from "@/components/dashboard/UsageSummary";
 import { ContentIdeas } from "@/components/dashboard/ContentIdeas";
@@ -231,6 +232,8 @@ function DashboardContent() {
             </div>
           ) : activeView === "rencana" ? (
             <Planner brandId={selectedBrandId} onGoBuat={() => setActiveView("buat")} />
+          ) : activeView === "kanal" ? (
+            <KanalTerhubung brandId={selectedBrandId} />
           ) : activeView === "kompetitor" ? (
             <AiStudio brandId={selectedBrandId} brand={currentBrand} />
           ) : activeView === "agustap" ? (
