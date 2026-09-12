@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
 import type { Brand, ProjectDetail } from "@/types";
 
 // Buat Konten "Studio" 2-kolom - port Stitch §6-19 (2026-09-11, PRD Stitch UI rebuild).
@@ -181,14 +182,23 @@ export function BuatKonten({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
       {/* ===== KIRI: input ===== */}
       <div className="space-y-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="font-heading text-2xl font-bold tracking-tight text-[#151c27]">Buat Konten</h1>
-            <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-black text-white">v2 Studio</span>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="font-heading text-2xl font-bold tracking-tight text-[#151c27]">Buat Konten</h1>
+              <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-black text-white">v2 Studio</span>
+            </div>
+            <p className="text-[13px] text-[#555f6d] mt-1">
+              Ubah ide mentah menjadi storyboard, visual, dan caption siap rilis — pakai engine AI KontenPilot.
+            </p>
           </div>
-          <p className="text-[13px] text-[#555f6d] mt-1">
-            Ubah ide mentah menjadi storyboard, visual, dan caption siap rilis — pakai engine AI KontenPilot.
-          </p>
+          {/* Jalur MANUAL (2026-09-12) - punya footage/skrip sendiri? Upload + tulis
+              skrip via NewProjectDialog existing (butuh upload file). Dikembalikan ke
+              halaman Buat Konten krn sempat hilang di Studio (cuma jalur prompt). */}
+          <div className="flex flex-col items-end gap-1">
+            <NewProjectDialog brandId={brandId} carouselPhotosPerPost={brand?.carouselPhotosPerPost ?? 5} onCreated={onRefresh} />
+            <span className="text-[11px] text-[#555f6d]">Manual: upload footage/foto + skrip sendiri</span>
+          </div>
         </div>
 
         {/* Format selector */}
