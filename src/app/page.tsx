@@ -257,13 +257,7 @@ function DashboardContent() {
                   Konfigurasi brand identity &amp; voice, tone, target audiens, jadwal auto-publish, footage, dan knowledge — semuanya mempengaruhi cara AI membuat konten.
                 </p>
               </div>
-              <div className="rounded-xl bg-card ring-1 ring-border p-5 flex items-center justify-between gap-4 flex-wrap">
-                <div>
-                  <p className="font-medium">Brand Identity, Tone, Automasi &amp; Knowledge</p>
-                  <p className="text-sm text-muted-foreground mt-0.5">Buka panel pengaturan lengkap untuk brand {currentBrand?.name || "ini"}.</p>
-                </div>
-                <BrandSettingsSidebar brandId={selectedBrandId} brand={currentBrand} onChanged={loadBrands} />
-              </div>
+              <BrandSettingsSidebar key={selectedBrandId} brandId={selectedBrandId} brand={currentBrand} onChanged={loadBrands} inline />
             </div>
           )}
         </main>

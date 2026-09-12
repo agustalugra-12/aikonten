@@ -69,10 +69,15 @@ export function BrandSettingsSidebar({
   brandId,
   brand,
   onChanged,
+  inline = false,
 }: {
   brandId: string;
   brand: Brand | null;
   onChanged: () => void;
+  // inline (2026-09-12) - render isi settings LANGSUNG sbg halaman penuh (bukan Dialog/
+  // trigger). Reuse SELURUH state+handler yg sama, cuma bungkus luarnya beda. Dipakai
+  // view Pengaturan (Stitch: settings = halaman, bukan modal).
+  inline?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -296,13 +301,7 @@ export function BrandSettingsSidebar({
     setManualIdeaList((prev) => prev?.filter((i) => i.id !== ideaId) ?? null);
   }
 
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button variant="outline" onClick={() => { resetForm(); setOpen(true); }}>⚙️ Pengaturan Brand</Button>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Pengaturan Brand</DialogTitle>
-        </DialogHeader>
+  const inner = (
         <Tabs defaultValue="logo">
           <TabsList className="w-full">
             <TabsTrigger value="logo">Logo</TabsTrigger>
@@ -678,6 +677,20 @@ export function BrandSettingsSidebar({
             </Button>
           </TabsContent>
         </Tabs>
+  );
+
+  if (inline) {
+    return <div className="rounded-xl bg-card ring-1 ring-border p-4 sm:p-5">{inner}</div>;
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button variant="outline" onClick={() => { resetForm(); setOpen(true); }}>⚙️ Pengaturan Brand</Button>
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Pengaturan Brand</DialogTitle>
+        </DialogHeader>
+        {inner}
       </DialogContent>
     </Dialog>
   );
