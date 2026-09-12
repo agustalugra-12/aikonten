@@ -56,11 +56,18 @@ async function publishProjectInner(projectId: string): Promise<void> {
   const caption = project.generatedCaption || "";
   const hashtags = project.generatedHashtags ? JSON.parse(project.generatedHashtags) : [];
 
+  // Caption Only (2026-09-12) - project teks-saja (type "caption", tanpa media). Jalur
+  // publish teks ADITIF: lewati cek media-wajib di bawah, dan di loop skip platform yg
+  // mensyaratkan media (IG/TikTok/YouTube) - hanya kirim teks ke platform text-capable
+  // (Facebook / kanal Buffer). Jalur media existing 100% tidak berubah.
+  const isCaption = project.type === "caption";
+  const CAPTION_MEDIA_REQUIRED = new Set(["instagram", "tiktok", "youtube"]);
+
   // Belum ada video/gambar FINAL (rendering trim+concat+subtitle via Cloudinary/
   // Replicate belum diimplementasikan - lihat task terpisah) - tidak ada yang bisa
   // dipublikasikan, tapi tetap dicatat & dinotifikasi sbg kegagalan yang JELAS
   // alasannya, bukan diam-diam tidak terjadi apa-apa.
-  if (!finalVideo && finalImages.length === 0) {
+  if (!isCaption && !finalVideo && finalImages.length === 0) {
     await db
       .update(projects)
       .set({ status: "failed", errorMessage: "Belum ada aset final (video/gambar) utk dipublikasikan", updatedAt: new Date() })
@@ -108,6 +115,25 @@ async function publishProjectInner(projectId: string): Promise<void> {
   const notifyResults: Array<{ platform: string; success: boolean; postUrl?: string; error?: string }> = [];
   for (const account of accounts) {
     if (alreadySucceededAccountIds.has(account.id)) continue; // sudah sukses percobaan sebelumnya - jangan publish dobel
+
+    // Caption Only: platform yg wajib media (IG/TikTok/YouTube) tidak bisa terima post
+    // teks-saja - skip dgn alasan JELAS (dicatat), lanjut akun berikutnya.
+    if (isCaption && CAPTION_MEDIA_REQUIRED.has(account.platform)) {
+      await db.insert(publishLogs).values({
+        id: newId("pub"),
+        projectId,
+        socialAccountId: account.id,
+        status: "failed",
+        errorMessage: `Post teks-saja tidak didukung ${account.platform} (butuh media) - dilewati`,
+        createdAt: new Date(),
+      });
+      notifyResults.push({
+        platform: `${account.platform} (@${account.username})`,
+        success: false,
+        error: "teks-saja tidak didukung platform ini (butuh media)",
+      });
+      continue;
+    }
 
     const publisher = getPublisher(account.platform, account.publishVia);
     const logId = newId("pub");

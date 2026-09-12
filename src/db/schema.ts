@@ -252,7 +252,7 @@ export const socialAccounts = sqliteTable("social_accounts", {
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   brandId: text("brand_id").notNull().references(() => brands.id),
-  type: text("type", { enum: ["video", "carousel"] }).notNull(),
+  type: text("type", { enum: ["video", "carousel", "caption"] }).notNull(),
   // Format spesifik dalam tipe "video" (2026-08-10, fitur YT Shorts - lihat catatan
   // brands.dailyYoutubeShortsCount) - null = video biasa (pakai orientasi/durasi brand
   // apa adanya), "youtube_shorts" = processProject.ts PAKSA portrait + <=60dtk apa pun

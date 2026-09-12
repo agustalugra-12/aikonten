@@ -24,12 +24,14 @@ function formatDuration(sec: number): string {
 }
 
 function formatTypeLabel(project: Project): string {
+  if (project.type === "caption") return "Caption";
   if (project.type === "carousel") return "Carousel";
   if (project.durationSeconds == null) return "Video";
   return project.durationSeconds <= 60 ? "Video Pendek" : "Video Panjang";
 }
 
 function typeIcon(project: Project): string {
+  if (project.type === "caption") return "notes";
   return project.type === "carousel" ? "auto_stories" : "smart_display";
 }
 

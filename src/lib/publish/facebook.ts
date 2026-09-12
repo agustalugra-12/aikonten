@@ -43,7 +43,16 @@ export const publishToFacebook: Publisher = async (input: PublishInput): Promise
       return { success: true, platformPostId: data.id };
     }
 
-    return { success: false, error: "Tidak ada video/gambar utk dipublikasikan" };
+    // Post teks-saja (2026-09-12, Caption Only) - tanpa video/gambar -> feed text post.
+    // Hanya jalur ini yg baru; video/photo di atas tidak berubah.
+    const res = await fetch(`${GRAPH_BASE}/${pageId}/feed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: caption, access_token: accessToken }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    return { success: true, platformPostId: data.id };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }

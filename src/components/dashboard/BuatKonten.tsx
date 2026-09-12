@@ -54,7 +54,36 @@ export function BuatKonten({
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<ProjectDetail | null>(null);
   const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[] } | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  async function saveCaptionDraft() {
+    if (!captionResult) return;
+    setSavingDraft(true);
+    try {
+      const res = await fetch(`/api/brands/${brandId}/caption-only`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script: prompt.trim() || captionResult.caption.slice(0, 80),
+          caption: captionResult.caption,
+          hashtags: captionResult.hashtags,
+          persist: true,
+        }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok || !b.projectId) {
+        toast.error(b.error || "Gagal simpan draft");
+        return;
+      }
+      toast.success("Caption disimpan sbg draft - buka Konten utk jadwal/publish.");
+      onRefresh();
+    } catch {
+      toast.error("Gagal simpan draft");
+    } finally {
+      setSavingDraft(false);
+    }
+  }
 
   // Inspiration chips dari ide harian nyata (bukan hardcode).
   useEffect(() => {
@@ -311,17 +340,27 @@ export function BuatKonten({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d]">Caption &amp; Hashtag</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const hz = captionResult.hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
-                      navigator.clipboard?.writeText(`${captionResult.caption}\n\n${hz}`);
-                      toast.success("Caption disalin");
-                    }}
-                    className="text-[11px] text-[#151c27] hover:underline flex items-center gap-1"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">content_copy</span> Salin
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={saveCaptionDraft}
+                      disabled={savingDraft}
+                      className="text-[11px] text-[#151c27] hover:underline flex items-center gap-1 disabled:opacity-60"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">bookmark_add</span> {savingDraft ? "Menyimpan…" : "Simpan Draft"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const hz = captionResult.hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
+                        navigator.clipboard?.writeText(`${captionResult.caption}\n\n${hz}`);
+                        toast.success("Caption disalin");
+                      }}
+                      className="text-[11px] text-[#151c27] hover:underline flex items-center gap-1"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">content_copy</span> Salin
+                    </button>
+                  </div>
                 </div>
                 <div className="rounded-lg bg-[#f0f3ff] p-3 text-[13px] text-[#151c27] whitespace-pre-wrap max-h-[55vh] overflow-y-auto">
                   {captionResult.caption}

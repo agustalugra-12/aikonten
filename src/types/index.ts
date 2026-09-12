@@ -39,7 +39,7 @@ export type ProjectStatus = "uploaded" | "processing" | "ready" | "publishing" |
 export type Project = {
   id: string;
   brandId: string;
-  type: "video" | "carousel";
+  type: "video" | "carousel" | "caption";
   status: ProjectStatus;
   script: string | null;
   generatedCaption: string | null;
