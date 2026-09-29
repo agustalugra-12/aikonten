@@ -16,9 +16,11 @@ import { newId } from "@/lib/ids";
 // (bukan tabel DB spt `plans`) supaya gampang ditemukan & diganti SATU tempat begitu ada
 // keputusan asli - jangan anggap angka ini sudah final/siap tagih pelanggan sungguhan.
 export const CREDIT_COST_GENERATE: Record<"video" | "carousel" | "caption", number> = {
-  video: 10, // PLACEHOLDER
-  carousel: 3, // PLACEHOLDER
-  caption: 1, // PLACEHOLDER (caption-only teks saja, murah)
+  // Model final (2026-09-30, keputusan Agus): 1 konten = 1 kredit (foto/video/carousel/
+  // caption dihitung sama). Cocok dgn kuota paket 50/100/150 = jumlah konten per bulan.
+  video: 1,
+  carousel: 1,
+  caption: 1,
 };
 
 export class SaldoTidakCukupError extends Error {
