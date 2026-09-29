@@ -15,8 +15,18 @@ export class AkunTerbatasError extends Error {
   }
 }
 
+export class AkunDiblokirError extends Error {
+  constructor() {
+    super("Akun diblokir oleh admin - hubungi dukungan untuk mengaktifkan kembali");
+  }
+}
+
 export async function pastikanAkunBolehGenerate(userId: string): Promise<void> {
   const [user] = await db.select().from(users).where(eq(users.id, userId));
+  // Blokir admin (T6) dicek DULU - manual, terpisah dari lifecycle langganan.
+  if (user?.diblokirAdmin) {
+    throw new AkunDiblokirError();
+  }
   if (user?.status === "terbatas") {
     throw new AkunTerbatasError();
   }

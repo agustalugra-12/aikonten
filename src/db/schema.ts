@@ -17,6 +17,10 @@ export const users = sqliteTable("users", {
   periodeMulai: integer("periode_mulai", { mode: "timestamp" }),
   periodeBerakhir: integer("periode_berakhir", { mode: "timestamp" }),
   saldoKredit: integer("saldo_kredit").notNull().default(0),
+  // Blokir manual admin (2026-09-30, T6) - TERPISAH dari `status` langganan (aktif/
+  // masa_tenggang/terbatas yg dikelola cron check-expiry). true = admin men-suspend akun,
+  // digerbangi di statusGate.pastikanAkunBolehGenerate. Jangan campur dgn `status`.
+  diblokirAdmin: integer("diblokir_admin", { mode: "boolean" }).notNull().default(false),
 });
 
 export const plans = sqliteTable("plans", {

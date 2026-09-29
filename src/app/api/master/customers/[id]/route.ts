@@ -22,20 +22,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Pelanggan tidak ditemukan" }, { status: 404 });
   }
 
-  const update: Partial<typeof target> = {};
-
-  if ("status" in body) {
-    // Batasi ke nilai yang dipahami sistem: "aktif" (normal) atau "nonaktif" (disuspend).
-    if (body.status !== "aktif" && body.status !== "nonaktif") {
-      return NextResponse.json({ error: "status harus 'aktif' atau 'nonaktif'" }, { status: 400 });
-    }
-    update.status = body.status;
+  // Blokir/aktifkan akun (T6) - TERPISAH dari status langganan (aktif/masa_tenggang/
+  // terbatas yg dikelola cron). true = suspend, false = aktifkan. Digerbangi statusGate.
+  if (typeof body.diblokir !== "boolean") {
+    return NextResponse.json({ error: "field 'diblokir' (boolean) wajib" }, { status: 400 });
   }
 
-  if (Object.keys(update).length === 0) {
-    return NextResponse.json({ error: "Tidak ada perubahan" }, { status: 400 });
-  }
-
-  await db.update(users).set(update).where(eq(users.id, id));
+  await db.update(users).set({ diblokirAdmin: body.diblokir }).where(eq(users.id, id));
   return NextResponse.json({ ok: true });
 }

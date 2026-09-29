@@ -16,9 +16,11 @@ import {
 import { toast } from "sonner";
 
 // Master Dashboard (2026-09-30, permintaan Agus) - satu-satunya halaman lintas-pelanggan,
-// khusus admin (ADMIN_EMAILS). Memantau: jumlah pelanggan per paket, mana yang lanjut
-// (berlangganan), mana yang tidak (kadaluarsa/tanpa paket), detail paket tiap pelanggan.
+// khusus admin (ADMIN_EMAILS). Memantau jumlah pelanggan per paket, status langganan
+// (aktif/masa tenggang/terbatas - T6), siapa yang disuspend admin, detail tiap pelanggan.
 // Proteksi: /api/master/* menolak non-admin (403); kalau 403 halaman tampilkan pesan tegas.
+
+type StatusKategori = "berlangganan" | "masa_tenggang" | "terbatas" | "tanpa_paket" | "diblokir";
 
 type Plan = {
   id: string; nama: string; kreditBulanan: number; hargaBulananIdr: number;
@@ -26,8 +28,8 @@ type Plan = {
 };
 type Pelanggan = {
   id: string; email: string; namaBisnis: string | null;
-  status: "berlangganan" | "kadaluarsa" | "tanpa_paket" | "nonaktif";
-  statusAkun: string; saldoKredit: number; jumlahBrand: number;
+  status: StatusKategori;
+  statusLangganan: string; diblokirAdmin: boolean; saldoKredit: number; jumlahBrand: number;
   plan: Plan | null;
   periodeMulai: string | null; periodeBerakhir: string | null; createdAt: string;
 };
@@ -37,8 +39,8 @@ type PerPaket = {
 };
 type Overview = {
   ringkasan: {
-    totalPelanggan: number; berlangganan: number; kadaluarsa: number;
-    tanpaPaket: number; nonaktif: number; mrrIdr: number; totalSaldoKredit: number;
+    totalPelanggan: number; berlangganan: number; masaTenggang: number; terbatas: number;
+    tanpaPaket: number; diblokir: number; mrrIdr: number; totalSaldoKredit: number;
   };
   perPaket: PerPaket[];
   pelanggan: Pelanggan[];
@@ -48,25 +50,28 @@ const rupiah = (n: number) => "Rp " + n.toLocaleString("id-ID");
 const tanggal = (s: string | null) =>
   s ? new Date(s).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "—";
 
-const STATUS_LABEL: Record<Pelanggan["status"], string> = {
+const STATUS_LABEL: Record<StatusKategori, string> = {
   berlangganan: "Berlangganan",
-  kadaluarsa: "Kadaluarsa",
+  masa_tenggang: "Masa tenggang",
+  terbatas: "Terbatas",
   tanpa_paket: "Tanpa paket",
-  nonaktif: "Nonaktif",
+  diblokir: "Diblokir",
 };
-const STATUS_VARIANT: Record<Pelanggan["status"], "default" | "secondary" | "destructive" | "outline"> = {
+const STATUS_VARIANT: Record<StatusKategori, "default" | "secondary" | "destructive" | "outline"> = {
   berlangganan: "default",
-  kadaluarsa: "destructive",
-  tanpa_paket: "secondary",
-  nonaktif: "outline",
+  masa_tenggang: "secondary",
+  terbatas: "destructive",
+  tanpa_paket: "outline",
+  diblokir: "destructive",
 };
+const FILTER_ORDER: StatusKategori[] = ["berlangganan", "masa_tenggang", "terbatas", "tanpa_paket", "diblokir"];
 
 export default function MasterPage() {
   const router = useRouter();
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
-  const [filter, setFilter] = useState<"semua" | Pelanggan["status"]>("semua");
+  const [filter, setFilter] = useState<"semua" | StatusKategori>("semua");
   const [cari, setCari] = useState("");
 
   async function muat() {
@@ -144,12 +149,13 @@ export default function MasterPage() {
         </div>
 
         {/* Kartu ringkasan */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
           <StatCard label="Total pelanggan" value={r.totalPelanggan} />
           <StatCard label="Berlangganan" value={r.berlangganan} tone="good" />
-          <StatCard label="Kadaluarsa" value={r.kadaluarsa} tone="bad" />
+          <StatCard label="Masa tenggang" value={r.masaTenggang} tone="muted" />
+          <StatCard label="Terbatas" value={r.terbatas} tone="bad" />
           <StatCard label="Tanpa paket" value={r.tanpaPaket} tone="muted" />
-          <StatCard label="Nonaktif" value={r.nonaktif} tone="muted" />
+          <StatCard label="Diblokir" value={r.diblokir} tone="bad" />
           <StatCard label="MRR berjalan" value={rupiah(r.mrrIdr)} small />
         </div>
 
@@ -187,7 +193,7 @@ export default function MasterPage() {
 
         {/* Filter + pencarian */}
         <div className="flex items-center gap-2 flex-wrap">
-          {(["semua", "berlangganan", "kadaluarsa", "tanpa_paket", "nonaktif"] as const).map((f) => (
+          {(["semua", ...FILTER_ORDER] as const).map((f) => (
             <Button
               key={f}
               size="sm"
@@ -287,19 +293,20 @@ function AksiPelanggan({ p, onDone }: { p: Pelanggan; onDone: () => void }) {
   const [catatan, setCatatan] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function ubahStatus(status: "aktif" | "nonaktif") {
+  // Blokir/aktifkan akun (T6) - terpisah dari status langganan. diblokir=true men-suspend.
+  async function setBlokir(diblokir: boolean) {
     setBusy(true);
     const res = await fetch(`/api/master/customers/${p.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ diblokir }),
     });
     setBusy(false);
     if (res.ok) {
-      toast.success(status === "nonaktif" ? "Akun disuspend" : "Akun diaktifkan");
+      toast.success(diblokir ? "Akun disuspend" : "Akun diaktifkan kembali");
       onDone();
     } else {
-      toast.error("Gagal mengubah status");
+      toast.error("Gagal mengubah status akun");
     }
   }
 
@@ -326,8 +333,6 @@ function AksiPelanggan({ p, onDone }: { p: Pelanggan; onDone: () => void }) {
       toast.error("Gagal menambah kredit");
     }
   }
-
-  const disuspend = p.statusAkun !== "aktif";
 
   return (
     <div className="flex items-center justify-end gap-2">
@@ -364,12 +369,12 @@ function AksiPelanggan({ p, onDone }: { p: Pelanggan; onDone: () => void }) {
         </DialogContent>
       </Dialog>
 
-      {disuspend ? (
-        <Button size="sm" variant="outline" onClick={() => ubahStatus("aktif")} disabled={busy}>
+      {p.diblokirAdmin ? (
+        <Button size="sm" variant="outline" onClick={() => setBlokir(false)} disabled={busy}>
           Aktifkan
         </Button>
       ) : (
-        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => ubahStatus("nonaktif")} disabled={busy}>
+        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setBlokir(true)} disabled={busy}>
           Suspend
         </Button>
       )}
