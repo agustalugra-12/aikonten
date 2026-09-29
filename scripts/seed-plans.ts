@@ -15,17 +15,24 @@ import { newId } from "../src/lib/ids";
 const PAKET_AWAL = [
   {
     nama: "starter",
-    kreditBulanan: 100, // PLACEHOLDER - belum ditentukan Agus
-    hargaBulananIdr: 149_000, // PLACEHOLDER - belum ditentukan Agus
-    izinAutoPosting: false,
+    kreditBulanan: 50,
+    hargaBulananIdr: 149_000,
+    izinAutoPosting: false, // Starter = download only (tanpa auto-post ke Buffer)
     maxBrand: 1,
   },
   {
-    nama: "full",
-    kreditBulanan: 500, // PLACEHOLDER - belum ditentukan Agus
-    hargaBulananIdr: 499_000, // PLACEHOLDER - belum ditentukan Agus
+    nama: "pro",
+    kreditBulanan: 100,
+    hargaBulananIdr: 299_000,
+    izinAutoPosting: true, // Pro & Agency = boleh auto-post
+    maxBrand: 1,
+  },
+  {
+    nama: "agency",
+    kreditBulanan: 150,
+    hargaBulananIdr: 550_000,
     izinAutoPosting: true,
-    maxBrand: 3,
+    maxBrand: 1, // Agus: "semua 1 brand saja agar tidak ribet"
   },
 ];
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/version"];
+const PUBLIC_PATHS = ["/login", "/signup", "/api/auth/login", "/api/version"];
 
 // (2026-09-29) Gabungan proxy internal + gerbang multi-tenant Fase 1: konvensi Next 16
 // memakai SATU file `proxy.ts` (bukan `middleware.ts` lagi). Selain gate sesi (redirect
@@ -26,6 +26,13 @@ export async function proxy(req: NextRequest) {
   // Agency brands-summary dipanggil server-ke-server - tak pernah punya cookie sesi,
   // auth-nya sendiri (X-Agency-Key vs AGENCY_API_SECRET).
   if (pathname === "/api/agency/brands-summary") {
+    return NextResponse.next();
+  }
+  // Master admin API (2026-09-30) - SENGAJA dilewati injeksi x-user-id: route /api/master/*
+  // memverifikasi sesi + status admin (allowlist ADMIN_EMAILS) sendiri via getAdminOrNull()
+  // dan HARUS bisa lihat data LINTAS pelanggan (bukan isolasi 1 tenant), jadi tidak boleh
+  // dibatasi header x-user-id yang berbasis 1 akun. Auth admin dicek di dalam handler.
+  if (pathname.startsWith("/api/master/")) {
     return NextResponse.next();
   }
 
