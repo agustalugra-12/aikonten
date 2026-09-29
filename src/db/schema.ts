@@ -9,6 +9,44 @@ export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  namaBisnis: text("nama_bisnis"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  // Langganan & kredit (Fase 1 - Alur A/B/C). 1 akun = 1 langganan aktif; riwayat di billingLog.
+  planId: text("plan_id").references(() => plans.id),
+  status: text("status").notNull().default("aktif"),
+  periodeMulai: integer("periode_mulai", { mode: "timestamp" }),
+  periodeBerakhir: integer("periode_berakhir", { mode: "timestamp" }),
+  saldoKredit: integer("saldo_kredit").notNull().default(0),
+});
+
+export const plans = sqliteTable("plans", {
+  id: text("id").primaryKey(),
+  nama: text("nama").notNull(),
+  kreditBulanan: integer("kredit_bulanan").notNull(),
+  hargaBulananIdr: integer("harga_bulanan_idr").notNull(),
+  izinAutoPosting: integer("izin_auto_posting", { mode: "boolean" }).notNull().default(false),
+  maxBrand: integer("max_brand").notNull().default(1),
+  aktif: integer("aktif", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const creditTransactions = sqliteTable("credit_transactions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  jumlah: integer("jumlah").notNull(),
+  alasan: text("alasan").notNull(),
+  saldoSetelah: integer("saldo_setelah").notNull(),
+  refProjectId: text("ref_project_id"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const billingLog = sqliteTable("billing_log", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  planId: text("plan_id").notNull().references(() => plans.id),
+  jumlahBayarIdr: integer("jumlah_bayar_idr").notNull(),
+  status: text("status").notNull(),
+  gatewayRef: text("gateway_ref"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
