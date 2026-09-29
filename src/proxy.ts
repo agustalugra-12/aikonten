@@ -35,6 +35,11 @@ export async function proxy(req: NextRequest) {
   if (pathname.startsWith("/api/master/")) {
     return NextResponse.next();
   }
+  // Webhook payment gateway (Duitku, 2026-09-30 T3) - dipanggil server Duitku, tak punya
+  // cookie sesi; auth-nya = verifikasi signature di handler. Dilewati gate + injeksi x-user-id.
+  if (pathname.startsWith("/api/webhooks/")) {
+    return NextResponse.next();
+  }
 
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   const userId = token ? await verifySessionToken(token) : null;
