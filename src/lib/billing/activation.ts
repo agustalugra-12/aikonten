@@ -16,6 +16,9 @@ export async function aktivasiPaketSetelahBayar(billingLogId: string): Promise<v
   const [log] = await db.select().from(billingLog).where(eq(billingLog.id, billingLogId));
   if (!log) throw new Error(`billingLog ${billingLogId} tidak ditemukan`);
   if (log.status === "sukses") return; // idempotent - webhook bisa terkirim dobel
+  // (T5) planId nullable sekarang (tagihan top-up tak punya paket) - aktivasi ini KHUSUS
+  // tagihan paket, jadi planId wajib ada. Top-up diproses jalur lain (isiUlangKredit).
+  if (!log.planId) throw new Error(`billingLog ${billingLogId} bukan tagihan paket (planId kosong)`);
 
   const [plan] = await db.select().from(plans).where(eq(plans.id, log.planId));
   if (!plan) throw new Error(`plan ${log.planId} tidak ditemukan`);

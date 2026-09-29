@@ -47,7 +47,10 @@ export const creditTransactions = sqliteTable("credit_transactions", {
 export const billingLog = sqliteTable("billing_log", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
-  planId: text("plan_id").notNull().references(() => plans.id),
+  // planId nullable (T5): tagihan top-up kredit tidak terkait paket. jenis membedakan.
+  planId: text("plan_id").references(() => plans.id),
+  jenis: text("jenis").notNull().default("paket"), // "paket" | "topup"
+  kreditTopup: integer("kredit_topup"), // hanya utk jenis="topup": jumlah kredit dibeli
   jumlahBayarIdr: integer("jumlah_bayar_idr").notNull(),
   status: text("status").notNull(),
   gatewayRef: text("gateway_ref"),

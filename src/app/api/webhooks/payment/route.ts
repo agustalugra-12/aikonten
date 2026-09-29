@@ -4,6 +4,7 @@ import { billingLog } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyCallbackSignature } from "@/lib/billing/duitku";
 import { aktivasiPaketSetelahBayar } from "@/lib/billing/activation";
+import { isiUlangKredit } from "@/lib/billing/credits";
 
 // Webhook callback Duitku (2026-09-30, T3). DIKECUALIKAN dari gate sesi + injeksi x-user-id
 // di proxy.ts (gateway tak punya cookie login). PENGAMAN UTAMA: verifikasi signature dulu -
@@ -36,10 +37,19 @@ export async function POST(req: NextRequest) {
 
   // 3. Proses sesuai hasil pembayaran. resultCode "00" = sukses (settlement).
   if (resultCode === "00") {
+    if (log.status === "sukses") {
+      return NextResponse.json({ ok: true }); // idempotent - sudah diproses (paket/topup)
+    }
     if (reference && !log.gatewayRef) {
       await db.update(billingLog).set({ gatewayRef: reference }).where(eq(billingLog.id, log.id));
     }
-    await aktivasiPaketSetelahBayar(log.id); // idempotent - kredit hanya terisi 1x
+    if (log.jenis === "topup") {
+      // Top-up: tambah kredit + tandai sukses (guard status di atas jaga idempotensi callback dobel).
+      await isiUlangKredit(log.userId, log.kreditTopup ?? 0, `top-up ${log.kreditTopup ?? 0} kredit`);
+      await db.update(billingLog).set({ status: "sukses" }).where(eq(billingLog.id, log.id));
+    } else {
+      await aktivasiPaketSetelahBayar(log.id); // idempotent
+    }
   } else if (log.status === "pending") {
     // Gagal/expire/batal - tandai gagal (jangan timpa yang sudah "sukses").
     await db.update(billingLog).set({ status: "gagal" }).where(eq(billingLog.id, log.id));
