@@ -45,7 +45,8 @@ export default function SignupPage() {
     if (res.ok) {
       // Auto-login sudah terjadi di server (cookie di-set). Arahkan ke dashboard;
       // pemilihan paket dilakukan dari sana (alur pilih-paket + bayar menyusul).
-      router.push("/");
+      // (T4) setelah signup, arahkan ke pilih paket (akun baru belum punya paket).
+      router.push("/pilih-paket");
       router.refresh();
     } else {
       const data = await res.json().catch(() => ({}));
