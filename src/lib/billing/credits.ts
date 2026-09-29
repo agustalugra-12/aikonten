@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { users, creditTransactions } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, gte, sql } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 
 // Primitif ledger kredit (2026-09-08, Fase 1 Alur B) - "Setiap kali generate konten,
@@ -37,18 +37,21 @@ export async function potongKredit(
 ): Promise<{ saldoSetelah: number }> {
   if (jumlah <= 0) throw new Error("jumlah potong kredit harus > 0");
 
-  const [user] = await db.select().from(users).where(eq(users.id, userId));
-  if (!user) throw new Error(`User ${userId} tidak ditemukan`);
-  if (user.saldoKredit < jumlah) {
+  // (2026-09-30, T2b) Atomic decrement - DB yang jaga invariant (saldo >= jumlah) lewat
+  // WHERE, BUKAN read-then-write (anti-race: 2 generate bersamaan utk akun sama tak bisa
+  // bikin saldo negatif). .returning() mengembalikan saldo BARU langsung tanpa select ulang.
+  const updated = await db
+    .update(users)
+    .set({ saldoKredit: sql`${users.saldoKredit} - ${jumlah}` })
+    .where(and(eq(users.id, userId), gte(users.saldoKredit, jumlah)))
+    .returning({ saldoKredit: users.saldoKredit });
+  if (updated.length === 0) {
+    // 0 baris terupdate = user tak ada ATAU saldo kurang - bedakan utk pesan error benar.
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) throw new Error(`User ${userId} tidak ditemukan`);
     throw new SaldoTidakCukupError(user.saldoKredit, jumlah);
   }
-
-  // ponytail: read-then-write, bukan atomic decrement - 2 request bersamaan utk akun yg
-  // sama bisa balapan (race). Aman utk volume 1 user manual generate 1 project pada satu
-  // waktu (pola pakai wajar); kalau nanti ada concurrency nyata per-akun, ganti ke
-  // UPDATE ... SET saldo = saldo - ? WHERE saldo >= ? (atomic, DB yang jaga invariant).
-  const saldoSetelah = user.saldoKredit - jumlah;
-  await db.update(users).set({ saldoKredit: saldoSetelah }).where(eq(users.id, userId));
+  const saldoSetelah = updated[0].saldoKredit;
   await db.insert(creditTransactions).values({
     id: newId("credtx"),
     userId,
