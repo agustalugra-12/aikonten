@@ -5,6 +5,8 @@ import { brands, projects, publishLogs } from "@/db/schema";
 import { eq, and, gte, lt, lte, inArray } from "drizzle-orm";
 import { nowTimeStringWita, todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { publishProject } from "@/lib/publish/orchestrate";
+import { planMengizinkanAutoPosting } from "@/lib/billing/planGate";
+import { pastikanAkunBolehGenerate } from "@/lib/billing/statusGate";
 
 // Manual Per-Post Scheduling (2026-08-25, PRD §26) - TERPISAH dari loop slot per-brand
 // di bawah (itu utk brand.publishMode="auto" recurring, ini utk 1 draft spesifik yang
@@ -126,6 +128,20 @@ export async function POST(req: NextRequest) {
   const startOfTodayWita = new Date(`${todayKey}T00:00:00+08:00`);
 
   for (const brand of autoBrands) {
+    // (2026-09-30, T2a Fase 2) Gate paket + status saat PUBLISH (bukan cuma saat set mode
+    // auto): brand milik akun yg paketnya TIDAK mengizinkan auto-posting, ATAU akunnya
+    // sudah "terbatas" (langganan lewat masa tenggang), TIDAK boleh auto-publish walau
+    // brand.publishMode masih "auto". Cegah kebocoran: akun turun/kadaluarsa tetap posting.
+    if (!(await planMengizinkanAutoPosting(brand.userId))) {
+      results.push({ brandId: brand.id, name: brand.name, slot: "-", published: 0, skipped: "paket tidak mengizinkan auto-posting" });
+      continue;
+    }
+    try {
+      await pastikanAkunBolehGenerate(brand.userId);
+    } catch {
+      results.push({ brandId: brand.id, name: brand.name, slot: "-", published: 0, skipped: "akun terbatas (langganan kadaluarsa)" });
+      continue;
+    }
     const slots: string[] = brand.autoPublishTimes ? JSON.parse(brand.autoPublishTimes) : [];
     // Slot yg BARU SAJA lewat (0 sampai TOLERANCE_MINUTES menit yg lalu) - BUKAN semua
     // slot yg sudah lewat sejak awal hari (itu backfill lama yg sekarang dihindari).
