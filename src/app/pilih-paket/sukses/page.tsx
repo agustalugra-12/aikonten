@@ -70,8 +70,8 @@ export default function SuksesPage() {
           ) : (
             <p className="text-sm text-muted-foreground">Sebentar ya…</p>
           )}
-          <Button className="w-full" onClick={() => { router.push("/"); router.refresh(); }}>
-            Ke dashboard
+          <Button className="w-full" onClick={() => { router.push(aktif ? "/onboarding" : "/"); router.refresh(); }}>
+            {aktif ? "Lanjut: setup akun" : "Ke dashboard"}
           </Button>
         </CardContent>
       </Card>
