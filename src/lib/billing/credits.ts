@@ -15,9 +15,10 @@ import { newId } from "@/lib/ids";
 // "penentuan jumlah dan harga kredit bisa kita atur nanti". Sengaja masih konstanta kode
 // (bukan tabel DB spt `plans`) supaya gampang ditemukan & diganti SATU tempat begitu ada
 // keputusan asli - jangan anggap angka ini sudah final/siap tagih pelanggan sungguhan.
-export const CREDIT_COST_GENERATE: Record<"video" | "carousel", number> = {
+export const CREDIT_COST_GENERATE: Record<"video" | "carousel" | "caption", number> = {
   video: 10, // PLACEHOLDER
   carousel: 3, // PLACEHOLDER
+  caption: 1, // PLACEHOLDER (caption-only teks saja, murah)
 };
 
 export class SaldoTidakCukupError extends Error {
