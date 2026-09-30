@@ -21,6 +21,9 @@ export const users = sqliteTable("users", {
   // masa_tenggang/terbatas yg dikelola cron check-expiry). true = admin men-suspend akun,
   // digerbangi di statusGate.pastikanAkunBolehGenerate. Jangan campur dgn `status`.
   diblokirAdmin: integer("diblokir_admin", { mode: "boolean" }).notNull().default(false),
+  // (2026-09-30) Akun unlimited = brand internal owner: tak dipotong kredit, tak butuh
+  // langganan, auto-posting bebas. Konsumen = false (jalur kredit/paket normal).
+  unlimited: integer("unlimited", { mode: "boolean" }).notNull().default(false),
 });
 
 export const plans = sqliteTable("plans", {

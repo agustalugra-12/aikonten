@@ -23,6 +23,8 @@ export class AkunDiblokirError extends Error {
 
 export async function pastikanAkunBolehGenerate(userId: string): Promise<void> {
   const [user] = await db.select().from(users).where(eq(users.id, userId));
+  // (2026-09-30) Akun unlimited (owner/internal) selalu boleh generate - tanpa langganan.
+  if (user?.unlimited) return;
   // Blokir admin (T6) dicek DULU - manual, terpisah dari lifecycle langganan.
   if (user?.diblokirAdmin) {
     throw new AkunDiblokirError();

@@ -37,6 +37,13 @@ export async function potongKredit(
 ): Promise<{ saldoSetelah: number }> {
   if (jumlah <= 0) throw new Error("jumlah potong kredit harus > 0");
 
+  // (2026-09-30) Akun unlimited (owner/internal) TIDAK dipotong kredit - biaya asli
+  // tercatat di llm_usage_log, bukan kredit. Cek sebelum decrement.
+  const [akun] = await db.select().from(users).where(eq(users.id, userId));
+  if (akun?.unlimited) {
+    return { saldoSetelah: akun.saldoKredit };
+  }
+
   // (2026-09-30, T2b) Atomic decrement - DB yang jaga invariant (saldo >= jumlah) lewat
   // WHERE, BUKAN read-then-write (anti-race: 2 generate bersamaan utk akun sama tak bisa
   // bikin saldo negatif). .returning() mengembalikan saldo BARU langsung tanpa select ulang.

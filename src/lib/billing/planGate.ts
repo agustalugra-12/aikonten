@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 // utk paket akun ini, terlepas dari saldo kredit.
 export async function planMengizinkanAutoPosting(userId: string): Promise<boolean> {
   const [user] = await db.select().from(users).where(eq(users.id, userId));
+  if (user?.unlimited) return true; // (2026-09-30) owner/internal: auto-posting bebas
   if (!user?.planId) return false; // belum punya paket aktif = fitur paling terbatas
   const [plan] = await db.select().from(plans).where(eq(plans.id, user.planId));
   return plan?.izinAutoPosting ?? false;
