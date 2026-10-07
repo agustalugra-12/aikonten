@@ -21,6 +21,9 @@ export const users = sqliteTable("users", {
   // masa_tenggang/terbatas yg dikelola cron check-expiry). true = admin men-suspend akun,
   // digerbangi di statusGate.pastikanAkunBolehGenerate. Jangan campur dgn `status`.
   diblokirAdmin: integer("diblokir_admin", { mode: "boolean" }).notNull().default(false),
+  // (2026-10-07, #2) Langganan dibatalkan owner = tak akan perpanjang; akses TETAP sampai
+  // periodeBerakhir (prepaid). Aktivasi/perpanjang meng-UN-set ini.
+  langgananDibatalkan: integer("langganan_dibatalkan", { mode: "boolean" }).notNull().default(false),
   // (2026-09-30) Akun unlimited = brand internal owner: tak dipotong kredit, tak butuh
   // langganan, auto-posting bebas. Konsumen = false (jalur kredit/paket normal).
   unlimited: integer("unlimited", { mode: "boolean" }).notNull().default(false),
@@ -905,7 +908,8 @@ export const contentPlan = sqliteTable("content_plan", {
   slotIndex: integer("slot_index").notNull().default(0), // urutan dalam 1 hari
   contentType: text("content_type", { enum: ["video", "foto", "carousel"] }).notNull().default("carousel"),
   orientation: text("orientation"), // portrait/landscape, null=ikut brand
-  carouselCount: integer("carousel_count"), // null=ikut brand
+  carouselCount: integer("carousel_count"),
+  videoDuration: integer("video_duration"), // null=ikut brand.videoDurationTarget; preset 30/60/90/180/300/480 (khusus video) // null=ikut brand
   carouselVisual: text("carousel_visual"), // footage/ai, null=default brand
   footageSource: text("footage_source"), // internal/pexels/mixed, null=ikut brand
   pillar: text("pillar"),

@@ -24,14 +24,21 @@ export async function aktivasiPaketSetelahBayar(billingLogId: string): Promise<v
   if (!plan) throw new Error(`plan ${log.planId} tidak ditemukan`);
 
   const now = new Date();
-  const periodeBerakhir = new Date(now.getTime() + MASA_AKTIF_HARI * 24 * 60 * 60 * 1000);
+  const [user] = await db.select().from(users).where(eq(users.id, log.userId));
+  // (2026-10-07, #1 Perpanjangan) Paket SAMA & masih aktif (periode belum lewat) -> TAMBAH
+  // dari sisa periode (periodeBerakhir) biar hari sisa TIDAK hangus saat perpanjang lebih
+  // awal. Paket baru / sudah lewat = mulai dari sekarang. Aktivasi jg meng-UN-batalkan.
+  const stillActive = !!(user && user.planId === plan.id && user.periodeBerakhir && user.periodeBerakhir.getTime() > now.getTime());
+  const base = stillActive ? user!.periodeBerakhir! : now;
+  const periodeBerakhir = new Date(base.getTime() + MASA_AKTIF_HARI * 24 * 60 * 60 * 1000);
 
   await db.update(billingLog).set({ status: "sukses" }).where(eq(billingLog.id, billingLogId));
   await db.update(users).set({
     planId: plan.id,
     status: "aktif",
-    periodeMulai: now,
+    periodeMulai: stillActive ? (user!.periodeMulai ?? now) : now,
     periodeBerakhir,
+    langgananDibatalkan: false,
   }).where(eq(users.id, log.userId));
   await isiUlangKredit(log.userId, plan.kreditBulanan, "isi_ulang_bulanan");
 }

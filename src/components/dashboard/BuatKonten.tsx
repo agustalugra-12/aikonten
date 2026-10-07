@@ -393,7 +393,7 @@ export function BuatKonten({
           <div className="mb-4">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d] mb-1.5">Durasi</p>
             <div className="flex gap-2">
-              {[30, 60, 90].map((d) => (
+              {[30, 60].map((d) => (
                 <button key={d} type="button" onClick={() => setDuration(d)}
                   className={"rounded-lg px-3 py-1.5 text-[12px] font-semibold ring-1 transition " + (duration === d ? "bg-black text-white ring-black" : "bg-white text-[#151c27] ring-[#e7eefe] hover:ring-[#c6c6cd]")}>
                   {d} detik

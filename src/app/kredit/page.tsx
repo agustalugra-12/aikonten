@@ -19,6 +19,7 @@ type Kredit = {
   saldoKredit: number;
   status: string;
   periodeBerakhir: string | null;
+  langgananDibatalkan: boolean;
   plan: { nama: string; kreditBulanan: number } | null;
   riwayat: Riwayat[];
 };
@@ -38,6 +39,7 @@ export default function KreditPage() {
   const [data, setData] = useState<Kredit | null>(null);
   const [loading, setLoading] = useState(true);
   const [beli, setBeli] = useState<string | null>(null);
+  const [aksi, setAksi] = useState(false);
 
   async function muat() {
     try {
@@ -74,6 +76,21 @@ export default function KreditPage() {
       toast.error("Terjadi kesalahan. Coba lagi.");
     } finally {
       setBeli(null);
+    }
+  }
+
+  async function ubahBatal(resume: boolean) {
+    if (!resume && !confirm("Batalkan langganan? Akses TETAP sampai akhir periode, hanya tidak akan diperpanjang.")) return;
+    setAksi(true);
+    try {
+      const res = await fetch("/api/account/cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resume }) });
+      if (!res.ok) throw new Error();
+      await muat();
+      toast.success(resume ? "Langganan dilanjutkan." : "Langganan dibatalkan - aktif sampai akhir periode.");
+    } catch {
+      toast.error("Gagal memproses. Coba lagi.");
+    } finally {
+      setAksi(false);
     }
   }
 
@@ -119,6 +136,19 @@ export default function KreditPage() {
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Aksi langganan (#1 perpanjang, #2 batalkan) */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button onClick={() => router.push("/pilih-paket")}>Perpanjang langganan</Button>
+          {data.langgananDibatalkan ? (
+            <>
+              <span className="text-xs text-muted-foreground">Langganan dibatalkan - akses sampai {tanggal(data.periodeBerakhir)}.</span>
+              <Button variant="outline" disabled={aksi} onClick={() => ubahBatal(true)}>Lanjutkan langganan</Button>
+            </>
+          ) : (
+            <Button variant="outline" disabled={aksi} onClick={() => ubahBatal(false)}>Batalkan langganan</Button>
+          )}
         </div>
 
         {/* Top-up */}

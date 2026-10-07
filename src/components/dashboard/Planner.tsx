@@ -15,6 +15,7 @@ type PlanRow = {
   date: string;
   slotIndex: number;
   contentType: "video" | "foto" | "carousel";
+  videoDuration: number | null;
   pillar: string | null;
   hook: string | null;
   topic: string | null;
@@ -203,11 +204,11 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
     }
   }
 
-  function setLocal(id: string, field: keyof PlanRow, value: string | number) {
+  function setLocal(id: string, field: keyof PlanRow, value: string | number | null) {
     setRows((rs) => (rs ? rs.map((r) => (r.id === id ? { ...r, [field]: value } : r)) : rs));
   }
 
-  async function commit(id: string, field: keyof PlanRow, value: string | number) {
+  async function commit(id: string, field: keyof PlanRow, value: string | number | null) {
     try {
       await fetch(`/api/brands/${brandId}/content-plan/${id}`, {
         method: "PATCH",
@@ -284,6 +285,7 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
               <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-[#555f6d] border-b border-[#e7eefe]">
                 <th className="px-3 py-2.5 w-[120px]">Tanggal</th>
                 <th className="px-3 py-2.5 w-[110px]">Tipe</th>
+                <th className="px-3 py-2.5 w-[96px]">Durasi</th>
                 <th className="px-3 py-2.5 w-[120px]">Pillar</th>
                 <th className="px-3 py-2.5 w-[200px]">Hook / Topik</th>
                 <th className="px-3 py-2.5 w-[220px]">Skrip</th>
@@ -306,6 +308,17 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
                       <select value={r.contentType} disabled={locked} onChange={(e) => { setLocal(r.id, "contentType", e.target.value); commit(r.id, "contentType", e.target.value); }} className={cell + " capitalize"}>
                         {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {r.contentType === "video" ? (
+                        <select value={r.videoDuration ?? ""} disabled={locked} onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setLocal(r.id, "videoDuration", v); commit(r.id, "videoDuration", v); }} className={cell}>
+                          <option value="">Default</option>
+                          <option value="30">30 dtk</option>
+                          <option value="60">60 dtk</option>
+                        </select>
+                      ) : (
+                        <span className="text-[10px] text-[#555f6d]">—</span>
+                      )}
                     </td>
                     <td className="px-2 py-1.5">
                       <input value={r.pillar || ""} placeholder="—" disabled={locked} onChange={(e) => setLocal(r.id, "pillar", e.target.value)} onBlur={(e) => commit(r.id, "pillar", e.target.value)} className={cell} />

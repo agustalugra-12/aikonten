@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
     saldoKredit: user.saldoKredit,
     status: user.status,
     periodeBerakhir: user.periodeBerakhir,
+    langgananDibatalkan: user.langgananDibatalkan,
     plan: plan ? { nama: plan.nama, kreditBulanan: plan.kreditBulanan, izinAutoPosting: plan.izinAutoPosting, maxBrand: plan.maxBrand } : null,
     riwayat: riwayat.map((r) => ({
       jumlah: r.jumlah, alasan: r.alasan, saldoSetelah: r.saldoSetelah, createdAt: r.createdAt,

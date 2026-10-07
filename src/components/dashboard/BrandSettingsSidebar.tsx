@@ -104,6 +104,7 @@ export function BrandSettingsSidebar({
   const [carouselPhotos, setCarouselPhotos] = useState(String(brand?.carouselPhotosPerPost ?? 5));
   const [orientation, setOrientation] = useState(brand?.videoOrientation ?? "portrait");
   const [stylePreset, setStylePreset] = useState(brand?.stylePreset ?? "energetic");
+  const [footageSource, setFootageSource] = useState(brand?.footageSource ?? "internal");
   const [publishMode, setPublishMode] = useState(brand?.publishMode ?? "draft");
   const [autoPublishTimes, setAutoPublishTimes] = useState<string[]>(parseAutoPublishTimes(brand?.autoPublishTimes));
   const [savingAutomation, setSavingAutomation] = useState(false);
@@ -131,6 +132,7 @@ export function BrandSettingsSidebar({
     setCarouselPhotos(String(brand?.carouselPhotosPerPost ?? 5));
     setOrientation(brand?.videoOrientation ?? "portrait");
     setStylePreset(brand?.stylePreset ?? "energetic");
+    setFootageSource(brand?.footageSource ?? "internal");
     setPublishMode(brand?.publishMode ?? "draft");
     setAutoPublishTimes(parseAutoPublishTimes(brand?.autoPublishTimes));
     fetch(`/api/brands/${brandId}/manual-ideas`)
@@ -262,6 +264,7 @@ export function BrandSettingsSidebar({
       carouselPhotosPerPost: Number(carouselPhotos),
       videoOrientation: orientation,
       stylePreset,
+      footageSource,
       publishMode,
       autoPublishTimes: publishMode === "auto" ? autoPublishTimes : null,
     });
@@ -613,6 +616,24 @@ export function BrandSettingsSidebar({
                   <SelectItem value="energetic">Energetic (cepat & tegas)</SelectItem>
                   <SelectItem value="documentary">Documentary (halus & tenang)</SelectItem>
                   <SelectItem value="minimal">Minimal (bersih & premium)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1 pt-1 border-t">
+              <Label htmlFor="footageSource" className="text-xs">🎞️ Sumber footage default</Label>
+              <p className="text-xs text-muted-foreground">
+                Dari Bank: pakai footage sendiri di Footage Bank. Pexels: stok Pexels. Gabungan: campur Bank + Pexels.
+                Dipakai cron/Planner &amp; jadi pilihan awal di Buat Konten. Berlaku utk video, carousel, &amp; poster.
+              </p>
+              <Select value={footageSource} onValueChange={(v) => setFootageSource(v || "internal")}>
+                <SelectTrigger id="footageSource" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="internal">Dari Bank (footage sendiri)</SelectItem>
+                  <SelectItem value="pexels">Pexels (stok)</SelectItem>
+                  <SelectItem value="mixed">Gabungan (Bank + Pexels)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

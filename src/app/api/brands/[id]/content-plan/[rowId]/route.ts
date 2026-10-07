@@ -9,7 +9,7 @@ import { getUserId, getOwnedBrand } from "@/lib/session";
 // brand itu (guard di WHERE, bukan cuma 404 brand).
 const EDITABLE = [
   "date", "slotIndex", "contentType", "orientation", "carouselCount", "carouselVisual",
-  "footageSource", "pillar", "hook", "topic", "scriptBrief", "draftCaption", "draftHashtags", "status", "autoMode",
+  "footageSource", "pillar", "hook", "topic", "scriptBrief", "draftCaption", "draftHashtags", "status", "autoMode", "videoDuration",
 ] as const;
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string; rowId: string }> }) {
