@@ -68,7 +68,7 @@ export function BuatKonten({
   const [duration, setDuration] = useState<number>(60);
   const [carouselCount, setCarouselCount] = useState<number>(3);
   const [orientation, setOrientation] = useState<string>("portrait");
-  const [footageSrc, setFootageSrc] = useState<string>("mixed");
+  const [footageSrc, setFootageSrc] = useState<string>(brand?.footageSource || "internal");
   const [carouselVisual, setCarouselVisual] = useState<string>(brand?.allowAiGeneratedPhotos ? "ai" : "footage");
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -437,11 +437,11 @@ export function BuatKonten({
             </div>
           </div>
         )}
-        {fmt === "video" && (
+        {fmt !== "caption" && (
           <div className="mb-4">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d] mb-1.5">Sumber footage</p>
             <div className="flex gap-2 flex-wrap">
-              {([["internal", "Footage asli"], ["pexels", "Pexels"], ["mixed", "Gabungan"]] as [string, string][]).map(([v, l]) => (
+              {([["internal", "Dari Bank"], ["pexels", "Pexels"], ["mixed", "Gabungan"]] as [string, string][]).map(([v, l]) => (
                 <button key={v} type="button" onClick={() => setFootageSrc(v)}
                   className={"rounded-lg px-3 py-1.5 text-[12px] font-semibold ring-1 transition " + (footageSrc === v ? "bg-black text-white ring-black" : "bg-white text-[#151c27] ring-[#e7eefe] hover:ring-[#c6c6cd]")}>{l}</button>
               ))}

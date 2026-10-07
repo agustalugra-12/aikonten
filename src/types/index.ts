@@ -19,6 +19,7 @@ export type Brand = {
   posterBrandProfile: string | null;
   allowLogoInAiContent: boolean;
   allowAiGeneratedPhotos: boolean;
+  footageSource: string | null;
   logoInContentNote: string | null;
   // Content DNA (2026-08-26, PRD §4, Task Plan 5) - lihat catatan lengkap di schema.ts's
   // brands table.
