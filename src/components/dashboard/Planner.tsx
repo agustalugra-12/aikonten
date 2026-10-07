@@ -16,6 +16,7 @@ type PlanRow = {
   slotIndex: number;
   contentType: "video" | "foto" | "carousel";
   videoDuration: number | null;
+  orientation: string | null;
   pillar: string | null;
   hook: string | null;
   topic: string | null;
@@ -285,6 +286,7 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
               <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-[#555f6d] border-b border-[#e7eefe]">
                 <th className="px-3 py-2.5 w-[120px]">Tanggal</th>
                 <th className="px-3 py-2.5 w-[110px]">Tipe</th>
+                <th className="px-3 py-2.5 w-[104px]">Orientasi</th>
                 <th className="px-3 py-2.5 w-[96px]">Durasi</th>
                 <th className="px-3 py-2.5 w-[120px]">Pillar</th>
                 <th className="px-3 py-2.5 w-[200px]">Hook / Topik</th>
@@ -311,10 +313,29 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
                     </td>
                     <td className="px-2 py-1.5">
                       {r.contentType === "video" ? (
+                        <select value={r.orientation ?? ""} disabled={locked} onChange={(e) => { const v = e.target.value || null; setLocal(r.id, "orientation", v); commit(r.id, "orientation", v); }} className={cell}>
+                          <option value="">Default</option>
+                          <option value="portrait">Portrait</option>
+                          <option value="landscape">Landscape</option>
+                        </select>
+                      ) : (
+                        <span className="text-[10px] text-[#555f6d]">—</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {r.contentType === "video" ? (
                         <select value={r.videoDuration ?? ""} disabled={locked} onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setLocal(r.id, "videoDuration", v); commit(r.id, "videoDuration", v); }} className={cell}>
                           <option value="">Default</option>
                           <option value="30">30 dtk</option>
                           <option value="60">60 dtk</option>
+                          {r.orientation === "landscape" && (
+                            <>
+                              <option value="90">90 dtk</option>
+                              <option value="180">3 mnt</option>
+                              <option value="300">5 mnt</option>
+                              <option value="480">8 mnt</option>
+                            </>
+                          )}
                         </select>
                       ) : (
                         <span className="text-[10px] text-[#555f6d]">—</span>

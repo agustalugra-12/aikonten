@@ -20,8 +20,11 @@ export async function runPlanRowGenerate(row: Row): Promise<string> {
   if (row.footageSource) brandPatch.footageSource = row.footageSource;
   // (2026-10-07) Durasi per-baris: video pakai videoDuration baris kalau diatur (preset valid),
   // narasi otomatis ikut panjang durasi (word-count target di generateCaptionAndHashtags).
-  if (row.contentType === "video" && row.videoDuration && [30, 60].includes(row.videoDuration)) {
-    brandPatch.videoDurationTarget = row.videoDuration;
+  if (row.contentType === "video" && row.videoDuration) {
+    const [brandRow] = await db.select().from(brands).where(eq(brands.id, row.brandId));
+    const effOri = row.orientation || brandRow?.videoOrientation || "portrait";
+    const allowedDur = effOri === "landscape" ? [30, 60, 90, 180, 300, 480] : [30, 60];
+    if (allowedDur.includes(row.videoDuration)) brandPatch.videoDurationTarget = row.videoDuration;
   }
   if (Object.keys(brandPatch).length > 0) {
     await db.update(brands).set(brandPatch).where(eq(brands.id, row.brandId));
