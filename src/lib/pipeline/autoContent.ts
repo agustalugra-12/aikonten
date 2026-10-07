@@ -6,6 +6,7 @@ import { matchFootageForScript, pickAnyRealPhoto } from "@/lib/ai/matchFootageBa
 import { processProject, type ProcessResult } from "@/lib/pipeline/processProject";
 import { isIdeSpesifikProperti } from "@/lib/ai/classifyIdea";
 import { deriveBrollKeywordsFromScript, pickBrollKeyword } from "@/lib/ai/deriveBrollKeywords";
+import { searchPexelsPhotos } from "@/lib/assets/pexels";
 import { searchBrollVideo } from "@/lib/assets/broll";
 import { getFootageUsageRecency, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES, selectBalancedRealFootage } from "@/lib/ai/footageVariety";
 import { getDurationConfig } from "@/lib/ai/clipSelect";
@@ -97,7 +98,9 @@ export async function runAutoContent(
   // Agustap Studio Content Inspiration (2026-09-02, PRD §2.1.B/§2.19) - id
   // `manual_ideas` hasil POST /api/brands/[id]/content-inspiration, opsional.
   // Diabaikan sepenuhnya utk brand lain (guard di applyAgustapStrategyIfActive).
-  agustapInspirationId?: string | null
+  agustapInspirationId?: string | null,
+  // Visual carousel/poster per-generate (2026-10-02) - lihat route auto-content.
+  forceVisual?: "footage" | "ai" | null
 ): Promise<{ projectId: string; script: string; fromBroll: boolean } & ProcessResult> {
   let script = scriptOverride;
 
@@ -182,6 +185,10 @@ export async function runAutoContent(
   // baca photoUrls.length===0 sbg sinyal "pakai generatePosterFullAi", lihat catatan
   // lengkap di sana.
   let useFullAiPoster = false;
+  // (2026-10-02) forceVisual override: allowAiGeneratedPhotos brand = IZIN fallback (AI
+  // kalau tak ada foto cocok), BUKAN paksa. "ai"=paksa AI walau ada foto; "footage"=wajib
+  // foto asli (no AI fallback); undefined=ikut brand (perilaku lama).
+  const effectiveAllowAi = forceVisual === "ai" ? true : forceVisual === "footage" ? false : brand.allowAiGeneratedPhotos;
 
   if (matchedUrls.length > 0) {
     const matchedRows = await db.select().from(footageBank).where(eq(footageBank.brandId, brandId));
@@ -246,11 +253,43 @@ export async function runAutoContent(
       // ambil TEPAT 1 foto, tidak peduli carouselPhotosPerPost - itu setting KHUSUS jalur
       // carousel (desiredType="carousel" atau heuristik lama tanpa desiredType).
       const targetPhotoCount = desiredType === "foto" ? 1 : (brand.carouselPhotosPerPost || DEFAULT_CAROUSEL_PHOTOS_AUTO);
-      urlsToUse = imageOnlyUrls.slice(0, targetPhotoCount);
+      // (2026-10-07, perbaikan monoton - permintaan Agus) Rotasi footage GAMBAR: dulu ambil
+      // N TERATAS relevansi tiap kali -> klip sama berulang. Sekarang di antara match yg
+      // sama-relevan, dahulukan yg paling LAMA tak dipakai (getFootageUsageRecency, pola
+      // sama jalur video) supaya menggilir seluruh bank. Belum pernah dipakai = -Infinity
+      // (prioritas tertinggi).
+      const imgRecency = await getFootageUsageRecency(brandId);
+      const rotatedImageUrls = [...imageOnlyUrls].sort(
+        (a, b) => (imgRecency.get(a) ?? -Infinity) - (imgRecency.get(b) ?? -Infinity)
+      );
+      urlsToUse = rotatedImageUrls.slice(0, targetPhotoCount);
+      // (2026-10-07, #4 OPT-IN - permintaan Agus) Jalur gambar hormati pilihan footage brand
+      // (pills footageSource, sama seperti video): "pexels" = ganti foto stok Pexels; "mixed"
+      // = separuh bank + separuh Pexels; "internal"/null = bank saja (+rotasi #1). Owner yg
+      // memilih — default internal, jadi brand properti TIDAK dipaksa stok off-brand.
+      const imgFootageSrc = brand.footageSource || "internal";
+      if (forceVisual !== "ai" && (imgFootageSrc === "pexels" || imgFootageSrc === "mixed") && (desiredType === "foto" || desiredType === "carousel")) {
+        try {
+          const kw = pickBrollKeyword(await deriveBrollKeywordsFromScript(script), 0);
+          if (imgFootageSrc === "pexels") {
+            const px = await searchPexelsPhotos(kw, targetPhotoCount);
+            if (px.length > 0) urlsToUse = px; // gagal fetch -> biarkan bank (fallback)
+          } else {
+            const bankPart = rotatedImageUrls.slice(0, Math.ceil(targetPhotoCount / 2));
+            const px = await searchPexelsPhotos(kw, targetPhotoCount - bankPart.length, new Set(bankPart));
+            const mixedUrls = [...bankPart, ...px].slice(0, targetPhotoCount);
+            if (mixedUrls.length > 0) urlsToUse = mixedUrls;
+          }
+        } catch (err) {
+          console.error("[autoContent] Pexels photo (footageSource) gagal, pakai bank:", err);
+        }
+      }
+      // forceVisual="ai": buang foto match supaya jatuh ke jalur full-AI poster di bawah.
+      if (forceVisual === "ai") urlsToUse = [];
       // Laundry in Bali - 90% tetap full-AI walau ADA foto asli yang match (lihat
       // shouldForceAiOverMatchedPhoto di atas) - buang match yang sudah ketemu supaya
       // fallback useFullAiPoster di bawah yang jalan, bukan otomatis pakai match ini.
-      if (urlsToUse.length > 0 && shouldForceAiOverMatchedPhoto(brandId, !!brand.allowAiGeneratedPhotos)) {
+      if (urlsToUse.length > 0 && shouldForceAiOverMatchedPhoto(brandId, effectiveAllowAi)) {
         urlsToUse = [];
       }
       // Kalau kandidat tema TERNYATA semua video (mediaType item pertama "video" tapi ada
@@ -268,7 +307,7 @@ export async function runAutoContent(
       // foto asli APA SAJA cuma dipakai kalau toggle MATI (perilaku LAMA, brand lain
       // tidak berubah).
       if (urlsToUse.length === 0) {
-        if (brand.allowAiGeneratedPhotos) {
+        if (effectiveAllowAi) {
           useFullAiPoster = true;
         } else {
           const anyPhoto = await pickAnyRealPhoto(brandId);
@@ -313,7 +352,7 @@ export async function runAutoContent(
     // mengklaim properti/layanan SPESIFIK tetap WAJIB gagal jelas drpd diam2 dapat
     // visual karangan, aturan LAMA dipertahankan penuh - lihat throw di bawah).
     if (urlsToUse.length === 0) {
-      if (brand.allowAiGeneratedPhotos && !spesifik) {
+      if (effectiveAllowAi && !spesifik) {
         type = "carousel";
         useFullAiPoster = true;
       } else {
@@ -341,7 +380,10 @@ export async function runAutoContent(
     id: projectId,
     brandId,
     type,
-    contentFormat: type === "video" ? contentFormat ?? null : null,
+    // (2026-10-05, temuan Agus) desiredType="foto" (Poster Feed) disimpan type="carousel"
+    // juga (enum tak punya "foto"), jadi tandai via contentFormat supaya processProject
+    // render 1 gambar SAJA, bukan multi-slide carouselPhotosPerPost.
+    contentFormat: type === "video" ? contentFormat ?? null : desiredType === "foto" ? "poster_feed" : null,
     youtubeSeriesId: type === "video" ? youtubeSeriesId ?? null : null,
     youtubeMetadata: type === "video" ? youtubeMetadata ?? null : null,
     // pillar (2026-08-12, Fase 1b) - dari daily_ideas.pillar utk jalur YouTube Editorial

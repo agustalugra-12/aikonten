@@ -5,6 +5,36 @@ import { eq } from "drizzle-orm";
 import { runPrePublishQC } from "@/lib/ai/prePublishQC";
 import { getUserId, getOwnedProject } from "@/lib/session";
 
+// Edit teks di Studio preview (2026-10-05, Fase A - permintaan Agus) - owner ubah
+// judul(script)/caption/hashtag tanpa re-generate. Hanya field TEKS; aset tak disentuh.
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
+  const { id } = await params;
+  if (!(await getOwnedProject(userId, id))) {
+    return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
+  }
+  const body = await req.json().catch(() => ({}));
+  const update: Record<string, unknown> = {};
+  if (typeof body.script === "string") update.script = body.script;
+  if (typeof body.generatedCaption === "string") update.generatedCaption = body.generatedCaption;
+  if ("generatedHashtags" in body) {
+    const h = body.generatedHashtags;
+    const arr = Array.isArray(h)
+      ? h.filter((x: unknown): x is string => typeof x === "string")
+      : typeof h === "string"
+        ? h.split(/[\s,]+/).map((t) => t.replace(/^#/, "")).filter(Boolean)
+        : [];
+    update.generatedHashtags = JSON.stringify(arr);
+  }
+  if (Object.keys(update).length === 0) {
+    return NextResponse.json({ error: "Tidak ada field untuk diubah" }, { status: 400 });
+  }
+  update.updatedAt = new Date();
+  await db.update(projects).set(update).where(eq(projects.id, id));
+  const [updated] = await db.select().from(projects).where(eq(projects.id, id));
+  return NextResponse.json(updated);
+}
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = getUserId(req);
   const { id } = await params;

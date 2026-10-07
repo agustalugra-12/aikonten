@@ -48,11 +48,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // (guard brand isolation ada di applyAgustapStrategyIfActive, bukan di sini).
   const agustapInspirationId = typeof body.agustapInspirationId === "string" ? body.agustapInspirationId : undefined;
 
+  // Visual carousel (2026-10-02, permintaan Agus - "pilih footage asli atau full ai").
+  // Per-generate (BUKAN ubah setting brand): "ai"=paksa poster AI tiap slide walau bank
+  // punya foto; "footage"=wajib pakai foto asli (tanpa fallback AI). undefined=perilaku lama.
+  const carouselVisual = body.carouselVisual === "ai" || body.carouselVisual === "footage" ? body.carouselVisual : undefined;
+
   try {
     const result = await runAutoContent(
       brandId, body.script, desiredType, contentFormat,
       undefined, undefined, undefined, undefined, undefined,
-      agustapInspirationId
+      agustapInspirationId,
+      carouselVisual
     );
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {

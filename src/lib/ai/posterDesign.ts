@@ -290,12 +290,13 @@ export async function applyPosterDesign(opts: {
   copy: PosterCopy;
   brandProfile?: string | null;
   allowLogoInContent?: boolean;
+  aspectRatio?: string;
 }): Promise<string> {
   return runPosterWithQualityCheck(opts, async () => {
     const image = await generateImageWithGemini({
       prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "real-photo", opts.allowLogoInContent),
       imageUrls: [opts.imageUrl],
-      aspectRatio: "4:5",
+      aspectRatio: opts.aspectRatio ?? "4:5",
       usageLabel: "gemini-3.1-flash-image-poster",
     });
     return uploadPosterResult(opts, image);
@@ -315,11 +316,12 @@ export async function generatePosterFullAi(opts: {
   copy: PosterCopy;
   brandProfile?: string | null;
   allowLogoInContent?: boolean;
+  aspectRatio?: string;
 }): Promise<string> {
   return runPosterWithQualityCheck(opts, async () => {
     const image = await generateImageWithGemini({
       prompt: buildPosterPrompt(opts.copy, opts.brandProfile, "full-ai", opts.allowLogoInContent),
-      aspectRatio: "4:5",
+      aspectRatio: opts.aspectRatio ?? "4:5",
       usageLabel: "gemini-3.1-flash-image-poster-full-ai",
     });
     return uploadPosterResult(opts, image);

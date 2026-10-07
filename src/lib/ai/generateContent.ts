@@ -1,3 +1,4 @@
+import { getBrandPerformanceInsight } from "./performanceLearning";
 import { getOpenAIClient } from "./openaiClient";
 import { parseBrollKeywordArray } from "./deriveBrollKeywords";
 import type { ScoredSegment } from "./clipSelect";
@@ -660,7 +661,7 @@ export async function generateCaptionAndHashtags(
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
     messages: [
-      { role: "system", content: system },
+      { role: "system", content: system + (brandId ? await getBrandPerformanceInsight(brandId) : "") },
       { role: "user", content: user },
     ],
     temperature: 0.7,
@@ -755,7 +756,7 @@ export async function generateCaptionForImages(
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
     messages: [
-      { role: "system", content: system },
+      { role: "system", content: system + (brandId ? await getBrandPerformanceInsight(brandId) : "") },
       {
         role: "user",
         content: [

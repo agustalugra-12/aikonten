@@ -63,11 +63,13 @@ export const DESTINATION_STOCK_RATIO = 0.6;
 export function computeFootageBudgets(
   isDestinationContent: boolean,
   target: number = DEFAULT_VIDEO_DURATION_TARGET,
-  footageSource: "mixed" | "internal" = "mixed"
+  footageSource: "mixed" | "internal" | "pexels" = "mixed"
 ): {
   realBudgetSeconds: number;
   stockBudgetSeconds: number;
 } {
+  // (2026-10-01) pexels-only: 0 footage asli, seluruh durasi dari stok Pexels.
+  if (footageSource === "pexels") return { realBudgetSeconds: 0, stockBudgetSeconds: target };
   if (footageSource === "internal") {
     return { realBudgetSeconds: target, stockBudgetSeconds: 0 };
   }

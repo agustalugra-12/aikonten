@@ -164,3 +164,16 @@ export function buildPerformanceInsightBlock(classifications: PerformanceClassif
     "yg sudah dihitung di atas - tujuannya seimbang, bukan cuma ulangi yg sudah terbukti."
   );
 }
+
+// Insight performa SIAP-SUNTIK ke prompt generasi (2026-10-07, #5 - permintaan Agus "AI
+// belajar dari hasil"). Ambil pillar/angle/views project PUBLISHED brand → rangkai jadi
+// blok teks (buildPerformanceInsightBlock). "" kalau data <3 (fail-soft, tak ganggu prompt).
+export async function getBrandPerformanceInsight(brandId: string): Promise<string> {
+  const rows = await db
+    .select({ pillar: projects.pillar, angle: projects.angle, performanceViews: projects.performanceViews })
+    .from(projects)
+    .where(and(eq(projects.brandId, brandId), eq(projects.status, "published")))
+    .orderBy(desc(projects.updatedAt))
+    .limit(80);
+  return buildPerformanceInsightBlock(rows);
+}

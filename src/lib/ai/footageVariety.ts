@@ -49,14 +49,18 @@ export async function getRecentlyUsedFootageUrls(brandId: string): Promise<Set<s
 // setiap video baru otomatis "menggilir" ke footage yang paling lama absen, bukan
 // cuma menghindari 5 project terakhir.
 export async function getFootageUsageRecency(brandId: string): Promise<Map<string, number>> {
-  const videoProjects = await db
+  // (2026-10-07) DULU cuma project type="video" → recency footage GAMBAR (carousel/foto)
+  // selalu kosong, jadi rotasi jalur gambar (autoContent #1) tak efektif. Sekarang baca
+  // SEMUA tipe project (video+carousel) supaya recency aset gambar jg nyata → rotasi gambar
+  // benar2 menggilir. Aset video vs gambar beda fileUrl jadi tak saling kontaminasi.
+  const allProjects = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.brandId, brandId), eq(projects.type, "video")));
+    .where(eq(projects.brandId, brandId));
   const recency = new Map<string, number>();
-  if (videoProjects.length === 0) return recency;
+  if (allProjects.length === 0) return recency;
 
-  const ids = videoProjects.map((p) => p.id);
+  const ids = allProjects.map((p) => p.id);
   const assets = await db
     .select({ type: mediaAssets.type, fileUrl: mediaAssets.fileUrl, createdAt: mediaAssets.createdAt })
     .from(mediaAssets)

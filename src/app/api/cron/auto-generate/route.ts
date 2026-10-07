@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyCronSecret } from "@/lib/cron/verify";
 import { db } from "@/db";
-import { brands, dailyIdeas } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { brands, dailyIdeas, contentPlan, projects } from "@/db/schema";
+import { eq, and, lte } from "drizzle-orm";
 import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyContentPlanner";
 import { todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { runAutoContent } from "@/lib/pipeline/autoContent";
+import { runPlanRowGenerate } from "@/lib/pipeline/generatePlanRow";
 import { tryAcquireLock, releaseLock, brandAutoContentLockKey } from "@/lib/concurrency/locks";
 
 // Cron #2 - SEMUA brand, bukan cuma publishMode="auto" (2026-08-06, revisi permintaan
@@ -88,7 +89,28 @@ export async function POST(req: NextRequest) {
           failed++;
         }
       }
-      results.push({ brandId: brand.id, name: brand.name, generated, failed });
+      // Planner auto (2026-10-05, permintaan Agus) - baris content_plan autoMode="auto"
+      // status="direncanakan" tanggal <= hari ini = DISETUJUI ikut cron: generate otomatis
+      // pakai teks editan owner (runPlanRowGenerate, TANPA lock krn brand ini sudah dipegang
+      // lockKey di atas) lalu jadwalkan utk auto-publish (scheduledFor tanggal baris 09:00
+      // WITA; kalau sudah lewat, cron auto-publish ambil segera krn <= now).
+      const duePlan = await db
+        .select()
+        .from(contentPlan)
+        .where(and(eq(contentPlan.brandId, brand.id), eq(contentPlan.autoMode, "auto"), eq(contentPlan.status, "direncanakan"), lte(contentPlan.date, today)));
+      for (const row of duePlan) {
+        try {
+          const pid = await runPlanRowGenerate(row);
+          const schedFor = new Date(`${row.date}T09:00:00+08:00`);
+          await db.update(projects).set({ status: "scheduled", scheduledFor: schedFor, updatedAt: new Date() }).where(eq(projects.id, pid));
+          await db.update(contentPlan).set({ status: "terjadwal", scheduledFor: schedFor, updatedAt: new Date() }).where(eq(contentPlan.id, row.id));
+          generated++;
+        } catch (err) {
+          console.error(`[cron/auto-generate] gagal generate baris Planner ${row.id} brand ${brand.name}:`, err);
+          failed++;
+        }
+      }
+            results.push({ brandId: brand.id, name: brand.name, generated, failed });
     } finally {
       releaseLock(lockKey);
     }

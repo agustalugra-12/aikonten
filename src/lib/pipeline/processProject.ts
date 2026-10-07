@@ -25,7 +25,8 @@ import { parseWeightToKg } from "@/lib/render/comparisonBar";
 import { pickCtaText, type CtaContext } from "@/lib/ai/ctaEngine";
 import { runVideoQualityChecks } from "@/lib/pipeline/qualityChecker";
 import { imageToVideoClip } from "@/lib/render/imageToClip";
-import { generatePosterCopy } from "@/lib/ai/posterCopy";
+import { generatePosterCopy, type PosterCopy } from "@/lib/ai/posterCopy";
+import { getBrandPerformanceInsight } from "@/lib/ai/performanceLearning";
 import { applyPosterDesign, generatePosterFullAi } from "@/lib/ai/posterDesign";
 import { validatePriceClaims, stripInvalidPrices } from "@/lib/ai/priceValidator";
 import { extractThumbnailCandidates } from "@/lib/render/frameExtract";
@@ -141,7 +142,12 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // kebetulan 0 asset (edge case pre-existing lain, bukan dari fitur ini) TETAP kena
     // guard spt sebelumnya, drpd lolos lalu crash lebih membingungkan di
     // applyPosterDesign (imageUrl undefined).
-    if (rawFootageAssets.length === 0 && !(project.type === "carousel" && brand?.allowAiGeneratedPhotos)) {
+    // (2026-10-02) 0 footage LEGIT utk carousel apa pun (jalur full-AI poster handle
+    // photoUrls=0 via generatePosterFullAi) - dulu cek brand.allowAiGeneratedPhotos, tapi
+    // forceVisual="ai" (per-generate) bisa paksa AI walau flag brand false. Hanya VIDEO
+    // yang wajib punya footage mentah. autoContent sudah throw lebih dulu kalau carousel
+    // genuinely tak ada foto & bukan jalur AI, jadi carousel yg sampai sini pasti disengaja.
+    if (rawFootageAssets.length === 0 && project.type !== "carousel") {
       throw new Error("Belum ada footage mentah utk project ini");
     }
     // jalur video BISA >1 file sekaligus (2026-08-05, permintaan Agus - "dominasi footage
@@ -237,32 +243,67 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       // gabung manualKnowledge + fetch otomatis PMS Pelangi/Harmoni (lihat catatan
       // stripInvalidPrices di atas) - poster Pelangi/Harmoni jg divalidasi thd harga
       // REAL-TIME PMS, bukan cuma teks manual yg bisa basi.
-      const posterCopy = await generatePosterCopy(brand?.name || "Brand", project.script, knowledgeUsed, pillar);
-      // Full AI-Generate (2026-08-11, permintaan Agus - lihat allowAiGeneratedPhotos di
-      // schema.ts) - photoUrls KOSONG artinya autoContent.ts SENGAJA tidak menemukan
-      // foto asli relevan & brand ini py toggle full-AI diaktifkan (lihat autoContent.ts
-      // "useFullAiPoster") - poster dibuat text-to-image PENUH drpd gagal/paksa pakai
-      // foto asli yg tidak relevan. Brand TANPA toggle ini tidak akan pernah sampai ke
-      // titik ini dgn photoUrls kosong (autoContent.ts sudah throw error duluan kalau
-      // toggle mati & tidak ada foto sama sekali - perilaku LAMA, tidak berubah).
-      const coverUrl =
-        photoUrls.length > 0
-          ? await applyPosterDesign({
+      // (2026-10-05, temuan Agus) Poster Feed (desiredType foto, ditandai contentFormat
+      // di autoContent) = SELALU 1 gambar, abaikan carouselPhotosPerPost. Tanpa ini foto
+      // ikut jadi multi-slide krn type tersimpan "carousel".
+      const isPosterFeed = project.contentFormat === "poster_feed";
+      const carouselN = isPosterFeed ? 1 : Math.max(1, Math.min(brand?.carouselPhotosPerPost ?? 1, 5));
+      // (2026-10-02, temuan Agus) Multi-slide carousel KEDUA mode isi teks tiap slide:
+      // 1 sampul (hook) + 1 slide per poin konten. Dulu footage asli cuma cover yg berteks,
+      // slide 2+ foto polos. Sekarang footage asli jg tempel 1 poin ke tiap foto
+      // (applyPosterDesign, foto diulang kalau kurang); full-AI tetap generatePosterFullAi.
+      // forceSlides minta copy TEPAT carouselN-1 poin (gabung/ringkas, bukan potong).
+      const wantMultiSlide = carouselN > 1;
+      // (2026-10-07, #5) Insight performa nyata (pilar mana paling banyak views) disuntik
+      // ke prompt poster-copy supaya generasi condong ke yg terbukti perform, bukan generik.
+      const perfInsight = await getBrandPerformanceInsight(project.brandId);
+      const posterCopy = await generatePosterCopy(brand?.name || "Brand", project.script, knowledgeUsed, pillar, wantMultiSlide ? carouselN : undefined, perfInsight);
+      const posterAspect = brand?.videoOrientation === "landscape" ? "16:9" : "4:5";
+      const isAiCarousel = photoUrls.length === 0;
+
+      // renderSlide: footage asli -> tempel copy ke foto bank (applyPosterDesign); full-AI
+      // -> poster text-to-image penuh. aspectRatio dihormati keduanya (uji: 16:9=1376x768).
+      const renderSlide = (copy: PosterCopy, photoIdx: number) =>
+        isAiCarousel
+          ? generatePosterFullAi({
               brandId: project.brandId,
               projectId: id,
-              imageUrl: photoUrls[0],
-              copy: posterCopy,
+              copy,
               brandProfile: brand?.posterBrandProfile,
+              aspectRatio: posterAspect,
               allowLogoInContent: brand?.allowLogoInAiContent,
             })
-          : await generatePosterFullAi({
+          : applyPosterDesign({
               brandId: project.brandId,
               projectId: id,
-              copy: posterCopy,
+              imageUrl: photoUrls[photoIdx % photoUrls.length],
+              copy,
               brandProfile: brand?.posterBrandProfile,
+              aspectRatio: posterAspect,
               allowLogoInContent: brand?.allowLogoInAiContent,
             });
-      const finalImageUrls = photoUrls.length === 1 ? [coverUrl] : [coverUrl, ...photoUrls.slice(1)];
+
+      let finalImageUrls: string[];
+      if (wantMultiSlide) {
+        // sampul = hook (headline+subheadline, tanpa poin); slide berikut = 1 poin/slide.
+        // ponytail: model balikin < carouselN-1 poin -> slide ikut lebih sedikit (fail-soft).
+        const points = posterCopy.infografisPoints ?? [];
+        const slideCopies: PosterCopy[] = [
+          { ...posterCopy, infografisPoints: null, benefits: [] },
+          ...points.slice(0, carouselN - 1).map((p) => ({
+            headline: posterCopy.headline,
+            subheadline: null,
+            harga: null,
+            cta: posterCopy.cta,
+            benefits: [] as string[],
+            isiTulisan: null,
+            infografisPoints: [{ nomor: p.nomor, teks: p.teks }],
+          })),
+        ];
+        finalImageUrls = await Promise.all(slideCopies.map((c, idx) => renderSlide(c, idx)));
+      } else {
+        finalImageUrls = [await renderSlide(posterCopy, 0)];
+      }
 
       // Logo brand OPSIONAL (2026-08-05, permintaan Agus) - lingkaran, proporsional,
       // ditempel di SETIAP foto final (poster tunggal MAUPUN carousel) - dilewati

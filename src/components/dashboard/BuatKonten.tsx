@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
 import type { Brand, ProjectDetail } from "@/types";
+import { UploadModal } from "@/components/dashboard/UploadModal";
+import { createZip } from "@/lib/zip";
+import { FootageSwapModal } from "@/components/dashboard/FootageSwapModal";
 
 // Buat Konten "Studio" 2-kolom - port Stitch §6-19 (2026-09-11, PRD Stitch UI rebuild).
 // UI mengikuti Stitch; GENERATE memanggil engine NYATA existing:
@@ -56,6 +59,17 @@ export function BuatKonten({
   const [result, setResult] = useState<ProjectDetail | null>(null);
   const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[] } | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [edCaption, setEdCaption] = useState("");
+  const [edHashtags, setEdHashtags] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [showFootage, setShowFootage] = useState(false);
+  const [duration, setDuration] = useState<number>(60);
+  const [carouselCount, setCarouselCount] = useState<number>(3);
+  const [orientation, setOrientation] = useState<string>("portrait");
+  const [footageSrc, setFootageSrc] = useState<string>("mixed");
+  const [carouselVisual, setCarouselVisual] = useState<string>(brand?.allowAiGeneratedPhotos ? "ai" : "footage");
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
   async function saveCaptionDraft() {
@@ -100,6 +114,68 @@ export function BuatKonten({
     };
   }, [brandId]);
 
+  async function downloadAsset() {
+    const ts = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
+    const dl = (blob: Blob, name: string) => {
+      const url = URL.createObjectURL(blob);
+      const el = document.createElement("a");
+      el.href = url; el.download = name; el.click();
+      URL.revokeObjectURL(url);
+    };
+    const video = result?.assets?.find((a) => a.type === "final_video");
+    const imgs = result?.assets?.filter((a) => a.type === "final_image") || [];
+    try {
+      if (video) {
+        dl(await (await fetch(proxiedUrl(video.fileUrl))).blob(), `kontenpilot_${fmt}_${ts}.mp4`);
+      } else if (imgs.length > 1) {
+        // Carousel multi-slide -> ZIP semua slide (2026-10-05, permintaan Agus).
+        const files = await Promise.all(
+          imgs.map(async (a, i) => ({ name: `slide_${i + 1}.png`, data: new Uint8Array(await (await fetch(proxiedUrl(a.fileUrl))).arrayBuffer()) }))
+        );
+        dl(createZip(files), `kontenpilot_carousel_${ts}.zip`);
+      } else if (imgs.length === 1) {
+        dl(await (await fetch(proxiedUrl(imgs[0].fileUrl))).blob(), `kontenpilot_${fmt}_${ts}.png`);
+      } else {
+        toast.error("Belum ada file untuk diunduh");
+      }
+    } catch { toast.error("Gagal mengunduh file"); }
+  }
+
+  // Upload modal pilih-kanal (2026-10-05) - buka modal; modal yg POST /publish & edit caption.
+  function uploadToChannels() {
+    if (!result) return;
+    setShowUpload(true);
+  }
+
+  // Edit teks preview (Fase A 2026-10-05) - ubah caption/hashtag tanpa re-generate.
+  function startEdit() {
+    setEdCaption(result?.generatedCaption || "");
+    let hz = "";
+    try { hz = (JSON.parse(result?.generatedHashtags || "[]") as string[]).map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" "); } catch {}
+    setEdHashtags(hz);
+    setEditing(true);
+  }
+  async function saveEdit() {
+    if (!result) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/projects/${result.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ generatedCaption: edCaption, generatedHashtags: edHashtags }),
+      });
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      setResult((r) => (r ? { ...r, generatedCaption: d.generatedCaption, generatedHashtags: d.generatedHashtags } : r));
+      setEditing(false);
+      toast.success("Perubahan disimpan.");
+    } catch {
+      toast.error("Gagal menyimpan.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   async function handleGenerate() {
     const fmtDef = FORMATS.find((f) => f.key === fmt)!;
     if (!fmtDef.ready) {
@@ -118,6 +194,9 @@ export function BuatKonten({
       const patch: Record<string, string> = {};
       if (tone && tone !== (brand?.toneOfVoice || "")) patch.toneOfVoice = tone;
       if (audience && audience !== (brand?.targetAudience || "")) patch.targetAudience = audience;
+      if (fmt === "video") patch.videoDurationTarget = String(duration);
+      if (fmt === "carousel") patch.carouselPhotosPerPost = String(carouselCount);
+      if (fmt !== "caption") { patch.videoOrientation = orientation; patch.footageSource = footageSrc; }
       if (Object.keys(patch).length > 0) {
         await fetch(`/api/brands/${brandId}`, {
           method: "PATCH",
@@ -147,7 +226,7 @@ export function BuatKonten({
       const res = await fetch(`/api/brands/${brandId}/auto-content`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ script: prompt.trim(), type: fmt }),
+        body: JSON.stringify({ script: prompt.trim(), type: fmt, carouselVisual: fmt === "carousel" ? carouselVisual : undefined }),
       });
       const body = await res.json().catch(() => ({}));
       if (res.status === 409) {
@@ -309,6 +388,66 @@ export function BuatKonten({
           )}
         </div>
 
+        {/* Durasi (Reels) & Jumlah gambar (Carousel) - pilihan per-generate (Fase 2) */}
+        {fmt === "video" && (
+          <div className="mb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d] mb-1.5">Durasi</p>
+            <div className="flex gap-2">
+              {[30, 60, 90].map((d) => (
+                <button key={d} type="button" onClick={() => setDuration(d)}
+                  className={"rounded-lg px-3 py-1.5 text-[12px] font-semibold ring-1 transition " + (duration === d ? "bg-black text-white ring-black" : "bg-white text-[#151c27] ring-[#e7eefe] hover:ring-[#c6c6cd]")}>
+                  {d} detik
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {fmt === "carousel" && (
+          <div className="mb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d] mb-1.5">Jumlah gambar</p>
+            <div className="flex gap-2">
+              {[2, 3, 4, 5].map((n) => (
+                <button key={n} type="button" onClick={() => setCarouselCount(n)}
+                  className={"rounded-lg px-3 py-1.5 text-[12px] font-semibold ring-1 transition " + (carouselCount === n ? "bg-black text-white ring-black" : "bg-white text-[#151c27] ring-[#e7eefe] hover:ring-[#c6c6cd]")}>
+                  {n} gambar
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {fmt !== "caption" && (
+          <div className="mb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d] mb-1.5">Orientasi</p>
+            <div className="flex gap-2">
+              {([["portrait", "Portrait"], ["landscape", "Landscape"]] as [string, string][]).map(([v, l]) => (
+                <button key={v} type="button" onClick={() => setOrientation(v)}
+                  className={"rounded-lg px-3 py-1.5 text-[12px] font-semibold ring-1 transition " + (orientation === v ? "bg-black text-white ring-black" : "bg-white text-[#151c27] ring-[#e7eefe] hover:ring-[#c6c6cd]")}>{l}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {fmt === "carousel" && (
+          <div className="mb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d] mb-1.5">Gambar carousel</p>
+            <div className="flex gap-2">
+              {([["footage", "Footage asli"], ["ai", "Buat AI (poster)"]] as [string, string][]).map(([v, l]) => (
+                <button key={v} type="button" onClick={() => setCarouselVisual(v)}
+                  className={"rounded-lg px-3 py-1.5 text-[12px] font-semibold ring-1 transition " + (carouselVisual === v ? "bg-black text-white ring-black" : "bg-white text-[#151c27] ring-[#e7eefe] hover:ring-[#c6c6cd]")}>{l}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {fmt === "video" && (
+          <div className="mb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d] mb-1.5">Sumber footage</p>
+            <div className="flex gap-2 flex-wrap">
+              {([["internal", "Footage asli"], ["pexels", "Pexels"], ["mixed", "Gabungan"]] as [string, string][]).map(([v, l]) => (
+                <button key={v} type="button" onClick={() => setFootageSrc(v)}
+                  className={"rounded-lg px-3 py-1.5 text-[12px] font-semibold ring-1 transition " + (footageSrc === v ? "bg-black text-white ring-black" : "bg-white text-[#151c27] ring-[#e7eefe] hover:ring-[#c6c6cd]")}>{l}</button>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Generate */}
         <button
           type="button"
@@ -411,26 +550,62 @@ export function BuatKonten({
                   </div>
                 )}
 
-                {/* Caption studio */}
-                {result.generatedCaption && (
+                {/* Caption studio - editable (Fase A 2026-10-05) */}
+                {(result.generatedCaption || editing) && (
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d]">Caption &amp; Hashtag</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const hz = (() => { try { return (JSON.parse(result.generatedHashtags || "[]") as string[]).map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" "); } catch { return ""; } })();
-                          navigator.clipboard?.writeText(`${result.generatedCaption}\n\n${hz}`);
-                          toast.success("Caption disalin");
-                        }}
-                        className="text-[11px] text-[#151c27] hover:underline flex items-center gap-1"
-                      >
-                        <span className="material-symbols-outlined text-[14px]">content_copy</span> Salin
-                      </button>
+                      <div className="flex items-center gap-3">
+                        {!editing && (
+                          <button type="button" onClick={startEdit} className="text-[11px] text-[#151c27] hover:underline flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[14px]">edit</span> Edit
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const hz = (() => { try { return (JSON.parse(result.generatedHashtags || "[]") as string[]).map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" "); } catch { return ""; } })();
+                            navigator.clipboard?.writeText(`${result.generatedCaption}\n\n${hz}`);
+                            toast.success("Caption disalin");
+                          }}
+                          className="text-[11px] text-[#151c27] hover:underline flex items-center gap-1"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">content_copy</span> Salin
+                        </button>
+                      </div>
                     </div>
-                    <div className="rounded-lg bg-[#f0f3ff] p-3 text-[13px] text-[#151c27] whitespace-pre-wrap max-h-56 overflow-y-auto">
-                      {result.generatedCaption}
-                    </div>
+                    {editing ? (
+                      <div className="space-y-2">
+                        <textarea value={edCaption} onChange={(e) => setEdCaption(e.target.value)} rows={5} placeholder="Caption" className="w-full rounded-lg ring-1 ring-[#e7eefe] focus:ring-[#c6c6cd] outline-none p-2.5 text-[13px] text-[#151c27] resize-y" />
+                        <input value={edHashtags} onChange={(e) => setEdHashtags(e.target.value)} placeholder="#tag1 #tag2" className="w-full rounded-lg ring-1 ring-[#e7eefe] focus:ring-[#c6c6cd] outline-none p-2.5 text-[13px] text-[#151c27]" />
+                        <div className="flex gap-2">
+                          <button type="button" disabled={savingEdit} onClick={saveEdit} className="rounded-lg bg-black px-3 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-50">{savingEdit ? "Menyimpan…" : "Simpan"}</button>
+                          <button type="button" onClick={() => setEditing(false)} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[#151c27] ring-1 ring-[#e7eefe] hover:ring-[#c6c6cd]">Batal</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg bg-[#f0f3ff] p-3 text-[13px] text-[#151c27] whitespace-pre-wrap max-h-56 overflow-y-auto">
+                        {result.generatedCaption}
+                        {(() => { try { const h = JSON.parse(result.generatedHashtags || "[]") as string[]; return h.length ? <p className="text-[#555f6d] mt-2">{h.map((t) => (t.startsWith("#") ? t : `#${t}`)).join(" ")}</p> : null; } catch { return null; } })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {result.status === "ready" && (
+                  <div className="flex flex-wrap gap-2 pt-2 border-t border-[#e7eefe] mt-1">
+                    <button type="button" onClick={downloadAsset} className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-2 text-[12px] font-semibold text-[#151c27] ring-1 ring-[#e7eefe] hover:ring-[#c6c6cd]">
+                      <span className="material-symbols-outlined text-[15px]">download</span> Download
+                    </button>
+                    <button type="button" disabled={generating} onClick={() => { if (confirm("Generate ulang? Hasil sekarang akan diganti.")) handleGenerate(); }} className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-2 text-[12px] font-semibold text-[#151c27] ring-1 ring-[#e7eefe] hover:ring-[#c6c6cd] disabled:opacity-50">
+                      <span className="material-symbols-outlined text-[15px]">refresh</span> Generate Ulang
+                    </button>
+                    <button type="button" onClick={() => setShowFootage(true)} className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-2 text-[12px] font-semibold text-[#151c27] ring-1 ring-[#e7eefe] hover:ring-[#c6c6cd]">
+                      <span className="material-symbols-outlined text-[15px]">swap_horiz</span> Ganti Footage
+                    </button>
+                    <button type="button" onClick={uploadToChannels} className="inline-flex items-center gap-1 rounded-lg bg-black px-3 py-2 text-[12px] font-semibold text-white hover:opacity-90">
+                      <span className="material-symbols-outlined text-[15px]">publish</span> Upload ke Kanal
+                    </button>
                   </div>
                 )}
 
@@ -442,6 +617,28 @@ export function BuatKonten({
           </div>
         </div>
       </div>
+      {showFootage && result && (
+        <FootageSwapModal
+          brandId={brandId}
+          projectId={result.id}
+          onClose={() => setShowFootage(false)}
+          onDone={async () => {
+            const d = await fetch(`/api/projects/${result.id}`).then((x) => x.json());
+            setResult(d);
+          }}
+        />
+      )}
+      {showUpload && result && (
+        <UploadModal
+          brandId={brandId}
+          projectId={result.id}
+          onClose={() => setShowUpload(false)}
+          onDone={async () => {
+            const d = await fetch(`/api/projects/${result.id}`).then((x) => x.json());
+            setResult(d);
+          }}
+        />
+      )}
     </div>
   );
 }

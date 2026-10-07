@@ -104,7 +104,7 @@ export const brands = sqliteTable("brands", {
   // bank footage") - "mixed" = perilaku lama (rasio 7:3 asli:stok, lihat clipSelect.ts),
   // "internal" = 100% footage bank brand sendiri, NOL Pexels/Pixabay (stockBudget=0,
   // destinationBroll dilewati). Default "mixed" supaya brand lama (Pelangi) tidak berubah.
-  footageSource: text("footage_source", { enum: ["mixed", "internal"] }).notNull().default("mixed"),
+  footageSource: text("footage_source", { enum: ["mixed", "internal", "pexels"] }).notNull().default("mixed"),
   // Berapa foto per POST carousel (2026-08-05, permintaan Agus - "carousel 3 foto,
   // carousel 5 foto dan 7 foto") - BEDA dari dailyCarouselCount (itu jumlah POST carousel/
   // hari, ini jumlah FOTO di DALAM 1 post carousel). Dipakai NewProjectDialog.tsx &
@@ -891,4 +891,35 @@ export const competitors = sqliteTable("competitors", {
   role: text("role"), // strength/peran creator (§2.10) - mis. "hook/attention/problem framing"
   benchmarkActive: integer("benchmark_active", { mode: "boolean" }).notNull().default(false), // Active/Inactive (§2.9, §2.16) - default false, HARUS diaktifkan eksplisit
   analyzedContentCount: integer("analyzed_content_count"), // berapa konten dianalisis saat benchmark dibuat (§2.11, target 10-20)
+});
+
+// Content Planner editable (2026-10-05, PRD Planner Fase 1 - permintaan Agus "jadwal
+// konten editable berbentuk tabel"). 1 baris = 1 rencana konten bertanggal. AI isi draft
+// ringan (Fase 2), owner edit bebas, lalu Generate per baris pakai teks owner (Fase 3).
+// Ukuran rencana 30/60/90/120/150 konten, tanggal mengikuti cadence harian brand
+// (dailyVideoCount+dailySinglePhotoCount+dailyCarouselCount = slot/hari).
+export const contentPlan = sqliteTable("content_plan", {
+  id: text("id").primaryKey(),
+  brandId: text("brand_id").notNull().references(() => brands.id),
+  date: text("date").notNull(), // YYYY-MM-DD (WITA), bisa diedit owner
+  slotIndex: integer("slot_index").notNull().default(0), // urutan dalam 1 hari
+  contentType: text("content_type", { enum: ["video", "foto", "carousel"] }).notNull().default("carousel"),
+  orientation: text("orientation"), // portrait/landscape, null=ikut brand
+  carouselCount: integer("carousel_count"), // null=ikut brand
+  carouselVisual: text("carousel_visual"), // footage/ai, null=default brand
+  footageSource: text("footage_source"), // internal/pexels/mixed, null=ikut brand
+  pillar: text("pillar"),
+  hook: text("hook"),
+  topic: text("topic"),
+  scriptBrief: text("script_brief"),
+  draftCaption: text("draft_caption"),
+  draftHashtags: text("draft_hashtags"), // JSON string[]
+  status: text("status", { enum: ["direncanakan", "digenerate", "terjadwal", "publish", "gagal"] }).notNull().default("direncanakan"),
+  // Auto-generate (2026-10-05) - "auto" = cron auto-generate proses baris ini di tanggalnya
+  // (disetujui -> langsung dijadwalkan utk auto-publish). "manual" = owner klik Generate.
+  autoMode: text("auto_mode", { enum: ["manual", "auto"] }).notNull().default("manual"),
+  projectId: text("project_id"),
+  scheduledFor: integer("scheduled_for", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

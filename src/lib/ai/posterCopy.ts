@@ -41,7 +41,9 @@ export async function generatePosterCopy(
   brandName: string,
   script: string,
   manualKnowledge?: string | null,
-  pillar?: string | null
+  pillar?: string | null,
+  forceSlides?: number,
+  performanceInsight?: string,
 ): Promise<PosterCopy> {
   const client = getOpenAIClient();
   // Deteksi mode infografis (2026-08-11) - dari `pillar` yg SUDAH diklasifikasi
@@ -49,7 +51,7 @@ export async function generatePosterCopy(
   // pillar tersedia lebih dulu) - cocok ke "Edukasi"/"Tips" APA PUN sumbernya (pilar
   // custom brand [Laundry in Bali/Pelangi, lihat content_pillars] MAUPUN GENERIC_PILLARS
   // bawaan yg jg py "Edukasi") - generalisasinya bukan cuma hardcode 1 brand.
-  const isInfografis = !!pillar && /edukasi|tips/i.test(pillar);
+  const isInfografis = (!!pillar && /edukasi|tips/i.test(pillar)) || (!!forceSlides && forceSlides > 1);
 
   const system = isInfografis
     ? "Kamu content designer edukasi. Dari skrip/ide konten TIPS/EDUKASI ini, susun POSTER " +
@@ -95,8 +97,15 @@ export async function generatePosterCopy(
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
     messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
+      { role: "system", content: system + (performanceInsight || "") },
+      {
+        role: "user",
+        content:
+          user +
+          (forceSlides && forceSlides > 1
+            ? `\n\nPENTING: untuk CAROUSEL ${forceSlides} slide - infografisPoints HARUS TEPAT ${forceSlides - 1} poin (tiap poin = 1 slide konten, + 1 slide sampul hook). WAJIB cakup SEMUA inti bahasan skrip: kalau ide lebih banyak dari ${forceSlides - 1}, GABUNGKAN jadi ${forceSlides - 1} poin utuh (JANGAN buang atau potong di tengah); kalau lebih sedikit, kembangkan jadi ${forceSlides - 1}. Tiap poin kalimat RINGKAS tapi utuh, pas muat di 1 slide.`
+            : ""),
+      },
     ],
     temperature: 0.7,
   });

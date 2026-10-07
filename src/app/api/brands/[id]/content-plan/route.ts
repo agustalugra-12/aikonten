@@ -1,39 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { dailyIdeas, projects, contentTypes } from "@/db/schema";
-import { and, eq, gte, desc } from "drizzle-orm";
-import { getMediumPerformance, classifyIdeaExperimentTier } from "@/lib/ai/contentVariety";
-import { parseStoredPlatformFitScores } from "@/lib/ai/dailyContentPlanner";
+import { contentPlan, brands } from "@/db/schema";
+import { and, eq, gte, asc } from "drizzle-orm";
 import { getUserId, getOwnedBrand } from "@/lib/session";
+import { newId } from "@/lib/ids";
 
-// Content Planning Engine (2026-08-19, PRD "AI Content Intelligence" §22-23) - SCOPE
-// DIKURANGI dari PRD asli: PRD minta planning berbasis SWOT+Competitor+Audience+Content
-// Goal+Historical Performance+Content Diversity - SWOT/Competitor masih BLOCKED
-// (keputusan bisnis Agus soal sumber data, lihat docs/HANDOFF_OPENCODE_2026-08-18.md).
-// Versi ini murni VIEW read-only atas data yang SUDAH ADA (dailyIdeas = ide belum
-// diproduksi, projects = konten sudah/sedang diproduksi) dalam 1 tabel kronologis -
-// TIDAK mengubah pipeline generate/produksi sama sekali (itu resiko jauh lebih besar,
-// di luar scope pass ini). Historical Performance & Content Diversity SUDAH otomatis
-// tercermin krn keduanya sudah mempengaruhi dailyIdeas/projects yang di-query di sini.
-const DEFAULT_WINDOW_DAYS = 14;
+// Content Planner editable (2026-10-05, PRD Planner Fase 1 - permintaan Agus). GANTI versi
+// lama (yg read-only + backward gabung ide/project). Sekarang: sumber = tabel content_plan,
+// FORWARD (>= hari ini WITA), editable.
+//   GET                -> baris rencana forward brand ini.
+//   POST { size }      -> buat KERANGKA N konten (30/60/90/120/150), tanggal ikut cadence
+//                         harian brand (dailyVideoCount+dailySinglePhotoCount+dailyCarouselCount
+//                         = slot/hari, sama dgn cron). Reset baris "direncanakan" forward dulu.
+//   POST { ...row }    -> tambah 1 baris manual.
+const ALLOWED_SIZES = [30, 60, 90, 120, 150];
 
-type PlanRow = {
-  id: string;
-  kind: "idea" | "project";
-  date: string;
-  contentType: string | null;
-  pillar: string | null;
-  topicOrHook: string;
-  structure: string | null;
-  status: string;
-  // Experiment Engine (2026-08-25, PRD §24, observational - lihat catatan lengkap di
-  // contentVariety.ts's classifyIdeaExperimentTier) - null utk row "project" (konten
-  // sudah diproduksi, tier cuma relevan sblm produksi).
-  experimentTier: "proven" | "variation" | "experiment" | null;
-  // Platform Fit Score (2026-08-26, PRD §19, Task Plan 5) - {} utk row "project" (skor
-  // ini soal ide sblm produksi, lihat researchTopics.ts's ScoredIdea).
-  platformFitScores: Record<string, number>;
-};
+// WITA = UTC+8. Geser ke WITA lalu ambil tanggalnya (string YYYY-MM-DD, aman utk compare).
+function witaDate(offsetDays = 0): string {
+  const d = new Date(Date.now() + 8 * 60 * 60 * 1000 + offsetDays * 24 * 60 * 60 * 1000);
+  return d.toISOString().slice(0, 10);
+}
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = getUserId(req);
@@ -41,59 +27,87 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!(await getOwnedBrand(userId, brandId))) {
     return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }
-  const days = Number(req.nextUrl.searchParams.get("days")) || DEFAULT_WINDOW_DAYS;
-  const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  const windowStartDateStr = windowStart.toISOString().slice(0, 10);
-
-  const ideas = await db
+  const rows = await db
     .select()
-    .from(dailyIdeas)
-    .where(and(eq(dailyIdeas.brandId, brandId), gte(dailyIdeas.date, windowStartDateStr)))
-    .orderBy(desc(dailyIdeas.date));
-  const mediumPerf = await getMediumPerformance(brandId);
+    .from(contentPlan)
+    .where(and(eq(contentPlan.brandId, brandId), gte(contentPlan.date, witaDate(0))))
+    .orderBy(asc(contentPlan.date), asc(contentPlan.slotIndex));
+  return NextResponse.json({ rows });
+}
 
-  const proj = await db
-    .select({
-      id: projects.id,
-      createdAt: projects.createdAt,
-      status: projects.status,
-      pillar: projects.pillar,
-      hookType: projects.hookType,
-      structureTemplate: projects.structureTemplate,
-      script: projects.script,
-      contentTypeName: contentTypes.name,
-    })
-    .from(projects)
-    .leftJoin(contentTypes, eq(projects.contentTypeId, contentTypes.id))
-    .where(and(eq(projects.brandId, brandId), gte(projects.createdAt, windowStart)))
-    .orderBy(desc(projects.createdAt));
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const userId = getUserId(req);
+  const { id: brandId } = await params;
+  if (!(await getOwnedBrand(userId, brandId))) {
+    return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
+  }
+  const body = await req.json().catch(() => ({}));
+  const now = new Date();
 
-  const rows: PlanRow[] = [
-    ...ideas.map((i): PlanRow => ({
-      id: i.id,
-      kind: "idea",
-      date: i.date,
-      contentType: i.contentType,
-      pillar: null,
-      topicOrHook: i.idea,
-      structure: null,
-      status: i.used ? "Sudah dipakai" : "Belum dipakai",
-      experimentTier: classifyIdeaExperimentTier(i.contentType, mediumPerf),
-      platformFitScores: parseStoredPlatformFitScores(i.platformFitScores),
-    })),
-    ...proj.map((p): PlanRow => ({
-      id: p.id,
-      kind: "project",
-      date: p.createdAt.toISOString().slice(0, 10),
-      contentType: p.contentTypeName,
-      pillar: p.pillar,
-      topicOrHook: p.hookType || (p.script || "").slice(0, 100),
-      structure: p.structureTemplate,
-      status: p.status,
-      experimentTier: null,
-      platformFitScores: {},
-    })),
-  ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  // Bulk set auto/manual (2026-10-05) - set SEMUA baris "direncanakan" forward. bulkAutoMode
+  // "auto" = baris disetujui ikut cron (auto-generate di tanggalnya + auto-publish).
+  if (body.bulkAutoMode === "auto" || body.bulkAutoMode === "manual") {
+    await db
+      .update(contentPlan)
+      .set({ autoMode: body.bulkAutoMode, updatedAt: now })
+      .where(and(eq(contentPlan.brandId, brandId), eq(contentPlan.status, "direncanakan"), gte(contentPlan.date, witaDate(0))));
+    return NextResponse.json({ ok: true, bulkAutoMode: body.bulkAutoMode });
+  }
 
-  return NextResponse.json({ windowDays: days, rows });
+  // --- Kerangka N konten ---
+  if (body.size !== undefined) {
+    const size = Number(body.size);
+    if (!ALLOWED_SIZES.includes(size)) {
+      return NextResponse.json({ error: "size harus 30, 60, 90, 120, atau 150" }, { status: 400 });
+    }
+    const [brand] = await db.select().from(brands).where(eq(brands.id, brandId));
+    // Pola harian = campuran tipe sesuai cadence cron brand. Kosong (semua 0) -> 1 carousel/hari.
+    const pattern: ("video" | "foto" | "carousel")[] = [
+      ...Array(Math.max(0, brand?.dailyVideoCount ?? 0)).fill("video"),
+      ...Array(Math.max(0, brand?.dailySinglePhotoCount ?? 0)).fill("foto"),
+      ...Array(Math.max(0, brand?.dailyCarouselCount ?? 0)).fill("carousel"),
+    ];
+    if (pattern.length === 0) pattern.push("carousel");
+    const slotsPerDay = pattern.length;
+    const values = Array.from({ length: size }, (_, i) => ({
+      id: newId("cpln"),
+      brandId,
+      date: witaDate(Math.floor(i / slotsPerDay)),
+      slotIndex: i % slotsPerDay,
+      contentType: pattern[i % slotsPerDay],
+      status: "direncanakan" as const,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    // Reset HANYA baris yg masih "direncanakan" & forward (regen kerangka) - baris yg sudah
+    // digenerate/terjadwal/publish JANGAN disentuh (kerja owner tak boleh hilang).
+    await db
+      .delete(contentPlan)
+      .where(and(eq(contentPlan.brandId, brandId), eq(contentPlan.status, "direncanakan"), gte(contentPlan.date, witaDate(0))));
+    await db.insert(contentPlan).values(values);
+    return NextResponse.json({ ok: true, count: values.length });
+  }
+
+  // --- Tambah 1 baris manual ---
+  const row = {
+    id: newId("cpln"),
+    brandId,
+    date: typeof body.date === "string" ? body.date : witaDate(0),
+    slotIndex: Number(body.slotIndex) || 0,
+    contentType: (["video", "foto", "carousel"].includes(body.contentType) ? body.contentType : "carousel") as
+      | "video"
+      | "foto"
+      | "carousel",
+    pillar: body.pillar ?? null,
+    hook: body.hook ?? null,
+    topic: body.topic ?? null,
+    scriptBrief: body.scriptBrief ?? null,
+    draftCaption: body.draftCaption ?? null,
+    draftHashtags: Array.isArray(body.draftHashtags) ? JSON.stringify(body.draftHashtags) : body.draftHashtags ?? null,
+    status: "direncanakan" as const,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.insert(contentPlan).values(row);
+  return NextResponse.json({ ok: true, row });
 }

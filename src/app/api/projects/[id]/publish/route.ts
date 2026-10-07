@@ -15,8 +15,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!(await getOwnedProject(userId, id))) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
   }
+  const body = await req.json().catch(() => ({}));
+  const opts = {
+    accountIds: Array.isArray(body.accountIds) ? body.accountIds.filter((x: unknown): x is string => typeof x === "string") : undefined,
+    captionOverride: typeof body.caption === "string" ? body.caption : undefined,
+  };
   try {
-    await publishProject(id);
+    await publishProject(id, opts);
   } catch (err) {
     // Lock per-projectId (2026-08-14, temuan #2) - project ini sedang dipublikasikan
     // proses lain (klik dobel, atau balapan dgn cron auto-publish), balikin 409 jelas

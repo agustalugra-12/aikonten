@@ -74,10 +74,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // foto") - cuma 3 preset ini yg didukung NewProjectDialog/auto-content route.
   if ("carouselPhotosPerPost" in body) {
     const v = Number(body.carouselPhotosPerPost);
-    if (![3, 5, 7].includes(v)) {
-      return NextResponse.json({ error: "carouselPhotosPerPost harus 3, 5, atau 7" }, { status: 400 });
+    if (![2, 3, 4, 5, 7].includes(v)) {
+      return NextResponse.json({ error: "carouselPhotosPerPost harus 2, 3, 4, 5, atau 7" }, { status: 400 });
     }
     update.carouselPhotosPerPost = v;
+  }
+
+  // Visual carousel (2026-10-02, permintaan Agus - "konten carousel bisa pilih footage
+  // asli atau full ai") - per-generate via write-back (pola sama orientasi/footageSource).
+  // true = poster AI penuh tiap slide, false = pakai foto asli dari Footage Bank.
+  if ("allowAiGeneratedPhotos" in body) {
+    if (typeof body.allowAiGeneratedPhotos !== "boolean") {
+      return NextResponse.json({ error: "allowAiGeneratedPhotos harus boolean" }, { status: 400 });
+    }
+    update.allowAiGeneratedPhotos = body.allowAiGeneratedPhotos;
   }
 
   // Orientasi video (2026-08-05, permintaan Agus - "landscape atau potrait utk YT").
@@ -122,8 +132,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Sumber footage video (2026-08-21, permintaan Agus - Harmoni Hills 100% footage
   // bank sendiri tanpa Pexels/Pixabay, lihat footageSource di schema.ts & clipSelect.ts).
   if ("footageSource" in body) {
-    if (body.footageSource !== "mixed" && body.footageSource !== "internal") {
-      return NextResponse.json({ error: "footageSource harus 'mixed' atau 'internal'" }, { status: 400 });
+    if (!["mixed", "internal", "pexels"].includes(body.footageSource)) {
+      return NextResponse.json({ error: "footageSource harus mixed, internal, atau pexels" }, { status: 400 });
     }
     update.footageSource = body.footageSource;
   }

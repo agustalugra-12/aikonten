@@ -18,6 +18,7 @@ export type Brand = {
   autoPublishTimes: string | null; // JSON string[] "HH:MM" mentah dari DB, lihat schema.ts - parse dulu sebelum dipakai
   posterBrandProfile: string | null;
   allowLogoInAiContent: boolean;
+  allowAiGeneratedPhotos: boolean;
   logoInContentNote: string | null;
   // Content DNA (2026-08-26, PRD §4, Task Plan 5) - lihat catatan lengkap di schema.ts's
   // brands table.

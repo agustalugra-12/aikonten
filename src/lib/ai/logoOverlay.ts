@@ -41,6 +41,13 @@ function logoCacheKey(logoUrl: string, sizePx: number): string {
 // via SVG circle sbg alpha mask (blend "dest-in" - area di luar lingkaran jadi
 // transparan). sizePx = ukuran akhir dlm piksel, dihitung pemanggil berdasarkan
 // proporsi konten (lihat LOGO_SIZE_RATIO).
+export async function cropImageToAspect(imageUrl: string, targetW: number, targetH: number): Promise<Buffer> {
+  // (2026-10-02) Crop foto footage mentah ke rasio target (cover, center) - dipakai utk
+  // slide carousel non-cover saat orientasi landscape biar seragam dgn cover ber-aspect.
+  const buf = await fetchBuffer(imageUrl);
+  return sharp(buf).resize(targetW, targetH, { fit: "cover", position: "centre" }).png().toBuffer();
+}
+
 export async function buildCircularLogoPng(logoUrl: string, sizePx: number): Promise<Buffer> {
   const size = Math.max(8, Math.round(sizePx));
   const cacheFile = path.join(LOGO_CACHE_DIR, `${logoCacheKey(logoUrl, size)}.png`);

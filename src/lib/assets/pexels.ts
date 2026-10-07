@@ -108,3 +108,23 @@ export async function searchPexelsVideo(
   // page 1 (8 kandidat).
   return null;
 }
+
+// Pencarian FOTO Pexels (2026-10-07, #4 opt-in - jalur gambar carousel/foto hormati pilihan
+// footage brand: pexels/mixed). Balikin URL foto resolusi besar. "" aman (fail-soft).
+const PEXELS_PHOTO_SEARCH_URL = "https://api.pexels.com/v1/search";
+export async function searchPexelsPhotos(query: string, count: number, exclude: Set<string> = new Set()): Promise<string[]> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey || !query || count <= 0) return [];
+  try {
+    const url = `${PEXELS_PHOTO_SEARCH_URL}?query=${encodeURIComponent(query)}&per_page=${Math.min(count * 3, 40)}`;
+    const r = await fetch(url, { headers: { Authorization: apiKey } });
+    if (!r.ok) return [];
+    const data = await r.json();
+    const urls = ((data.photos || []) as Array<{ src?: { large2x?: string; large?: string; original?: string } }>)
+      .map((p) => p.src?.large2x || p.src?.large || p.src?.original)
+      .filter((u): u is string => typeof u === "string" && !exclude.has(u));
+    return urls.slice(0, count);
+  } catch {
+    return [];
+  }
+}

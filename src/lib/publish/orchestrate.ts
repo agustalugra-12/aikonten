@@ -15,7 +15,7 @@ import { adaptCaptionForPlatform, type Platform } from "@/lib/ai/platformAdaptat
 // sebelumnya gagal. Notifikasi Telegram tetap dikirim tiap percobaan publish, sukses
 // maupun gagal, sbg jaring pengaman tambahan (bukan approval gate lagi - itu sudah di
 // tahap draft review).
-async function publishProjectInner(projectId: string): Promise<void> {
+async function publishProjectInner(projectId: string, opts?: { accountIds?: string[]; captionOverride?: string }): Promise<void> {
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project) return;
 
@@ -47,14 +47,24 @@ async function publishProjectInner(projectId: string): Promise<void> {
     }
   }
 
+  // Pilih kanal (2026-10-05, upload modal) - kalau owner memilih subset akun, publish
+  // HANYA ke akun itu (tetap intersect dgn yg connected di atas). Kosong/undefined = semua.
+  if (opts?.accountIds && opts.accountIds.length > 0) {
+    const want = new Set(opts.accountIds);
+    accounts = accounts.filter((a) => want.has(a.id));
+  }
+
   const assets = await db.select().from(mediaAssets).where(eq(mediaAssets.projectId, projectId));
   const finalVideo = assets.find((a) => a.type === "final_video");
   const finalImages = assets.filter((a) => a.type === "final_image");
   const thumbnail = assets.find((a) => a.type === "thumbnail");
 
   const brandName = brand?.name || "Brand";
-  const caption = project.generatedCaption || "";
-  const hashtags = project.generatedHashtags ? JSON.parse(project.generatedHashtags) : [];
+  // Upload modal (2026-10-05) - owner bisa edit caption & pilih kanal sebelum publish.
+  // captionOverride = teks final owner (hashtag TIDAK di-append lagi, owner sudah atur
+  // sendiri di modal). Tanpa override = perilaku lama (caption+hashtag dari project).
+  const caption = (opts?.captionOverride ?? project.generatedCaption) || "";
+  const hashtags = opts?.captionOverride ? [] : (project.generatedHashtags ? JSON.parse(project.generatedHashtags) : []);
 
   // Caption Only (2026-09-12) - project teks-saja (type "caption", tanpa media). Jalur
   // publish teks ADITIF: lewati cek media-wajib di bawah, dan di loop skip platform yg
@@ -349,7 +359,7 @@ async function publishProjectInner(projectId: string): Promise<void> {
 // SUDAH py try/catch per-project yg log & lanjut ke project berikutnya - LockBusyError
 // otomatis "skip bersih" lewat jalur itu tanpa perlu ubah kode di sana (busy = akan
 // dicoba lagi di siklus cron 15-menit berikutnya, bukan hilang).
-export async function publishProject(projectId: string): Promise<void> {
+export async function publishProject(projectId: string, opts?: { accountIds?: string[]; captionOverride?: string }): Promise<void> {
   const lockKey = projectPublishLockKey(projectId);
   if (!tryAcquireLock(lockKey)) {
     throw new LockBusyError(
@@ -358,7 +368,7 @@ export async function publishProject(projectId: string): Promise<void> {
     );
   }
   try {
-    await publishProjectInner(projectId);
+    await publishProjectInner(projectId, opts);
   } finally {
     releaseLock(lockKey);
   }
