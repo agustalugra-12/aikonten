@@ -138,8 +138,11 @@ function buildPosterPrompt(
     copy.subheadline ? `Subheadline: "${copy.subheadline}"` : null,
     copy.harga ? `Harga/Badge Promo: "${copy.harga}"` : "Tidak ada harga/promo - JANGAN tampilkan badge harga sama sekali.",
     `CTA: "${copy.cta}"`,
+    // (2026-10-07, bug nyata: "INFOGRAFISPOINTS" [nama field] ke-render HARFIAH di poster -
+    // sama kelas dgn isiTulisan di bawah). Pakai deskripsi natural + larang keras render
+    // label/nama field apa pun; hanya teks poinnya yg boleh tampil.
     isInfografis
-      ? `INFOGRAFISPOINTS (WAJIB tampil LENGKAP semua, lihat LAYOUT INFOGRAFIS di atas):\n${copy.infografisPoints!.map((p) => `  ${p.nomor}. ${p.teks}`).join("\n")}`
+      ? `Daftar poin isi (WAJIB tampil LENGKAP semua sbg daftar bernomor di dalam kartu, lihat LAYOUT INFOGRAFIS di atas). JANGAN PERNAH menampilkan kata "INFOGRAFISPOINTS", "daftar poin", "poin isi", atau label/nama field apa pun di poster - render LANGSUNG teks tiap poin saja:\n${copy.infografisPoints!.map((p) => `  ${p.nomor}. ${p.teks}`).join("\n")}`
       : null,
     !isInfografis && copy.benefits.length > 0 ? `Benefit/fasilitas yang ditonjolkan: ${copy.benefits.join(", ")}` : null,
     // 2026-08-13, bug nyata ditemukan lewat tes live: "Isi tulisan tambahan:" (nama
