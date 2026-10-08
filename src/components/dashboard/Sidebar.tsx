@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   PenSquare,
   GalleryHorizontal,
-  Lightbulb,
   FolderOpen,
   Music,
   Settings,
@@ -56,7 +55,6 @@ const NAV_GROUPS: NavGroup[] = [
     section: "AI Intelligence",
     items: [
       { view: "kompetitor", label: "AI Studio & R&D", icon: Brain },
-      { view: "ide", label: "Ide Konten", icon: Lightbulb },
     ],
   },
   {
