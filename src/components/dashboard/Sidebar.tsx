@@ -12,6 +12,7 @@ import {
   Building2,
   Brain,
   Share2,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Brand } from "@/types";
@@ -30,7 +31,7 @@ export type DashboardView =
   | "laporan"
   | "pengaturan";
 
-type NavItem = { view: DashboardView; label: string; icon: typeof LayoutDashboard };
+type NavItem = { view?: DashboardView; label: string; icon: typeof LayoutDashboard; href?: string };
 type NavGroup = { section: string; items: NavItem[] };
 
 // Nav dikelompokkan per seksi sesuai mockup KontenPilot (2026-09-11): Workspace / AI
@@ -66,7 +67,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     section: "Settings",
-    items: [{ view: "pengaturan", label: "Pengaturan Brand", icon: Settings }],
+    items: [
+      { view: "pengaturan", label: "Pengaturan Brand", icon: Settings },
+      { label: "Kredit & Langganan", icon: Wallet, href: "/kredit" },
+    ],
   },
 ];
 
@@ -115,13 +119,13 @@ export function Sidebar({
             <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {group.section}
             </p>
-            {group.items.map(({ view, label, icon: Icon }) => (
+            {group.items.map(({ view, label, icon: Icon, href }) => (
               <button
-                key={view}
-                onClick={() => onSelectView(view)}
+                key={view ?? href}
+                onClick={() => (href ? (window.location.href = href) : view && onSelectView(view))}
                 className={cn(
                   "w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                  activeView === view
+                  view && activeView === view
                     ? "bg-primary text-primary-foreground font-medium shadow-sm"
                     : "text-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
                 )}
