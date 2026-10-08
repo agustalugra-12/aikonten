@@ -262,7 +262,10 @@ export async function checkAndHandleDuplicate(opts: {
   token?: string | null;
 }): Promise<void> {
   const { sendTelegramNotification } = await import("./telegram");
-  const pollDelaysMs = [100_000, 100_000]; // cumulative ~100s & ~200s - membungkus titik ~3 menit dari insiden nyata
+  // (2026-10-08, permintaan Agus - optimasi kuota Buffer: 2 poll -> 1 poll = 3 call/publish
+  // turun ke 2 call/publish, biar muat ~25 konten/hari/brand dlm 3000 call/30hari). 1 poll di
+  // ~180dtk TETAP melewati titik ~3 menit tempat insiden duplikat NYATA Buffer terjadi.
+  const pollDelaysMs = [180_000];
 
   for (const delay of pollDelaysMs) {
     await new Promise((resolve) => setTimeout(resolve, delay));
