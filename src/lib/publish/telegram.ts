@@ -70,3 +70,29 @@ export function formatPublishSummaryNotification(params: {
     lines.join("\n")
   );
 }
+
+
+// Alert KREDIT HABIS (2026-10-09, permintaan Agus - Fase 5 QA menemukan 82% kegagalan
+// generate = kredit Gemini/OpenAI depleted, gagal diam-diam). API provider tak expose
+// saldo prepaid andal, jadi deteksi dari ERROR saat terjadi + notif Telegram SEKALI
+// (dedupe in-memory 30 menit; 1 instance service, reset saat restart - cukup).
+// ponytail: dedupe in-memory, pindah ke DB kalau nanti multi-instance.
+const CREDIT_DEPLETION_RE = /prepayment credits are depleted|no credits remaining|insufficient_quota|"code"\s*:\s*402|429 You have no credits/i;
+let lastCreditAlertAt = 0;
+export async function alertCreditDepletionIfRelevant(context: string, errorMessage: string | null | undefined): Promise<void> {
+  if (!errorMessage || !CREDIT_DEPLETION_RE.test(errorMessage)) return;
+  const now = Date.now();
+  if (now - lastCreditAlertAt < 30 * 60 * 1000) return; // sudah dialert <30 menit lalu
+  lastCreditAlertAt = now;
+  const provider = /openai|insufficient_quota|platform\.openai/i.test(errorMessage) ? "OpenAI" : "Gemini / AI Studio";
+  try {
+    await sendTelegramNotification(
+      `\u{1F6A8} KREDIT ${provider} HABIS \u2014 generate konten GAGAL.\n\n` +
+      `Konteks: ${context}\n` +
+      `Error: ${errorMessage.slice(0, 200)}\n\n` +
+      `Segera top-up kredit; semua generate akan terus gagal sampai diisi.`
+    );
+  } catch (e) {
+    console.error("[alert] gagal kirim notif kredit habis:", e);
+  }
+}

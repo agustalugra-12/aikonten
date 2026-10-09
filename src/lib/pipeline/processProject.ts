@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { projects, mediaAssets, brands, socialAccounts, footageBank, contentTypes } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { transcribeFootage, transcribeAudioBuffer, type TranscriptSegment } from "@/lib/ai/transcribe";
+import { alertCreditDepletionIfRelevant } from "@/lib/publish/telegram";
 import {
   selectClips,
   scoreSegments,
@@ -1430,6 +1431,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         updatedAt: new Date(),
       })
       .where(eq(projects.id, id));
+    await alertCreditDepletionIfRelevant(`project ${id}`, message);
     throw err;
   }
   });
