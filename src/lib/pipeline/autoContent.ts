@@ -318,6 +318,23 @@ export async function runAutoContent(
   } else {
     const spesifik = isIdeSpesifikProperti(script, brand.knowledgeSite);
 
+    // (#4 edge, 2026-10-09 - temuan Agus) Bank KOSONG / tak ada match, TAPI brand memilih
+    // footageSource pexels/mixed utk gambar: cabang opt-in di `matchedUrls.length>0` di atas
+    // tak terjangkau saat bank kosong, jadi pilihan owner diam-diam diabaikan. Hormati di
+    // sini juga - HANYA foto/carousel & ide TAK spesifik properti (ide spesifik soal
+    // harga/fasilitas/kamar tetap WAJIB foto asli, bukan stok off-brand - lihat throw bawah).
+    const imgFootageSrcEmpty = brand.footageSource || "internal";
+    if (!spesifik && forceVisual !== "ai" && (imgFootageSrcEmpty === "pexels" || imgFootageSrcEmpty === "mixed") && (desiredType === "foto" || desiredType === "carousel")) {
+      try {
+        const targetPhotoCount = desiredType === "foto" ? 1 : (brand.carouselPhotosPerPost || DEFAULT_CAROUSEL_PHOTOS_AUTO);
+        const kw = pickBrollKeyword(await deriveBrollKeywordsFromScript(script), 0);
+        const px = await searchPexelsPhotos(kw, targetPhotoCount);
+        if (px.length > 0) { type = "carousel"; urlsToUse = px; }
+      } catch (err) {
+        console.error("[autoContent] Pexels photo (bank kosong, footageSource) gagal:", err);
+      }
+    }
+
     // desiredType "foto"/"carousel" (2026-08-25, ditemukan langsung pas coba generate 1
     // poster manual utk Agustap Studio - diminta "foto" tapi hasilnya "video") HARUS
     // melewati broll search ini sama sekali - beda dari cabang matchedUrls.length>0 di
