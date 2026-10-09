@@ -532,13 +532,35 @@ export function BuatKonten({
               <div className="space-y-4">
                 {/* Media preview */}
                 {(() => {
-                  const media = result.assets?.find((a) => a.type === "final_video") || result.assets?.find((a) => a.type === "final_image") || result.assets?.find((a) => a.type === "thumbnail");
-                  if (!media) return null;
-                  return media.type === "final_video" ? (
-                    <video src={proxiedUrl(media.fileUrl)} controls className="w-full rounded-lg bg-black max-h-96" />
-                  ) : (
+                  // Preview visual lebih kaya (2026-10-09): video tetap; carousel tampilkan
+                  // SEMUA slide (slide pertama besar + strip thumbnail bernomor, klik = full).
+                  const video = result.assets?.find((a) => a.type === "final_video");
+                  if (video) return <video src={proxiedUrl(video.fileUrl)} controls className="w-full rounded-lg bg-black max-h-96" />;
+                  const imgs = (result.assets || []).filter((a) => a.type === "final_image");
+                  const gallery = imgs.length > 0 ? imgs : (result.assets || []).filter((a) => a.type === "thumbnail");
+                  if (gallery.length === 0) return null;
+                  if (gallery.length === 1) {
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={proxiedUrl(media.fileUrl)} alt="" className="w-full rounded-lg object-contain max-h-96 bg-[#f0f3ff]" />
+                    return <img src={proxiedUrl(gallery[0].fileUrl)} alt="" className="w-full rounded-lg object-contain max-h-96 bg-[#f0f3ff]" />;
+                  }
+                  return (
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d]">Slide carousel</p>
+                        <span className="text-[11px] text-[#555f6d]">{gallery.length} slide</span>
+                      </div>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={proxiedUrl(gallery[0].fileUrl)} alt="Slide 1" className="w-full rounded-lg object-contain max-h-80 bg-[#f0f3ff]" />
+                      <div className="flex gap-2 overflow-x-auto pb-1 mt-2">
+                        {gallery.map((a, i) => (
+                          <button type="button" key={a.fileUrl} onClick={() => window.open(proxiedUrl(a.fileUrl), "_blank")} title={`Slide ${i + 1} - klik lihat penuh`} className="relative shrink-0 cursor-pointer">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={proxiedUrl(a.fileUrl)} alt={`Slide ${i + 1}`} className="h-24 w-24 rounded-md object-cover ring-1 ring-[#e7eefe] hover:ring-[#c6c6cd]" />
+                            <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 text-[10px] font-semibold text-white">{i + 1}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   );
                 })()}
 
