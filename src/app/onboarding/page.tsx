@@ -2,19 +2,29 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
-// Onboarding pasca-bayar (2026-09-30, T7). Setelah paket aktif tapi belum ada brand,
-// tuntun: (1) buat brand pertama (POST /api/brands), (2) utk paket auto-posting, arahkan
-// ke UI connect Buffer yang SUDAH ADA di dashboard (menu Kanal) - pelanggan daftar Buffer
-// sendiri lalu hubungkan. Starter (tanpa auto-posting) lewati Buffer, jelaskan download.
-// Merangkai alur pakai endpoint & halaman yang ada - tidak membangun ulang komponen.
-
+// Onboarding pasca-bayar (restyle 2026-10-11 ke desain gelap). LOGIKA & KONTRAK TETAP:
+// GET /api/account/credits (butuh plan) + /api/brands; belum bayar->/pilih-paket, sudah ada
+// brand->/. Step1: POST /api/brands { name }. Step2 (plan.izinAutoPosting): tuntun Buffer.
 type Plan = { nama: string; izinAutoPosting: boolean } | null;
+
+const CSS = `
+.kp-wrap{--bg:#070710;--bg2:#0b0b16;--fg:#fff;--ink:255,255,255;--acc:#a5b4fc;--acc2:#818cf8;--acc-soft:#c7d2fe;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--fg);font-family:var(--font-heading),'Plus Jakarta Sans',system-ui,sans-serif;background-image:radial-gradient(900px 600px at 85% -10%, rgba(99,102,241,.14), transparent 60%);-webkit-font-smoothing:antialiased;padding:24px}
+.kp-wrap *{box-sizing:border-box}
+.kp-card{width:100%;max-width:440px;border:1px solid rgba(var(--ink),.1);background:rgba(var(--ink),.03);border-radius:24px;padding:clamp(24px,4vw,34px)}
+.kp-step{font-size:12px;font-weight:800;letter-spacing:.14em;color:var(--acc-soft);text-transform:uppercase}
+.kp-card h1{margin:8px 0 0;font-size:22px;font-weight:800}
+.kp-card p{font-size:14px;line-height:1.6;color:rgba(var(--ink),.68);margin:14px 0 0}
+.kp-card p b{color:#fff}
+.kp-field{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;color:rgba(var(--ink),.78);margin-top:16px}
+.kp-field input{background:var(--bg2);border:1px solid rgba(var(--ink),.14);border-radius:12px;padding:14px;color:var(--fg);font-size:16px;font-family:inherit;outline:none}
+.kp-field input:focus{border-color:var(--acc2)}
+.kp-btn{width:100%;margin-top:20px;border:0;cursor:pointer;background:#6366f1;color:#fff;border-radius:999px;padding:15px;font-size:16px;font-weight:800;font-family:inherit}
+.kp-btn:disabled{opacity:.6;cursor:default}
+.kp-ghost{width:100%;margin-top:10px;border:0;background:transparent;color:rgba(var(--ink),.6);cursor:pointer;font-family:inherit;font-size:14px;padding:8px}
+.kp-muted{min-height:100vh;display:grid;place-items:center;background:#070710;color:rgba(255,255,255,.6);font-family:var(--font-heading),system-ui}
+`;
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -31,8 +41,8 @@ export default function OnboardingPage() {
           fetch("/api/account/credits").then((r) => r.json()),
           fetch("/api/brands").then((r) => r.json()),
         ]);
-        if (!acc?.plan) { router.replace("/pilih-paket"); return; } // belum bayar
-        if (Array.isArray(brands) && brands.length > 0) { router.replace("/"); return; } // sudah setup
+        if (!acc?.plan) { router.replace("/pilih-paket"); return; }
+        if (Array.isArray(brands) && brands.length > 0) { router.replace("/"); return; }
         setPlan(acc.plan);
       } catch {
         toast.error("Gagal memuat data akun");
@@ -58,75 +68,42 @@ export default function OnboardingPage() {
       return;
     }
     toast.success("Brand pertama kamu dibuat!");
-    if (plan?.izinAutoPosting) {
-      setStep(2); // paket auto-posting -> tuntun connect Buffer
-    } else {
-      router.push("/"); // Starter -> langsung ke dashboard
-      router.refresh();
-    }
+    if (plan?.izinAutoPosting) setStep(2);
+    else { router.push("/"); router.refresh(); }
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/30">
-        <p className="text-sm text-muted-foreground">Menyiapkan akun kamu…</p>
-      </div>
+      <>
+        <style dangerouslySetInnerHTML={{ __html: CSS }} />
+        <div className="kp-muted">Menyiapkan akun kamu…</div>
+      </>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <div className="text-xs font-semibold text-primary uppercase tracking-wide mb-1">
-            Langkah {step} dari {plan?.izinAutoPosting ? 2 : 1}
+    <div className="kp-wrap">
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <div className="kp-card">
+        <div className="kp-step">Langkah {step} dari {plan?.izinAutoPosting ? 2 : 1}</div>
+        <h1>{step === 1 ? "Buat brand pertama kamu" : "Sambungkan akun sosial media"}</h1>
+        {step === 1 ? (
+          <form onSubmit={buatBrand}>
+            <p>Brand = bisnis/akun yang kontennya akan kamu buat. Bisa tambah brand lain nanti sesuai paket.</p>
+            <label className="kp-field">Nama brand
+              <input value={nama} onChange={(e) => setNama(e.target.value)} autoFocus required placeholder="mis. Kopi Senja" />
+            </label>
+            <button type="submit" className="kp-btn" disabled={busy}>{busy ? "Membuat…" : "Buat brand & lanjut →"}</button>
+          </form>
+        ) : (
+          <div>
+            <p>Paket <b style={{ textTransform: "capitalize" }}>{plan?.nama}</b> kamu bisa <b>auto-posting</b> ke sosial media. Daftar akun <b>Buffer</b> (gratis) lalu sambungkan kanal (Instagram/TikTok/dll) di menu <b>Kanal</b> di dashboard.</p>
+            <p style={{ fontSize: 13, color: "rgba(255,255,255,.5)" }}>Kalau mau nanti saja, kamu tetap bisa membuat &amp; mengunduh konten dulu; auto-posting aktif setelah Buffer tersambung.</p>
+            <button className="kp-btn" onClick={() => { router.push("/"); router.refresh(); }}>Ke dashboard (sambungkan Buffer)</button>
+            <button className="kp-ghost" onClick={() => { router.push("/"); router.refresh(); }}>Nanti saja</button>
           </div>
-          <CardTitle className="font-heading">
-            {step === 1 ? "Buat brand pertama kamu" : "Sambungkan akun sosial media"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {step === 1 ? (
-            <form onSubmit={buatBrand} className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Brand = bisnis/akun yang kontennya akan kamu buat. Bisa tambah brand lain nanti
-                sesuai paket.
-              </p>
-              <div className="space-y-2">
-                <Label htmlFor="nama">Nama brand</Label>
-                <Input
-                  id="nama" value={nama} onChange={(e) => setNama(e.target.value)}
-                  autoFocus required placeholder="mis. Kopi Senja"
-                />
-              </div>
-              <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? "Membuat…" : "Buat brand & lanjut"}
-              </Button>
-            </form>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Paket <span className="font-semibold capitalize text-foreground">{plan?.nama}</span> kamu
-                bisa <span className="font-semibold text-foreground">auto-posting</span> ke sosial media.
-                Daftar akun <span className="font-semibold text-foreground">Buffer</span> (gratis) lalu
-                sambungkan kanal (Instagram/TikTok/dll) di menu <span className="font-semibold text-foreground">Kanal</span> di dashboard.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Kalau mau nanti saja, kamu tetap bisa membuat & mengunduh konten dulu; auto-posting
-                aktif setelah Buffer tersambung.
-              </p>
-              <div className="flex gap-2">
-                <Button className="flex-1" onClick={() => { router.push("/"); router.refresh(); }}>
-                  Ke dashboard (sambungkan Buffer)
-                </Button>
-              </div>
-              <Button variant="ghost" className="w-full" onClick={() => { router.push("/"); router.refresh(); }}>
-                Nanti saja
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        )}
+      </div>
     </div>
   );
 }

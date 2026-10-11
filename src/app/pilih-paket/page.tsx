@@ -2,23 +2,47 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 import { toast } from "sonner";
 
-// Halaman pilih paket + checkout (2026-09-30, T4). Ditampilkan setelah signup (atau dari
-// banner dashboard kalau user belum punya paket). Ambil daftar paket dari GET /api/plans,
-// tombol "Pilih" -> POST /api/account/select-plan -> kalau ada paymentUrl (Duitku), redirect
-// ke situ; kalau belum ada gateway (dev), tampilkan status menunggu konfirmasi manual.
-// Butuh login (proxy.ts sudah menjamin - /pilih-paket bukan public path).
-
+// Halaman pilih paket (restyle 2026-10-11 ke desain KontenPilot gelap - sebelumnya shadcn
+// polos). LOGIKA & KONTRAK TETAP: GET /api/plans, POST /api/account/select-plan { planId }.
+// Kalau ada paymentUrl (Duitku aktif) -> redirect. Kalau pending (gateway belum aktif) ->
+// /pilih-paket/sukses?bill=<id>&amt=<nominal>&plan=<nama> (layar transfer BCA manual).
 type Plan = {
   id: string; nama: string; kreditBulanan: number; hargaBulananIdr: number;
   izinAutoPosting: boolean; maxBrand: number;
 };
 
 const rupiah = (n: number) => "Rp " + n.toLocaleString("id-ID");
+
+const CSS = `
+.kp-wrap{--bg:#070710;--bg2:#0b0b16;--fg:#fff;--ink:255,255,255;--acc-soft:#c7d2fe;--acc:#a5b4fc;--acc2:#818cf8;--cyan:#22d3ee;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font-family:var(--font-heading),'Plus Jakarta Sans',system-ui,sans-serif;background-image:radial-gradient(900px 600px at 85% -10%, rgba(99,102,241,.14), transparent 60%);-webkit-font-smoothing:antialiased}
+.kp-wrap *{box-sizing:border-box}
+.kp-wrap a{color:var(--acc);text-decoration:none}.kp-wrap a:hover{color:var(--fg)}
+.kp-head{border-bottom:1px solid rgba(var(--ink),.08)}
+.kp-nav{max-width:1200px;margin:0 auto;padding:14px clamp(20px,4vw,40px);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.kp-logo{display:flex;align-items:center;gap:10px;color:var(--fg)}
+.kp-logo .mk{width:34px;height:34px;border-radius:9px;background:#6366f1;display:grid;place-items:center;font-weight:800;font-size:16px}
+.kp-main{flex:1;width:100%;max-width:1100px;margin:0 auto;padding:clamp(32px,6vw,72px) clamp(20px,4vw,40px)}
+.kp-eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;color:var(--acc-soft)}
+.kp-h1{margin:12px 0 0;font-size:clamp(28px,4vw,44px);line-height:1.08;letter-spacing:-.03em;font-weight:800}
+.kp-sub{margin:12px 0 0;font-size:16px;line-height:1.6;color:rgba(var(--ink),.68)}
+.kp-grid{margin-top:40px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;align-items:stretch}
+.kp-plan{border:1px solid rgba(var(--ink),.1);background:rgba(var(--ink),.03);border-radius:24px;padding:30px;display:flex;flex-direction:column;position:relative}
+.kp-plan.pop{border:1px solid rgba(129,140,248,.6);background:linear-gradient(180deg,rgba(99,102,241,.16),rgba(var(--ink),.02));box-shadow:0 30px 60px rgba(49,46,129,.35)}
+.kp-tag{position:absolute;top:-13px;left:30px;background:#6366f1;color:#fff;font-size:11px;font-weight:800;letter-spacing:.1em;border-radius:999px;padding:6px 12px}
+.kp-pname{font-size:13px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:rgba(var(--ink),.6)}
+.kp-plan.pop .kp-pname{color:var(--acc-soft)}
+.kp-price{margin-top:16px;font-size:36px;font-weight:800;letter-spacing:-.03em}
+.kp-price small{font-size:14px;font-weight:600;color:rgba(var(--ink),.5)}
+.kp-feats{margin-top:20px;display:flex;flex-direction:column;gap:11px;font-size:15px;color:rgba(var(--ink),.82);flex:1}
+.kp-btn{margin-top:26px;text-align:center;border:0;cursor:pointer;font-family:inherit;border-radius:999px;padding:14px;font-weight:700;font-size:15px}
+.kp-btn.primary{background:#6366f1;color:#fff}
+.kp-btn.ghost{border:1px solid rgba(var(--ink),.2);background:transparent;color:var(--fg)}
+.kp-btn:disabled{opacity:.6;cursor:default}
+.kp-note{margin-top:28px;text-align:center;font-size:14px;color:rgba(var(--ink),.55)}
+`;
 
 export default function PilihPaketPage() {
   const router = useRouter();
@@ -48,13 +72,12 @@ export default function PilihPaketPage() {
         return;
       }
       if (data.paymentUrl) {
-        // Redirect ke halaman bayar Duitku.
         window.location.href = data.paymentUrl;
         return;
       }
-      // Gateway belum aktif (dev/staging) - tagihan pending, aktivasi manual admin.
-      toast.success("Paket dipilih. Menunggu konfirmasi pembayaran.");
-      router.push(`/pilih-paket/sukses?bill=${data.billingLogId}`);
+      // Gateway belum aktif - ke layar transfer manual (BCA) dgn ringkasan paket.
+      const amt = data.jumlahBayarIdr ?? plan.hargaBulananIdr;
+      router.push(`/pilih-paket/sukses?bill=${data.billingLogId}&amt=${amt}&plan=${encodeURIComponent(plan.nama)}`);
     } catch {
       toast.error("Terjadi kesalahan. Coba lagi.");
     } finally {
@@ -63,59 +86,60 @@ export default function PilihPaketPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30 py-12 px-4">
-      <div className="max-w-5xl mx-auto">
-        <div className="text-center mb-10">
-          <h1 className="text-3xl font-heading font-bold">Pilih paket kamu</h1>
-          <p className="text-muted-foreground mt-2">
-            Setiap konten (foto/video/carousel) = 1 kredit. Bisa upgrade kapan saja.
-          </p>
+    <div className="kp-wrap">
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <header className="kp-head">
+        <nav className="kp-nav">
+          <Link href="/" className="kp-logo">
+            <span className="mk">KP</span>
+            <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
+              <span style={{ fontWeight: 800, fontSize: 17 }}>KontenPilot</span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,.5)", letterSpacing: ".08em" }}>by Agustap Studio</span>
+            </span>
+          </Link>
+          <span style={{ fontSize: 13, color: "rgba(255,255,255,.55)" }}>Langkah 2 dari 2 · Pilih paket</span>
+        </nav>
+      </header>
+
+      <main className="kp-main">
+        <div style={{ maxWidth: 640 }}>
+          <span className="kp-eyebrow">PILIH PAKET</span>
+          <h1 className="kp-h1">Pilih paket, mulai hari ini.</h1>
+          <p className="kp-sub">Setiap konten (foto / video / carousel) = 1 kredit. Tanpa kontrak, bisa upgrade kapan saja.</p>
         </div>
 
         {loading ? (
-          <p className="text-center text-sm text-muted-foreground">Memuat paket…</p>
+          <p style={{ marginTop: 40, color: "rgba(255,255,255,.6)" }}>Memuat paket…</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {plans.map((p, i) => {
-              const populer = p.nama === "pro";
+          <div className="kp-grid">
+            {plans.map((p) => {
+              const pop = p.nama.toLowerCase() === "pro";
               return (
-                <Card key={p.id} className={populer ? "border-primary shadow-lg relative" : ""}>
-                  {populer && (
-                    <Badge className="absolute -top-2.5 left-1/2 -translate-x-1/2">Paling populer</Badge>
-                  )}
-                  <CardHeader>
-                    <CardTitle className="capitalize font-heading text-xl">{p.nama}</CardTitle>
-                    <div className="mt-2">
-                      <span className="text-3xl font-bold">{rupiah(p.hargaBulananIdr)}</span>
-                      <span className="text-sm text-muted-foreground">/bulan</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <ul className="text-sm space-y-2">
-                      <li>✓ {p.kreditBulanan} konten / bulan</li>
-                      <li>✓ {p.izinAutoPosting ? "Auto-posting ke sosial media" : "Download konten (tanpa auto-posting)"}</li>
-                      <li>✓ {p.maxBrand} brand</li>
-                      <li>✓ Analitik & laporan performa</li>
-                    </ul>
-                    <Button
-                      className="w-full"
-                      variant={populer ? "default" : "outline"}
-                      disabled={prosesId !== null}
-                      onClick={() => pilih(p)}
-                    >
-                      {prosesId === p.id ? "Memproses…" : "Pilih paket ini"}
-                    </Button>
-                  </CardContent>
-                </Card>
+                <div key={p.id} className={pop ? "kp-plan pop" : "kp-plan"}>
+                  {pop && <span className="kp-tag">PALING POPULER</span>}
+                  <div className="kp-pname">{p.nama}</div>
+                  <div className="kp-price">{rupiah(p.hargaBulananIdr)}<small> /bulan</small></div>
+                  <div className="kp-feats">
+                    <span>✓ {p.kreditBulanan} konten / bulan</span>
+                    <span>✓ {p.izinAutoPosting ? "Auto-post ke sosial media" : "Download konten (tanpa auto-post)"}</span>
+                    <span>✓ {p.maxBrand} brand</span>
+                    <span>✓ Analitik &amp; laporan performa</span>
+                  </div>
+                  <button
+                    className={pop ? "kp-btn primary" : "kp-btn ghost"}
+                    disabled={prosesId !== null}
+                    onClick={() => pilih(p)}
+                  >
+                    {prosesId === p.id ? "Memproses…" : "Pilih paket ini"}
+                  </button>
+                </div>
               );
             })}
           </div>
         )}
 
-        <p className="text-center text-xs text-muted-foreground mt-8">
-          Pembayaran aman via Duitku (QRIS / Virtual Account / e-wallet).
-        </p>
-      </div>
+        <p className="kp-note">Pembayaran via transfer bank, dikonfirmasi manual (pembayaran otomatis via gateway menyusul).</p>
+      </main>
     </div>
   );
 }

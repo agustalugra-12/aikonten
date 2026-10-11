@@ -334,8 +334,21 @@ function AksiPelanggan({ p, onDone }: { p: Pelanggan; onDone: () => void }) {
     }
   }
 
+  async function konfirmasiBayar() {
+    if (!confirm(`Konfirmasi pembayaran paket untuk ${p.namaBisnis || p.email}? Paket akan AKTIF & kredit diisi.`)) return;
+    setBusy(true);
+    const res = await fetch(`/api/master/customers/${p.id}/confirm-payment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    setBusy(false);
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) { toast.success("Pembayaran dikonfirmasi — paket aktif"); onDone(); }
+    else { toast.error(d.error || "Gagal konfirmasi"); }
+  }
+
   return (
     <div className="flex items-center justify-end gap-2">
+      {p.status === "tanpa_paket" && (
+        <Button size="sm" onClick={konfirmasiBayar} disabled={busy}>Konfirmasi bayar</Button>
+      )}
       <Dialog open={openKredit} onOpenChange={setOpenKredit}>
         <DialogTrigger render={<Button size="sm" variant="outline">+ Kredit</Button>} />
         <DialogContent>
