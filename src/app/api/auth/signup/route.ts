@@ -15,7 +15,7 @@ import { newId } from "@/lib/ids";
 // menempelkan planId & mengisi saldoKredit. Auto-login setelah signup (sama pola dgn
 // login/route.ts) supaya alur pilih-paket berikutnya tidak perlu login manual lagi.
 export async function POST(req: NextRequest) {
-  const { email, password, namaBisnis } = await req.json();
+  const { email, password, namaBisnis, nama, nomorWa } = await req.json();
   if (typeof email !== "string" || !email.trim() || typeof password !== "string" || !password) {
     return NextResponse.json({ error: "Email dan password wajib diisi" }, { status: 400 });
   }
@@ -37,6 +37,8 @@ export async function POST(req: NextRequest) {
     email: emailNorm,
     passwordHash,
     namaBisnis: typeof namaBisnis === "string" && namaBisnis.trim() ? namaBisnis.trim() : null,
+    nama: typeof nama === "string" && nama.trim() ? nama.trim() : null,
+    nomorWa: typeof nomorWa === "string" && nomorWa.trim() ? nomorWa.trim() : null,
     createdAt: now,
     planId: null,
     status: "aktif",

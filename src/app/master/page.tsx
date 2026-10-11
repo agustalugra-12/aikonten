@@ -27,7 +27,7 @@ type Plan = {
   izinAutoPosting: boolean; maxBrand: number;
 };
 type Pelanggan = {
-  id: string; email: string; namaBisnis: string | null;
+  id: string; email: string; namaBisnis: string | null; nama: string | null; nomorWa: string | null; langgananDibatalkan: boolean;
   status: StatusKategori;
   statusLangganan: string; diblokirAdmin: boolean; saldoKredit: number; jumlahBrand: number;
   plan: Plan | null;
@@ -233,8 +233,9 @@ export default function MasterPage() {
                   {pelangganTampil.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell>
-                        <div className="font-medium">{p.namaBisnis || "—"}</div>
+                        <div className="font-medium">{p.namaBisnis || p.nama || "—"}</div>
                         <div className="text-xs text-muted-foreground">{p.email}</div>
+                        {(p.nama || p.nomorWa) && <div className="text-xs text-muted-foreground">{[p.nama, p.nomorWa ? "WA " + p.nomorWa : null].filter(Boolean).join(" · ")}</div>}
                       </TableCell>
                       <TableCell>
                         <Badge variant={STATUS_VARIANT[p.status]}>{STATUS_LABEL[p.status]}</Badge>
@@ -332,6 +333,15 @@ function AksiPelanggan({ p, onDone }: { p: Pelanggan; onDone: () => void }) {
     } else {
       toast.error("Gagal menambah kredit");
     }
+  }
+
+  async function batalPaket(resume: boolean) {
+    if (!resume && !confirm(`Batalkan paket ${p.namaBisnis || p.email}? Akses tetap sampai akhir periode, hanya tidak diperpanjang.`)) return;
+    setBusy(true);
+    const res = await fetch(`/api/master/customers/${p.id}/cancel-plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resume }) });
+    setBusy(false);
+    if (res.ok) { toast.success(resume ? "Langganan dilanjutkan" : "Paket dibatalkan (aktif sampai akhir periode)"); onDone(); }
+    else { toast.error("Gagal mengubah langganan"); }
   }
 
   async function konfirmasiBayar() {

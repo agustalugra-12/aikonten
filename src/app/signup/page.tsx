@@ -50,6 +50,8 @@ const CSS = `
 export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
+  const [nama, setNama] = useState("");
+  const [nomorWa, setNomorWa] = useState("");
   const [namaBisnis, setNamaBisnis] = useState("");
   const [password, setPassword] = useState("");
   const [konfirmasi, setKonfirmasi] = useState("");
@@ -65,7 +67,7 @@ export default function SignupPage() {
     const res = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, namaBisnis }),
+      body: JSON.stringify({ email, password, namaBisnis, nama, nomorWa }),
     });
     setLoading(false);
     if (res.ok) { router.push("/pilih-paket"); router.refresh(); }
@@ -112,8 +114,14 @@ export default function SignupPage() {
         <section className="kp-card">
           <h2>Buat akun</h2>
           <form onSubmit={handleSubmit}>
+            <label className="kp-field">Nama lengkap
+              <input value={nama} onChange={(e) => setNama(e.target.value)} autoFocus required placeholder="Nama kamu" autoComplete="name" />
+            </label>
             <label className="kp-field">Email
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required placeholder="nama@email.com" autoComplete="email" />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="nama@email.com" autoComplete="email" />
+            </label>
+            <label className="kp-field">No. WhatsApp
+              <input type="tel" value={nomorWa} onChange={(e) => setNomorWa(e.target.value)} required placeholder="08xx xxxx xxxx" autoComplete="tel" />
             </label>
             <label className="kp-field">Nama bisnis (opsional)
               <input value={namaBisnis} onChange={(e) => setNamaBisnis(e.target.value)} placeholder="mis. Laundry in Bali" autoComplete="organization" />
