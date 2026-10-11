@@ -11,6 +11,7 @@ export const users = sqliteTable("users", {
   passwordHash: text("password_hash").notNull(),
   nama: text("nama"),
   nomorWa: text("nomor_wa"),
+  setujuAt: integer("setuju_at"),
   namaBisnis: text("nama_bisnis"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   // Langganan & kredit (Fase 1 - Alur A/B/C). 1 akun = 1 langganan aktif; riwayat di billingLog.

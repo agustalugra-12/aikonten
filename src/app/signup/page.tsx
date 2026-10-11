@@ -55,6 +55,7 @@ export default function SignupPage() {
   const [namaBisnis, setNamaBisnis] = useState("");
   const [password, setPassword] = useState("");
   const [konfirmasi, setKonfirmasi] = useState("");
+  const [setuju, setSetuju] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -63,11 +64,12 @@ export default function SignupPage() {
     setError("");
     if (password.length < 8) { setError("Password minimal 8 karakter"); return; }
     if (password !== konfirmasi) { setError("Konfirmasi password tidak cocok"); return; }
+    if (!setuju) { setError("Centang persetujuan Syarat & Ketentuan dulu"); return; }
     setLoading(true);
     const res = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, namaBisnis, nama, nomorWa }),
+      body: JSON.stringify({ email, password, namaBisnis, nama, nomorWa, setuju }),
     });
     setLoading(false);
     if (res.ok) { router.push("/pilih-paket"); router.refresh(); }
@@ -132,9 +134,13 @@ export default function SignupPage() {
             <label className="kp-field">Ulangi password
               <input type="password" value={konfirmasi} onChange={(e) => setKonfirmasi(e.target.value)} required autoComplete="new-password" />
             </label>
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 16, fontSize: 13, lineHeight: 1.5, color: "rgba(var(--ink),.72)", cursor: "pointer" }}>
+              <input type="checkbox" checked={setuju} onChange={(e) => setSetuju(e.target.checked)} style={{ marginTop: 3, width: 16, height: 16, flex: "none", accentColor: "#6366f1" }} />
+              <span>Saya setuju dengan <a href="https://agustapstudio.com/situs.html#syarat">Syarat &amp; Ketentuan</a> dan <a href="https://agustapstudio.com/situs.html#privasi">Kebijakan Privasi</a>.</span>
+            </label>
             {error && <p className="kp-err">{error}</p>}
-            <button type="submit" className="kp-btn" disabled={loading}>{loading ? "Mendaftar…" : "Daftar →"}</button>
-            <p className="kp-fine">Lanjut berarti setuju Syarat &amp; Ketentuan dan Kebijakan Privasi.</p>
+            <button type="submit" className="kp-btn" disabled={loading || !setuju}>{loading ? "Mendaftar…" : "Daftar →"}</button>
+            <p className="kp-fine">Tanpa kontrak · berhenti kapan saja.</p>
           </form>
         </section>
       </main>

@@ -4,18 +4,27 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
+import { cekRateLimit, catatGagal } from "@/lib/rateLimit";
 
-// Daftar akun baru (2026-09-08, Fase 1 Alur A - "kalau ada yang daftar paket basik maka
-// mendapatkan fitur terbatas"). Route ini HANYA bikin akunnya (email+password) -
-// SENGAJA TIDAK menyambungkan pembayaran/pemilihan paket apa pun (Agus: "kredensial dan
-// lainnya kita sambungkan di akhir saja") - akun baru selalu lahir dengan `planId=null`,
-// `saldoKredit=0`. Tanpa planId, `canCreateAnotherBrand()` (session.ts) menolak bikin
-// brand pertama dgn pesan jelas "Akun belum punya paket aktif" - jadi akun ada tapi
-// benar-benar tidak bisa apa-apa sampai proses pilih-paket+bayar (belum dibangun)
-// menempelkan planId & mengisi saldoKredit. Auto-login setelah signup (sama pola dgn
-// login/route.ts) supaya alur pilih-paket berikutnya tidak perlu login manual lagi.
+// Daftar akun baru (akun lahir planId=null -> tak bisa apa2 sampai pilih-paket+bayar).
+// Auto-login setelah signup. 2026-10-11: + rate-limit (anti spam akun massal), + wajib
+// setuju S&K (rekam setuju_at utk perlindungan hukum), + simpan nama/nomor_wa + validasi email.
+const MAKS_SIGNUP = 5;              // maks akun per IP
+const WINDOW_MS = 60 * 60 * 1000;  // per 60 menit
+
 export async function POST(req: NextRequest) {
-  const { email, password, namaBisnis, nama, nomorWa } = await req.json();
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "ip";
+  const rlKey = `signup:${ip}`;
+  const rl = cekRateLimit(rlKey, MAKS_SIGNUP);
+  if (rl.blocked) {
+    return NextResponse.json(
+      { error: `Terlalu banyak pendaftaran dari jaringan ini. Coba lagi dalam ${Math.ceil(rl.retryAfter / 60)} menit.` },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
+  }
+  catatGagal(rlKey, WINDOW_MS);
+
+  const { email, password, namaBisnis, nama, nomorWa, setuju } = await req.json();
   if (typeof email !== "string" || !email.trim() || typeof password !== "string" || !password) {
     return NextResponse.json({ error: "Email dan password wajib diisi" }, { status: 400 });
   }
@@ -25,8 +34,10 @@ export async function POST(req: NextRequest) {
   if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
     return NextResponse.json({ error: "Format email tidak valid" }, { status: 400 });
   }
+  if (setuju !== true) {
+    return NextResponse.json({ error: "Kamu harus menyetujui Syarat & Ketentuan dan Kebijakan Privasi" }, { status: 400 });
+  }
   const emailNorm = email.trim().toLowerCase();
-
   const [existing] = await db.select().from(users).where(eq(users.email, emailNorm));
   if (existing) {
     return NextResponse.json({ error: "Email sudah terdaftar" }, { status: 409 });
@@ -42,6 +53,7 @@ export async function POST(req: NextRequest) {
     namaBisnis: typeof namaBisnis === "string" && namaBisnis.trim() ? namaBisnis.trim() : null,
     nama: typeof nama === "string" && nama.trim() ? nama.trim() : null,
     nomorWa: typeof nomorWa === "string" && nomorWa.trim() ? nomorWa.trim() : null,
+    setujuAt: Math.floor(Date.now() / 1000),
     createdAt: now,
     planId: null,
     status: "aktif",
@@ -51,11 +63,7 @@ export async function POST(req: NextRequest) {
   const token = await createSessionToken(id);
   const res = NextResponse.json({ ok: true, id }, { status: 201 });
   res.cookies.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_TTL_SECONDS,
+    httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: SESSION_TTL_SECONDS,
   });
   return res;
 }
