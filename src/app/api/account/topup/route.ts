@@ -6,6 +6,7 @@ import { getUserId } from "@/lib/session";
 import { newId } from "@/lib/ids";
 import { getTopupPack } from "@/lib/billing/topupPacks";
 import { createTransaction, duitkuConfigured } from "@/lib/billing/duitku";
+import { notifOrderPending } from "@/lib/billing/notify";
 
 // Checkout top-up kredit (2026-09-30, T5). Mirip select-plan tapi: hasil sukses = tambah
 // kredit (isiUlangKredit di webhook), BUKAN set paket. Harga & kredit diambil dari
@@ -58,5 +59,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  await notifOrderPending(user, `Top-up ${pack.nama}`, pack.hargaIdr);
   return NextResponse.json({ ok: true, status: "pending", billingLogId: id }, { status: 201 });
 }

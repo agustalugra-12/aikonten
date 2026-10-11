@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { users, plans, billingLog } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { isiUlangKredit } from "./credits";
+import { notifPaketAktif } from "./notify";
 
 const MASA_AKTIF_HARI = 30;
 
@@ -41,4 +42,5 @@ export async function aktivasiPaketSetelahBayar(billingLogId: string): Promise<v
     langgananDibatalkan: false,
   }).where(eq(users.id, log.userId));
   await isiUlangKredit(log.userId, plan.kreditBulanan, "isi_ulang_bulanan");
+  if (user) await notifPaketAktif(user, plan.nama, periodeBerakhir);
 }

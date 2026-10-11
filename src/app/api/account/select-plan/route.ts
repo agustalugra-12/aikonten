@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { getUserId } from "@/lib/session";
 import { newId } from "@/lib/ids";
 import { createTransaction, duitkuConfigured } from "@/lib/billing/duitku";
+import { notifOrderPending } from "@/lib/billing/notify";
 
 // Pilih paket + checkout (2026-09-08 Fase 1; 2026-09-30 T3: sambung Duitku). Membuat
 // tagihan billingLog "pending", lalu:
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Belum ada gateway - degrade ke manual (pending). Frontend tampilkan "menunggu konfirmasi".
+  await notifOrderPending(user, `Paket ${plan.nama}`, plan.hargaBulananIdr);
   return NextResponse.json(
     { ok: true, billingLogId: id, status: "pending", jumlahBayarIdr: plan.hargaBulananIdr },
     { status: 201 },
