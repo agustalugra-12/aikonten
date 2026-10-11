@@ -14,6 +14,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import KreditAICard from "@/components/master/KreditAICard";
 
 // Master Dashboard (2026-09-30, permintaan Agus) - satu-satunya halaman lintas-pelanggan,
 // khusus admin (ADMIN_EMAILS). Memantau jumlah pelanggan per paket, status langganan
@@ -158,6 +159,8 @@ export default function MasterPage() {
           <StatCard label="Diblokir" value={r.diblokir} tone="bad" />
           <StatCard label="MRR berjalan" value={rupiah(r.mrrIdr)} small />
         </div>
+
+        <KreditAICard />
 
         {/* Breakdown per paket */}
         <div>

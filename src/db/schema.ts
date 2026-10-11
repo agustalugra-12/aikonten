@@ -929,3 +929,15 @@ export const contentPlan = sqliteTable("content_plan", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
+
+
+// Saldo/top-up provider AI yang diinput admin (2026-10-11) - basis estimasi "sisa"
+// kredit OpenAI/Gemini (saldo asli tak tersedia via API). Entry terbaru per provider =
+// baseline; sisa = amount_usd - pemakaian (llm_usage_log) sejak created_at (detik).
+export const llmBalances = sqliteTable("llm_balances", {
+  id: text("id").primaryKey(),
+  provider: text("provider").notNull(),
+  amountUsd: real("amount_usd").notNull(),
+  note: text("note"),
+  createdAt: integer("created_at").notNull(),
+});
