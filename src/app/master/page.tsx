@@ -368,6 +368,22 @@ function AksiPelanggan({ p, onDone }: { p: Pelanggan; onDone: () => void }) {
     else { toast.error(d.error || "Gagal konfirmasi"); }
   }
 
+  async function exportData() {
+    window.open(`/api/master/customers/${p.id}/export`, "_blank");
+  }
+
+  async function hapusAkun() {
+    if (!confirm(`HAPUS data ${p.namaBisnis || p.email}? Data pribadi di-anonimkan & semua brand/konten dihapus PERMANEN (riwayat tagihan tetap disimpan utk catatan keuangan). Akun tak bisa login lagi.`)) return;
+    const ketik = window.prompt("Tindakan ini PERMANEN. Ketik HAPUS untuk melanjutkan:");
+    if (ketik !== "HAPUS") { if (ketik !== null) toast.error("Dibatalkan \u2014 teks tidak cocok"); return; }
+    setBusy(true);
+    const res = await fetch(`/api/master/customers/${p.id}/anonymize`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ konfirmasi: "HAPUS" }) });
+    setBusy(false);
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) { toast.success(`Data dihapus \u2014 ${d.brand_dihapus ?? 0} brand & ${d.konten_dihapus ?? 0} konten dibersihkan`); onDone(); }
+    else { toast.error(d.error || "Gagal menghapus data"); }
+  }
+
   return (
     <div className="flex items-center justify-end gap-2">
       {p.status === "tanpa_paket" && (
@@ -416,6 +432,8 @@ function AksiPelanggan({ p, onDone }: { p: Pelanggan; onDone: () => void }) {
           Suspend
         </Button>
       )}
+      <Button size="sm" variant="ghost" onClick={exportData} disabled={busy}>Export</Button>
+      <Button size="sm" variant="ghost" className="text-destructive" onClick={hapusAkun} disabled={busy}>Hapus</Button>
     </div>
   );
 }
