@@ -6,9 +6,8 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { TOPUP_PACKS } from "@/lib/billing/topupPacks";
 
-// Halaman kredit & top-up pelanggan (restyle 2026-10-11 ke desain KontenPilot gelap).
-// LOGIKA & KONTRAK TETAP: GET /api/account/credits; POST /api/account/topup { packId }
-// (paymentUrl? | pending); POST /api/account/cancel { resume }. Hanya tampilan diganti.
+// Halaman kredit & top-up (restyle + theme-aware 2026-10-11, ikut OS). LOGIKA & KONTRAK TETAP:
+// GET /api/account/credits; POST /api/account/topup { packId }; POST /api/account/cancel { resume }.
 type Riwayat = { jumlah: number; alasan: string; saldoSetelah: number; createdAt: string };
 type Kredit = {
   saldoKredit: number;
@@ -18,7 +17,7 @@ type Kredit = {
   plan: { nama: string; kreditBulanan: number } | null;
   riwayat: Riwayat[];
 };
-
+const LOGO = "https://agustapstudio.com/assets/export/logo-agustap.png";
 const rupiah = (n: number) => "Rp " + n.toLocaleString("id-ID");
 const tanggal = (s: string | null) =>
   s ? new Date(s).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "—";
@@ -29,28 +28,31 @@ const STATUS_LANGGANAN: Record<string, { label: string; warna: string }> = {
 };
 
 const CSS = `
-.kp-wrap{--bg:#070710;--bg2:#0b0b16;--fg:#fff;--ink:255,255,255;--acc:#a5b4fc;--acc2:#818cf8;--acc-soft:#c7d2fe;--cyan:#22d3ee;min-height:100vh;background:var(--bg);color:var(--fg);font-family:var(--font-heading),'Plus Jakarta Sans',system-ui,sans-serif;background-image:radial-gradient(900px 600px at 85% -10%, rgba(99,102,241,.14), transparent 60%);-webkit-font-smoothing:antialiased}
+.kp-wrap{--bg:#f6f6f3;--bg2:#ffffff;--fg:#0b0b16;--ink:11,11,22;--acc:#4f46e5;--acc2:#6366f1;--acc-soft:#4338ca;--cyan:#0e7490}
+@media (prefers-color-scheme:dark){.kp-wrap{--bg:#070710;--bg2:#0b0b16;--fg:#fff;--ink:255,255,255;--acc:#a5b4fc;--acc2:#818cf8;--acc-soft:#c7d2fe;--cyan:#22d3ee}}
+.kp-wrap{min-height:100vh;background:var(--bg);color:var(--fg);font-family:var(--font-heading),'Plus Jakarta Sans',system-ui,sans-serif;background-image:radial-gradient(900px 600px at 85% -10%, rgba(99,102,241,.14), transparent 60%);-webkit-font-smoothing:antialiased}
 .kp-wrap *{box-sizing:border-box}
 .kp-wrap a{color:var(--acc);text-decoration:none}.kp-wrap a:hover{color:var(--fg)}
 .kp-head{border-bottom:1px solid rgba(var(--ink),.08)}
 .kp-nav{max-width:1000px;margin:0 auto;padding:14px clamp(20px,4vw,40px);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .kp-logo{display:flex;align-items:center;gap:10px;color:var(--fg)}
-.kp-logo .mk{width:32px;height:32px;border-radius:8px;background:#6366f1;display:grid;place-items:center;font-weight:800;font-size:15px}
+.kp-logo img{width:32px;height:32px;border-radius:8px;object-fit:cover}
+.kp-logo b{font-weight:800;font-size:16px}
 .kp-main{max-width:1000px;margin:0 auto;padding:clamp(24px,4vw,40px) clamp(20px,4vw,40px);display:flex;flex-direction:column;gap:28px}
-.kp-card{border:1px solid rgba(var(--ink),.1);background:rgba(var(--ink),.03);border-radius:20px;padding:26px}
+.kp-card{border:1px solid rgba(var(--ink),.1);background:var(--bg2);border-radius:20px;padding:26px;box-shadow:0 14px 40px rgba(0,0,0,.05)}
 .kp-saldo{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;justify-content:space-between}
 .kp-saldo .big{font-size:48px;font-weight:800;letter-spacing:-.03em;line-height:1}
 .kp-badge{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;padding:6px 12px;border-radius:999px;background:rgba(var(--ink),.06)}
 .kp-dot{width:8px;height:8px;border-radius:50%}
 .kp-meta{display:flex;flex-wrap:wrap;gap:6px 24px;margin-top:16px;font-size:14px;color:rgba(var(--ink),.6)}
-.kp-meta b{color:#fff}
+.kp-meta b{color:var(--fg)}
 .kp-h2{font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:rgba(var(--ink),.5);margin:0 0 14px}
 .kp-btn{border:0;cursor:pointer;font-family:inherit;border-radius:999px;padding:12px 20px;font-weight:700;font-size:14px}
 .kp-btn.primary{background:#6366f1;color:#fff}
 .kp-btn.ghost{border:1px solid rgba(var(--ink),.2);background:transparent;color:var(--fg)}
 .kp-btn:disabled{opacity:.6;cursor:default}
 .kp-topup{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
-.kp-pack{border:1px solid rgba(var(--ink),.1);background:rgba(var(--ink),.03);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:6px}
+.kp-pack{border:1px solid rgba(var(--ink),.1);background:var(--bg2);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:6px}
 .kp-pack .nm{font-size:16px;font-weight:800}
 .kp-pack .hg{font-size:22px;font-weight:800}
 .kp-pack .kr{font-size:13px;color:rgba(var(--ink),.6)}
@@ -58,7 +60,7 @@ table.kp-tbl{width:100%;border-collapse:collapse;font-size:14px}
 table.kp-tbl th{text-align:left;color:rgba(var(--ink),.5);font-weight:600;padding:12px 14px;border-bottom:1px solid rgba(var(--ink),.1)}
 table.kp-tbl td{padding:12px 14px;border-bottom:1px solid rgba(var(--ink),.06)}
 .kp-r{text-align:right;font-variant-numeric:tabular-nums}
-.kp-muted{min-height:100vh;display:grid;place-items:center;background:#070710;color:rgba(255,255,255,.6);font-family:var(--font-heading),system-ui}
+.kp-muted{min-height:100vh;display:grid;place-items:center;background:var(--bg);color:rgba(var(--ink),.6);font-family:var(--font-heading),system-ui}
 `;
 
 export default function KreditPage() {
@@ -124,25 +126,19 @@ export default function KreditPage() {
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <header className="kp-head">
         <nav className="kp-nav">
-          <Link href="/" className="kp-logo">
-            <span className="mk">KP</span>
-            <span style={{ fontWeight: 800, fontSize: 16 }}>KontenPilot</span>
-          </Link>
+          <Link href="/" className="kp-logo"><img src={LOGO} alt="KontenPilot" /><b>KontenPilot</b></Link>
           <Link href="/" className="kp-btn ghost" style={{ textDecoration: "none" }}>← Dashboard</Link>
         </nav>
       </header>
 
       <main className="kp-main">
-        <div>
-          <h1 style={{ margin: 0, fontSize: "clamp(24px,3.4vw,34px)", fontWeight: 800, letterSpacing: "-.02em" }}>Kredit &amp; Langganan</h1>
-        </div>
+        <h1 style={{ margin: 0, fontSize: "clamp(24px,3.4vw,34px)", fontWeight: 800, letterSpacing: "-.02em" }}>Kredit &amp; Langganan</h1>
 
-        {/* Saldo + status */}
         <div className="kp-card">
           <div className="kp-saldo">
             <div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.55)" }}>Saldo kredit</div>
-              <div className="big">{data.saldoKredit}<span style={{ fontSize: 18, fontWeight: 600, color: "rgba(255,255,255,.5)" }}> kredit</span></div>
+              <div style={{ fontSize: 13, color: "rgba(var(--ink),.55)" }}>Saldo kredit</div>
+              <div className="big">{data.saldoKredit}<span style={{ fontSize: 18, fontWeight: 600, color: "rgba(var(--ink),.5)" }}> kredit</span></div>
             </div>
             <span className="kp-badge"><span className="kp-dot" style={{ background: st.warna }} />{st.label}</span>
           </div>
@@ -155,7 +151,7 @@ export default function KreditPage() {
             <button className="kp-btn primary" onClick={() => router.push("/pilih-paket")}>Perpanjang / ubah paket</button>
             {data.langgananDibatalkan ? (
               <>
-                <span style={{ fontSize: 13, color: "rgba(255,255,255,.55)" }}>Dibatalkan — akses sampai {tanggal(data.periodeBerakhir)}.</span>
+                <span style={{ fontSize: 13, color: "rgba(var(--ink),.55)" }}>Dibatalkan — akses sampai {tanggal(data.periodeBerakhir)}.</span>
                 <button className="kp-btn ghost" disabled={aksi} onClick={() => ubahBatal(true)}>Lanjutkan langganan</button>
               </>
             ) : (
@@ -164,7 +160,6 @@ export default function KreditPage() {
           </div>
         </div>
 
-        {/* Top-up */}
         <div>
           <h2 className="kp-h2">Top-up kredit</h2>
           <div className="kp-topup">
@@ -181,7 +176,6 @@ export default function KreditPage() {
           </div>
         </div>
 
-        {/* Riwayat */}
         <div>
           <h2 className="kp-h2">Riwayat kredit (20 terakhir)</h2>
           <div className="kp-card" style={{ padding: 0, overflowX: "auto" }}>
@@ -194,12 +188,12 @@ export default function KreditPage() {
                   <tr key={i}>
                     <td>{tanggal(r.createdAt)}</td>
                     <td>{r.alasan}</td>
-                    <td className="kp-r" style={{ color: r.jumlah < 0 ? "#fca5a5" : "#34d399" }}>{r.jumlah > 0 ? `+${r.jumlah}` : r.jumlah}</td>
+                    <td className="kp-r" style={{ color: r.jumlah < 0 ? "#ef4444" : "#16a34a" }}>{r.jumlah > 0 ? `+${r.jumlah}` : r.jumlah}</td>
                     <td className="kp-r">{r.saldoSetelah}</td>
                   </tr>
                 ))}
                 {data.riwayat.length === 0 && (
-                  <tr><td colSpan={4} style={{ textAlign: "center", color: "rgba(255,255,255,.5)", padding: "32px 0" }}>Belum ada transaksi kredit.</td></tr>
+                  <tr><td colSpan={4} style={{ textAlign: "center", color: "rgba(var(--ink),.5)", padding: "32px 0" }}>Belum ada transaksi kredit.</td></tr>
                 )}
               </tbody>
             </table>
