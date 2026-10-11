@@ -338,6 +338,17 @@ function AksiPelanggan({ p, onDone }: { p: Pelanggan; onDone: () => void }) {
     }
   }
 
+  async function resetPassword() {
+    const pw = window.prompt(`Password baru untuk ${p.namaBisnis || p.email} (min 8 karakter):`);
+    if (!pw) return;
+    if (pw.length < 8) { toast.error("Minimal 8 karakter"); return; }
+    setBusy(true);
+    const res = await fetch(`/api/master/customers/${p.id}/reset-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ newPassword: pw }) });
+    setBusy(false);
+    if (res.ok) { toast.success("Password direset \u2014 beri tahu pelanggan password barunya via WhatsApp"); }
+    else { const d = await res.json().catch(() => ({})); toast.error(d.error || "Gagal reset password"); }
+  }
+
   async function batalPaket(resume: boolean) {
     if (!resume && !confirm(`Batalkan paket ${p.namaBisnis || p.email}? Akses tetap sampai akhir periode, hanya tidak diperpanjang.`)) return;
     setBusy(true);
@@ -395,6 +406,7 @@ function AksiPelanggan({ p, onDone }: { p: Pelanggan; onDone: () => void }) {
         </DialogContent>
       </Dialog>
 
+      <Button size="sm" variant="ghost" onClick={resetPassword} disabled={busy}>Reset PW</Button>
       {p.diblokirAdmin ? (
         <Button size="sm" variant="outline" onClick={() => setBlokir(false)} disabled={busy}>
           Aktifkan

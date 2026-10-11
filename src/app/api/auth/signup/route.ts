@@ -22,6 +22,9 @@ export async function POST(req: NextRequest) {
   if (password.length < 8) {
     return NextResponse.json({ error: "Password minimal 8 karakter" }, { status: 400 });
   }
+  if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+    return NextResponse.json({ error: "Format email tidak valid" }, { status: 400 });
+  }
   const emailNorm = email.trim().toLowerCase();
 
   const [existing] = await db.select().from(users).where(eq(users.email, emailNorm));
