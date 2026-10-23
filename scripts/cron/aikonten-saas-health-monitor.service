@@ -1,0 +1,7 @@
+[Unit]
+Description=AI Konten SaaS - monitor uptime (/api/health) + alert Telegram
+
+[Service]
+Type=oneshot
+User=admin
+ExecStart=/home/admin/kontenpilot-saas/scripts/cron/health-monitor.sh
