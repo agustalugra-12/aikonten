@@ -4,6 +4,7 @@ import { LockBusyError } from "@/lib/concurrency/locks";
 import { getUserId, getOwnedProject } from "@/lib/session";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
 import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
+import { gateGenerateManual } from "@/lib/billing/generateGate";
 
 // Trigger manual dari NewProjectDialog.tsx setelah upload footage selesai. Logika
 // pipeline-nya sendiri ada di lib/pipeline/processProject.ts (dipakai bareng dgn
@@ -14,6 +15,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const project = await getOwnedProject(userId, id);
   if (!project) {
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
+  }
+
+  const gate = await gateGenerateManual(userId);
+  if (gate.blocked) {
+    return NextResponse.json(
+      { error: `Terlalu banyak permintaan generate. Coba lagi dalam ${Math.ceil(gate.retryAfter / 60)} menit.` },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfter) } },
+    );
   }
 
   // Gate status akun (2026-09-08, Fase 1 Alur C) - "terbatas" = paket kadaluarsa lewat

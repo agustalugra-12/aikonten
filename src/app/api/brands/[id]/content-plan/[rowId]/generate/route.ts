@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { getUserId, getOwnedBrand } from "@/lib/session";
 import { AutoContentError } from "@/lib/pipeline/autoContent";
 import { runPlanRowGenerate } from "@/lib/pipeline/generatePlanRow";
+import { gateGenerateManual } from "@/lib/billing/generateGate";
 import { withLock, brandAutoContentLockKey, LockBusyError } from "@/lib/concurrency/locks";
 
 // Planner Fase 3 (2026-10-05) - "Generate" per baris MANUAL. Logika inti di
@@ -20,6 +21,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!row) return NextResponse.json({ error: "Baris rencana tidak ditemukan" }, { status: 404 });
   if (row.status !== "direncanakan") {
     return NextResponse.json({ error: "Baris ini sudah digenerate/diproses." }, { status: 409 });
+  }
+
+  const gate = await gateGenerateManual(userId);
+  if (gate.blocked) {
+    return NextResponse.json(
+      { error: `Terlalu banyak permintaan generate. Coba lagi dalam ${Math.ceil(gate.retryAfter / 60)} menit.` },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfter) } },
+    );
   }
 
   try {

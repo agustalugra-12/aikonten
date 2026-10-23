@@ -6,6 +6,7 @@ import { processProject } from "@/lib/pipeline/processProject";
 import { publishProject } from "@/lib/publish/orchestrate";
 import { LockBusyError } from "@/lib/concurrency/locks";
 import { getUserId, getOwnedProject } from "@/lib/session";
+import { gateGenerateManual } from "@/lib/billing/generateGate";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
 import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
 
@@ -46,6 +47,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const message = err instanceof Error ? err.message : String(err);
       return NextResponse.json({ error: message }, { status: 500 });
     }
+  }
+
+  const gate = await gateGenerateManual(userId);
+  if (gate.blocked) {
+    return NextResponse.json(
+      { error: `Terlalu banyak permintaan generate. Coba lagi dalam ${Math.ceil(gate.retryAfter / 60)} menit.` },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfter) } },
+    );
   }
 
   // Mode process - generate ulang penuh, sama gate & biaya dgn /process (potong dulu,

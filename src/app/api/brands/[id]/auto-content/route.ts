@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runAutoContent, AutoContentError } from "@/lib/pipeline/autoContent";
 import { tryAcquireLock, releaseLock, brandAutoContentLockKey } from "@/lib/concurrency/locks";
 import { getUserId, getOwnedBrand } from "@/lib/session";
+import { gateGenerateManual } from "@/lib/billing/generateGate";
 
 // "⚡ Konten Otomatis" (lihat memory proyek: "otomatis seperti AI blog") - satu klik,
 // TANPA upload apa pun. Logika inti diekstrak (2026-08-06) ke lib/pipeline/autoContent.ts
@@ -14,6 +15,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!(await getOwnedBrand(userId, brandId))) {
     return NextResponse.json({ error: "Brand tidak ditemukan" }, { status: 404 });
   }
+  const gate = await gateGenerateManual(userId);
+  if (gate.blocked) {
+    return NextResponse.json(
+      { error: `Terlalu banyak permintaan generate. Coba lagi dalam ${Math.ceil(gate.retryAfter / 60)} menit.` },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfter) } },
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
 
   // `type` (2026-08-06, permintaan Agus - "buatkan 1 vidio", trigger manual TIDAK punya
