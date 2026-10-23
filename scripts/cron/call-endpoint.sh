@@ -30,4 +30,7 @@ fi
 # Dipakai bareng utk endpoint LAIN yg dipanggil script sama (mis. daily-ideas, jauh
 # lebih cepat) - timeout longgar tidak merugikan job yg cepat, cuma jadi jaring pengaman
 # lebih longgar.
-curl -sf --max-time 10700 -X POST "http://localhost:3100$1" -H "X-Cron-Key: $SECRET" -w "\nHTTP %{http_code}\n"
+# (2026-10-24) Target = aplikasi SaaS di :3200 (satu-satunya app yang merender di VPS ini).
+# Backend lama kontenpilot-backend (:3100) sudah PENSIUN/mati - abaikan referensi :3100 pada
+# komentar historis di atas; semua cron render masuk ke proses :3200 yang sama.
+curl -sf --max-time 21600 -X POST "http://localhost:3200$1" -H "X-Cron-Key: $SECRET" -w "\nHTTP %{http_code}\n"
