@@ -74,6 +74,7 @@ function Inner() {
           Saldo kamu <b>{data!.saldoKredit} kredit</b>. Selamat membuat konten!
         </p>
         <button className="kp-btn" onClick={() => { router.push("/onboarding"); router.refresh(); }}>Lanjut: setup akun →</button>
+        {bill && <a className="kp-btn ghost" href={`/api/invoice/${bill}`} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>Lihat / unduh kwitansi</a>}
       </div>
     );
   }
