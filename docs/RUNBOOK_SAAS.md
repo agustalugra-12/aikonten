@@ -72,3 +72,10 @@ Selalu build dulu; kalau gagal, restore file lama sebelum restart (jangan restar
 - Lokasi: `/home/admin/backups/kontenpilot/kontenpilot-*.db.gz` (30 terbaru).
 - Restore: `gunzip -c <file>.gz > restore.db`, verifikasi `PRAGMA integrity_check`, stop service, ganti `data/kontenpilot.db`, start.
 - Off-site backup: DIBATALKAN permanen (keputusan Agus).
+
+## Aturan operasional render (2026-10-24, Fase nol-biaya)
+**SATU proses render saja** — semua render (manual + semua cron) masuk ke proses SaaS `:3200`; pengaman concurrency = satu `globalSemaphore` (permits=1) di proses itu. Pengaman ini **in-memory, tidak lintas-proses**. Maka:
+- JANGAN jalankan script render mandiri (`scripts/regen-narration.ts`, `scripts/verify-*.ts`, atau apa pun yang mengimpor `renderFinalVideo`/`runFfmpeg`) saat produksi aktif — proses tsx terpisah punya semaphore sendiri → bisa 2 render paralel → OOM.
+- JANGAN hidupkan aplikasi render kedua / `kontenpilot-backend :3100` — biarkan pensiun. Cron render semua menuju `:3200` (lihat `call-endpoint.sh`).
+- Pantau onboarding bertahap dengan `scripts/render-watch.sh` (read-only).
+- Pengaman lintas-proses (mis. `flock`) BELUM dibuat (sengaja) — cukup jaga operasional 1 proses render. Dibuat nanti bila perlu >1 proses.
