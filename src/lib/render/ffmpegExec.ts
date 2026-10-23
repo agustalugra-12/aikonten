@@ -247,5 +247,10 @@ export async function runFfmpeg(
     }
   } finally {
     release();
+    // Housekeeping 2026-09-12: bersihkan unit transient yg ber-status failed di sumbernya.
+    // systemd TIDAK auto-GC unit failed (unit sukses auto-hilang) - dulu menumpuk s/d puluhan
+    // (mis. audio-normalize footage tanpa track audio yg gagal tiap render). Best-effort,
+    // fire-and-forget, no-op kalau unit sukses/sudah bersih. Tidak mengubah perilaku render.
+    (testExecutor || execFileAsync)("systemctl", ["reset-failed", `${unit}.service`], { timeout: 5000 } as ExecFileOptions).catch(() => {});
   }
 }

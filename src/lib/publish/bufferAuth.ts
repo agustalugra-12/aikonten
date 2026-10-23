@@ -262,7 +262,10 @@ export async function checkAndHandleDuplicate(opts: {
   token?: string | null;
 }): Promise<void> {
   const { sendTelegramNotification } = await import("./telegram");
-  const pollDelaysMs = [100_000, 100_000]; // cumulative ~100s & ~200s - membungkus titik ~3 menit dari insiden nyata
+  // (2026-09-29, Opsi A) 1 poll (bukan 2) di ~180s - membungkus titik ~3 menit insiden nyata
+  // dgn 1 cek, bukan 2. Hemat 1 call/post TikTok. Kalau nanti terbukti ada split-post yang
+  // baru muncul >180s, kembalikan poll kedua (mis. [180_000, 120_000]).
+  const pollDelaysMs = [180_000]; // ~3 menit
 
   for (const delay of pollDelaysMs) {
     await new Promise((resolve) => setTimeout(resolve, delay));

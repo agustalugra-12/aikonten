@@ -99,27 +99,45 @@ export async function buildCircularLogoPng(logoUrl: string, sizePx: number): Pro
 // pencapaian "generate 1x saja" yg diminta, TANPA mengorbankan hasil (blur di pojok yg
 // memang akan ditimpa logo asli tidak terlihat aneh sama sekali).
 export async function clearLogoZone(buffer: Buffer): Promise<Buffer> {
+  // (2026-09-29 v2) Bersihkan pojok kanan-atas dari artefak Gemini (kotak/panel/bezel/double-logo).
+  // v1 cuma blur zona logo ~12% - TERBUKTI tak cukup: Gemini kadang gambar KOTAK jauh lebih besar
+  // (~28% lebar x 22% tinggi) yg menjorok keluar zona. v2: TUTUP rectangle lebih besar dgn warna
+  // background yg DI-SAMPLE dari tepi bawah-kiri zona (area yg by-design polos, lihat ZONA_AMAN_LOGO
+  // di posterDesign) + feather tepi supaya menyatu. Zona ini memang direservasi kosong utk logo,
+  // jadi menutupnya aman (bukan konten). Logo asli ditempel di atasnya sesudah ini.
   const meta = await sharp(buffer).metadata();
   const width = meta.width || 1080;
   const height = meta.height || 1080;
   const shortSide = Math.min(width, height);
-  const zoneSize = Math.round(shortSide * (LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO));
-  const box = { left: Math.max(0, width - zoneSize), top: 0, width: Math.min(zoneSize, width), height: Math.min(zoneSize, height) };
+  const zoneW = Math.min(width, Math.round(shortSide * 0.28));
+  const zoneH = Math.min(height, Math.round(shortSide * 0.22));
+  const box = { left: Math.max(0, width - zoneW), top: 0, width: zoneW, height: zoneH };
 
-  const blurredZone = await sharp(buffer)
-    .extract(box)
-    .blur(Math.max(15, zoneSize * 0.15))
-    .toBuffer();
+  // Sample warna background dari titik tepat DI BAWAH-KIRI zona (biasanya bg polos poster).
+  let r = 255, g = 255, b = 255;
+  try {
+    const sx = Math.max(0, box.left - Math.round(shortSide * 0.02));
+    const sy = Math.min(height - 6, box.height + Math.round(shortSide * 0.01));
+    const px = await sharp(buffer).extract({ left: sx, top: sy, width: 6, height: 6 }).resize(1, 1).raw().toBuffer();
+    r = px[0]; g = px[1]; b = px[2];
+  } catch { /* fallback putih */ }
 
-  return sharp(buffer)
-    .composite([{ input: blurredZone, left: box.left, top: box.top }])
-    .toBuffer();
+  // Tutup zona dgn warna bg solid, lalu feather (blur ringan) seam-nya supaya menyatu.
+  const patch = await sharp({ create: { width: box.width, height: box.height, channels: 3, background: { r, g, b } } }).png().toBuffer();
+  const filled = await sharp(buffer).composite([{ input: patch, left: box.left, top: box.top }]).toBuffer();
+  const feather = await sharp(filled).extract(box).blur(Math.max(10, box.width * 0.06)).toBuffer();
+  return sharp(filled).composite([{ input: feather, left: box.left, top: box.top }]).toBuffer();
 }
 
 // Tempel logo lingkaran ke foto FINAL (poster/carousel) - pojok kanan-atas dgn margin,
 // ukuran proporsional terhadap sisi PENDEK foto (supaya konsisten baik foto potret
 // maupun persegi, tidak kegedean di foto sempit).
 export async function applyLogoToImage(imageUrl: string, logoUrl: string): Promise<Buffer> {
+  // (2026-09-29, Opsi B) TIDAK lagi mengosongkan zona pojok (clearLogoZone) - reservasi/pembersihan
+  // zona itu justru yang MEMICU Gemini menggambar kotak/panel placeholder (dibuktikan lewat tes
+  // no-logo: tanpa reservasi, pojok bersih & natural). Sekarang desain kanvas dibiarkan PENUH &
+  // natural; logo kecil ditumpuk di pojok kanan-atas dgn backing lingkaran putih tipis (bukan kotak
+  // besar) supaya tetap terbaca di atas background apa pun. Berlaku SEMUA jalur (poster & carousel).
   const imageBuffer = await fetchBuffer(imageUrl);
   const meta = await sharp(imageBuffer).metadata();
   const width = meta.width || 1080;
@@ -128,6 +146,16 @@ export async function applyLogoToImage(imageUrl: string, logoUrl: string): Promi
   const logoSize = Math.round(shortSide * LOGO_SIZE_RATIO);
   const margin = Math.round(shortSide * LOGO_MARGIN_RATIO);
   const logoPng = await buildCircularLogoPng(logoUrl, logoSize);
+  const logoLeft = Math.max(0, width - logoSize - margin);
+  // Backing lingkaran putih tipis (sedikit lebih besar dari logo) - kontras cukup di atas background
+  // apa pun TANPA jadi kotak besar. Semi-transparan (0.9) supaya menyatu, bukan tempelan kaku.
+  const backSize = Math.round(logoSize * 1.16);
+  const backOffset = Math.round((backSize - logoSize) / 2);
+  const backTop = Math.max(0, margin - backOffset);
+  const backLeft = Math.max(0, logoLeft - backOffset);
+  const backPng = await sharp(Buffer.from(
+    `<svg width="${backSize}" height="${backSize}"><circle cx="${backSize / 2}" cy="${backSize / 2}" r="${backSize / 2}" fill="white" fill-opacity="0.9"/></svg>`
+  )).png().toBuffer();
 
   // .png() eksplisit (2026-09-06, ditemukan sekalian audit migrasi Gemini) - TANPA ini
   // sharp mempertahankan format INPUT apa adanya (JPEG kalau posternya JPEG) krn tidak
@@ -139,7 +167,10 @@ export async function applyLogoToImage(imageUrl: string, logoUrl: string): Promi
   // diperbaiki di posterDesign.ts, di sini dibetulkan dgn cara SEBALIKNYA - paksa
   // output PNG selalu, bukan ikutkan mimeType asli, krn caller sudah menganggap PNG).
   return sharp(imageBuffer)
-    .composite([{ input: logoPng, top: margin, left: Math.max(0, width - logoSize - margin) }])
+    .composite([
+      { input: backPng, top: backTop, left: backLeft },
+      { input: logoPng, top: margin, left: logoLeft },
+    ])
     .png()
     .toBuffer();
 }

@@ -60,3 +60,11 @@ drizzle/*.db
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# housekeeping (ditambah 2026-10-24)
+data/*.db.old*
+data/*.db.bak*
+data/*.db.backup*
+data/*.db.pre-*
+*.bak-*
+*.bak-housekeeping

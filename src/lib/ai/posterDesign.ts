@@ -1,7 +1,7 @@
 import { generateImageWithGemini, type GeneratedImage } from "./geminiImage";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { checkPosterQuality } from "./posterQualityCheck";
-import { LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO, clearLogoZone } from "./logoOverlay";
+import { LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "./logoOverlay";
 import type { PosterCopy } from "./posterCopy";
 
 // Brand Design System (2026-08-06, permintaan Agus - "jangan hanya membuat prompt 'buat
@@ -69,11 +69,11 @@ KONTAK: JANGAN PERNAH menambahkan nomor telepon/WhatsApp, alamat website/domain,
 function buildLogoSection(allowLogoInContent: boolean): string {
   if (allowLogoInContent) {
     return `
-LOGO/IDENTITAS (brand ini MENGIZINKAN): brand ini secara eksplisit mengizinkan elemen logo/identitas/ikon brand tampil di gambar - boleh menyertakan ikon aplikasi/media sosial, badge, atau elemen visual lain yang relevan dgn PROFIL BRAND di bawah, SELAMA tetap rapi & tidak mengganggu keterbacaan headline/CTA/harga. Logo ASLI brand (kalau ada) tetap akan ditempel TERPISAH sesudah gambar ini jadi di pojok kanan-atas (lihat ZONA AMAN LOGO) - jangan gambar ulang logo ASLI brand itu sendiri (hindari duplikasi), tapi elemen identitas LAIN (ikon medsos, badge fitur, dst) boleh dipakai bebas di luar zona itu.
+LOGO/IDENTITAS (brand ini MENGIZINKAN): brand ini secara eksplisit mengizinkan elemen logo/identitas/ikon brand tampil di gambar - boleh menyertakan ikon aplikasi/media sosial, badge, atau elemen visual lain yang relevan dgn PROFIL BRAND di bawah, SELAMA tetap rapi & tidak mengganggu keterbacaan headline/CTA/harga. Jangan gambar ulang logo ASLI brand itu sendiri (hindari logo ganda), tapi elemen identitas LAIN (ikon medsos, badge fitur, dst) boleh dipakai bebas. Desain kanvas PENUH & natural sampai ke SEMUA pojok termasuk kanan-atas. DILARANG KERAS menggambar KARTU/PANEL/KOTAK/PERSEGI/LINGKARAN PUTIH, area kosong, ATAU area transparan (pola checkerboard) sbg "tempat"/"placeholder" logo di pojok mana pun - pojok kanan-atas HARUS menampilkan lanjutan foto/background natural, BUKAN kartu/kotak kosong.
 `.trim();
   }
   return `
-LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified"/"certified", watermark, ikon aplikasi/media sosial (Instagram/TikTok/WhatsApp/dst), atau simbol/elemen dekoratif apa pun yang bisa disalahartikan sbg identitas brand - JANGAN sekalipun sekadar elemen dekoratif atau "biar ramai". Logo ASLI brand (kalau ada) ditempel TERPISAH sesudah gambar ini jadi, lewat proses lain di luar kendalimu - tugasmu HANYA desain poster tanpa elemen identitas apa pun, jangan mengisi "kekosongan" itu dengan logo/ikon karangan.
+LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified"/"certified", watermark, ikon aplikasi/media sosial (Instagram/TikTok/WhatsApp/dst), atau simbol/elemen dekoratif apa pun yang bisa disalahartikan sbg identitas brand - JANGAN sekalipun sekadar elemen dekoratif atau "biar ramai". Tugasmu HANYA desain poster tanpa elemen identitas apa pun. Desain kanvas PENUH & natural sampai ke SEMUA pojok termasuk kanan-atas. DILARANG KERAS menggambar KARTU/PANEL/KOTAK/PERSEGI/LINGKARAN PUTIH, area kosong, ATAU area transparan (pola kotak-kotak/checkerboard) sbg "tempat"/"placeholder" logo di pojok mana pun - TERUTAMA pojok kanan-atas: pojok kanan-atas HARUS menampilkan lanjutan foto/background natural yang SAMA dgn sekitarnya, BUKAN kartu/kotak/panel kosong. Komposisi mengalir alami memenuhi seluruh bidang.
 `.trim();
 }
 
@@ -86,7 +86,7 @@ LOGO: JANGAN PERNAH membuat/menggambar logo, badge brand, seal/stempel "verified
 // ditambahkan khusus utk itu (berlaku general utk brand MANAPUN yg profilnya kebetulan
 // minta posisi serupa, bukan cuma AgustaP).
 const ZONA_AMAN_LOGO = `
-ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira ${LOGO_SIZE_RATIO * 100}% dari sisi PENDEK gambar dan margin sekitar ${LOGO_MARGIN_RATIO * 100}% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% lebar x ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, logo/badge/ikon/elemen dekoratif apa pun, atau elemen penting lain - boleh diisi background/langit/warna polos/blur di area itu, TAPI JANGAN taruh huruf/kata/ikon/lambang di sana sama sekali, walau cuma sebagian. (2026-09-11, ditemukan lewat A/B test - beberapa hasil generate menggambar GARIS/OUTLINE/BINGKAI/LINGKARAN KOSONG sbg semacam "placeholder" di zona ini, seolah menandai "logo nanti di sini", ATAU sebaliknya menjorokkan PANEL/KARTU/BLOK dgn tepi/bezel yg jelas [mis. sudut layar HP/laptop/tablet mockup, kartu UI, kotak dashboard] ke dalam zona ini - KEDUANYA DILARANG. Zona harus BENAR-BENAR polos rata [background/gradient/warna solid TANPA tepi/garis/bezel/sudut benda apa pun yg terlihat sbg objek tersendiri]. KHUSUS kalau visual utama berupa mockup device [HP/laptop/tablet/layar dashboard] yg diletakkan miring/diagonal - WAJIB atur posisi & sudut kemiringannya supaya bezel/tepi/sudut device itu MENJAUHI pojok kanan-atas [condongkan ke kiri-bawah], BUKAN mengarah/menjorok ke sana.) ATURAN INI BERLAKU WALAU brand mengizinkan elemen identitas di bagian LAIN gambar (lihat LOGO di atas), zona ini TETAP harus kosong krn sudah direservasi utk logo ASLI. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo. PRIORITAS: kalau PROFIL BRAND di bawah (nanti) menyebutkan posisi visual utama/mockup/label/ikon di "kanan atas"/"kanan"/"pojok kanan", aturan ZONA AMAN LOGO ini TETAP MENANG - geser visual/label itu SEDIKIT ke kiri/bawah supaya TIDAK masuk area reserved ini, JANGAN korbankan zona ini demi mengikuti instruksi posisi di PROFIL BRAND.
+ZONA AMAN LOGO (WAJIB DIPATUHI - bukan saran, ini POSISI PASTI): logo ASLI brand akan ditempel TEPAT di pojok KANAN ATAS gambar, berbentuk lingkaran, dengan diameter kira-kira ${LOGO_SIZE_RATIO * 100}% dari sisi PENDEK gambar dan margin sekitar ${LOGO_MARGIN_RATIO * 100}% dari tepi atas & tepi kanan. Artinya area PERSEGI di pojok kanan-atas seluas kira-kira ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% lebar x ${(LOGO_SIZE_RATIO + LOGO_MARGIN_RATIO) * 100}% tinggi (dihitung dari sisi pendek gambar) HARUS dibiarkan KOSONG/BERSIH dari teks, headline, logo/badge/ikon/elemen dekoratif apa pun, atau elemen penting lain - area itu HARUS MENYATU/senada dengan background di sekitarnya (lanjutan dinding/langit/gradient yang SAMA persis) - JANGAN taruh huruf/kata/ikon/lambang, DAN JANGAN taruh BLOK/PANEL/BAND/KARTU WARNA SOLID yang berbeda/kontras dari sekitarnya di sana sama sekali, walau cuma sebagian. (2026-09-11, ditemukan lewat A/B test - beberapa hasil generate menggambar GARIS/OUTLINE/BINGKAI/LINGKARAN KOSONG sbg semacam "placeholder" di zona ini, seolah menandai "logo nanti di sini", ATAU sebaliknya menjorokkan PANEL/KARTU/BLOK dgn tepi/bezel yg jelas [mis. sudut layar HP/laptop/tablet mockup, kartu UI, kotak dashboard] ke dalam zona ini - KEDUANYA DILARANG. Zona harus BENAR-BENAR polos rata [background/gradient/warna solid TANPA tepi/garis/bezel/sudut benda apa pun yg terlihat sbg objek tersendiri]. KHUSUS kalau visual utama berupa mockup device [HP/laptop/tablet/layar dashboard] yg diletakkan miring/diagonal - WAJIB atur posisi & sudut kemiringannya supaya bezel/tepi/sudut device itu MENJAUHI pojok kanan-atas [condongkan ke kiri-bawah], BUKAN mengarah/menjorok ke sana.) ATURAN INI BERLAKU WALAU brand mengizinkan elemen identitas di bagian LAIN gambar (lihat LOGO di atas), zona ini TETAP harus kosong krn sudah direservasi utk logo ASLI. Headline yang butuh 2 baris HARUS dimulai/diposisikan supaya baris manapun TIDAK menjorok ke area pojok kanan-atas itu - kalau perlu, geser headline lebih ke kiri/bawah atau perpendek baris pertama, JANGAN biarkan teks kepotong logo. PRIORITAS: kalau PROFIL BRAND di bawah (nanti) menyebutkan posisi visual utama/mockup/label/ikon di "kanan atas"/"kanan"/"pojok kanan", aturan ZONA AMAN LOGO ini TETAP MENANG - geser visual/label itu SEDIKIT ke kiri/bawah supaya TIDAK masuk area reserved ini, JANGAN korbankan zona ini demi mengikuti instruksi posisi di PROFIL BRAND.
 `.trim();
 
 const REAL_PHOTO_VISUAL_RULE = `
@@ -176,7 +176,7 @@ function buildPosterPrompt(
   const logoSection = buildLogoSection(allowLogoInContent);
 
   return (
-    `${SHARED_STRUCTURAL_RULES}\n\n${logoSection}\n\n${ZONA_AMAN_LOGO}\n\n${visualRule}\n\n${batasan}${layoutOverride}\n\n---\n\n` +
+    `${SHARED_STRUCTURAL_RULES}\n\n${logoSection}\n\n${visualRule}\n\n${batasan}${layoutOverride}\n\n---\n\n` +
     `PROFIL BRAND (warna/font/ikon/tone brand ini - ` +
     `WAJIB diikuti, ini yang membedakan brand ini dari brand lain):\n${profile}\n\n` +
     // (2026-09-11, bug nyata ditemukan lewat A/B test AgustaP Studio) PROFIL BRAND di
@@ -194,7 +194,7 @@ function buildPosterPrompt(
     `TERMASUK", "Rp1,5 JUTA", "90 KONTEN/BULAN" - itu cuma contoh gaya, bukan konten ` +
     `poster ini). Terapkan warnanya (pakai birunya, putihnya) TANPA menuliskan kode/nama/` +
     `persennya. Satu-satunya teks yang boleh muncul di poster = KONTEN POSTER INI di bawah.\n\n` +
-    `PENGINGAT (kalau PROFIL BRAND di atas menyebut posisi "kanan atas"/"kanan"/"pojok kanan" utk visual/mockup/label/ikon apa pun): ZONA AMAN LOGO yg sudah dijelaskan di awal TETAP MENANG - jangan taruh elemen apa pun dari PROFIL BRAND di area itu, geser ke kiri/bawah.\n\n---\n\n` +
+    `---\n\n` +
     `KONTEN POSTER INI (isi teks yang harus muncul, TERJEMAHKAN ke elemen visual sesuai ` +
     `seluruh aturan gaya di atas - jangan tampilkan teks lain di luar ini):\n` +
     `${baris.join("\n")}\n\n${closingLine}`
@@ -202,12 +202,10 @@ function buildPosterPrompt(
 }
 
 async function uploadPosterResult(opts: { brandId: string; projectId: string }, image: GeneratedImage): Promise<string> {
-  // clearLogoZone dipanggil di SINI (2026-09-06) - satu-satunya titik pertemuan SEMUA
-  // pemanggil generateImageWithGemini di file ini (applyPosterDesign, generatePosterFullAi,
-  // applyPosterFix) - bersihkan zona logo SEBELUM upload/QC, lihat catatan lengkap di
-  // logoOverlay.ts. sharp mempertahankan format input (jpeg tetap jpeg) - image.mimeType
-  // di bawah TETAP akurat sesudah proses ini.
-  const cleanedBuffer = await clearLogoZone(image.buffer);
+  // (2026-09-29, Opsi B) TIDAK lagi clearLogoZone di sini - reservasi/pembersihan zona pojok
+  // justru MEMICU kotak placeholder (lihat catatan di logoOverlay.ts). Poster disimpan apa adanya
+  // (kanvas penuh & natural); logo kecil ditumpuk terpisah di processProject utk brand ber-logo.
+  const cleanedBuffer = image.buffer;
   // Ekstensi & content-type ikut mimeType ASLI dari Gemini (kadang image/jpeg, bukan
   // selalu png - lihat catatan di geminiImage.ts) - jangan hardcode png lagi.
   const ext = image.mimeType === "image/jpeg" ? "jpg" : "png";

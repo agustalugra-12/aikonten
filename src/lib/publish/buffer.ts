@@ -122,21 +122,29 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
       throw new Error(result.message || result.__typename);
     }
 
-    // Cek duplikat di BELAKANG LAYAR (tidak di-await, poll ~3.5 menit) - lihat
+    // Cek duplikat di BELAKANG LAYAR (tidak di-await, poll ~3 menit) - lihat
     // bufferAuth.ts: Buffer kadang memproses satu request createPost jadi 2 post nyata
     // (bug di sisi mereka, bukan kode kita). Tidak di-await supaya publishProject()
     // tidak nunggu bermenit-menit per akun - proses Node tetap hidup (systemd, bukan
     // serverless) jadi background task ini tetap selesai setelah response balik.
-    checkAndHandleDuplicate({
-      channelId: bufferChannelId,
-      keepPostId: result.post.id,
-      text: caption,
-      brandName: brandName || "Brand",
-      platformLabel: platform || "Buffer",
-      token: bufferToken,
-    }).catch((err) => {
-      console.error("[buffer] Gagal cek duplikat:", err);
-    });
+    //
+    // (2026-09-29, Opsi A - optimasi jatah Buffer) HANYA TikTok: insiden split-post 1->2
+    // yang nyata SELALU di TikTok (lihat bufferAuth.ts:10, "1 post TikTok"), Instagram
+    // tidak pernah. Gate ini menghemat ~2 call/post utk channel non-TikTok TANPA
+    // mengurangi coverage yang terbukti perlu - sepola dgn verifyPublishSucceeded yang
+    // sudah skip Instagram di orchestrate.ts.
+    if (platform === "tiktok") {
+      checkAndHandleDuplicate({
+        channelId: bufferChannelId,
+        keepPostId: result.post.id,
+        text: caption,
+        brandName: brandName || "Brand",
+        platformLabel: platform || "Buffer",
+        token: bufferToken,
+      }).catch((err) => {
+        console.error("[buffer] Gagal cek duplikat:", err);
+      });
+    }
 
     return { success: true, platformPostId: result.post.id };
   } catch (err) {
