@@ -215,6 +215,8 @@ export default function MasterPage() {
           </div>
         </div>
 
+        <PendingPaymentsCard onDone={muat} />
+
         {/* Tabel pelanggan */}
         <Card>
           <CardContent className="p-0">
@@ -388,6 +390,60 @@ function Keamanan2FACard() {
             <Button disabled={busy} onClick={mulaiSetup}>Aktifkan 2FA</Button>
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PendingPaymentsCard({ onDone }: { onDone: () => void }) {
+  const [entries, setEntries] = useState<Array<{ id: string; userId: string; jenis: string | null; jumlahIdr: number; kreditTopup: number | null; gatewayRef: string | null; createdAt: number; email: string; namaBisnis: string | null; nama: string | null; nomorWa: string | null; planNama: string | null }>>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  async function muat() {
+    const d = await fetch("/api/master/pending-payments").then((r) => r.json()).catch(() => ({ entries: [] }));
+    setEntries(d.entries || []);
+  }
+  useEffect(() => { muat(); }, []);
+  async function konfirmasi(e: { id: string; userId: string }) {
+    if (!confirm("Konfirmasi pembayaran ini? Paket/kredit akan aktif.")) return;
+    setBusy(e.id);
+    const res = await fetch(`/api/master/customers/${e.userId}/confirm-payment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ billingLogId: e.id }) });
+    setBusy(null);
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) { toast.success("Pembayaran dikonfirmasi"); muat(); onDone(); }
+    else toast.error(d.error || "Gagal konfirmasi");
+  }
+  const rp = (n: number) => "Rp " + Number(n || 0).toLocaleString("id-ID");
+  const wkt = (t: number) => new Date(t * 1000).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">Pembayaran menunggu konfirmasi ({entries.length})</CardTitle></CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead>Waktu</TableHead><TableHead>Pelanggan</TableHead><TableHead>Item</TableHead>
+              <TableHead className="text-right">Jumlah</TableHead><TableHead>Metode</TableHead><TableHead className="text-right">Aksi</TableHead>
+            </TableRow></TableHeader>
+            <TableBody>
+              {entries.map((e) => (
+                <TableRow key={e.id}>
+                  <TableCell className="text-xs whitespace-nowrap">{wkt(e.createdAt)}</TableCell>
+                  <TableCell className="text-xs"><div className="font-medium">{e.namaBisnis || e.nama || e.email}</div><div className="text-muted-foreground">{e.email}{e.nomorWa ? " · WA " + e.nomorWa : ""}</div></TableCell>
+                  <TableCell className="text-xs">{e.jenis === "topup" ? `Top-up ${e.kreditTopup} kredit` : `Paket ${e.planNama || "-"}`}</TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">{rp(e.jumlahIdr)}</TableCell>
+                  <TableCell className="text-xs">{e.gatewayRef ? "Gateway" : "Manual BCA"}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex gap-2 justify-end">
+                      <a className="text-xs underline text-muted-foreground" href={`/api/invoice/${e.id}`} target="_blank" rel="noopener">Tagihan</a>
+                      <Button size="sm" disabled={busy !== null} onClick={() => konfirmasi(e)}>Konfirmasi</Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {entries.length === 0 && (<TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6 text-sm">Tidak ada pembayaran menunggu konfirmasi.</TableCell></TableRow>)}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
     </Card>
   );
