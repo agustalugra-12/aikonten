@@ -68,3 +68,12 @@ data/*.db.backup*
 data/*.db.pre-*
 *.bak-*
 *.bak-housekeeping
+
+# script tes/debug sekali-pakai (2026-10-24) - eksplisit per-file, BUKAN pola global
+scripts/regen2.ts
+scripts/retry-animalstory-2026-08-27.ts
+scripts/test_draft_optionb.ts
+scripts/test_nologo.ts
+scripts/test_optionb.ts
+scripts/test_poster_fix.ts
+scripts/test_redesign.ts
