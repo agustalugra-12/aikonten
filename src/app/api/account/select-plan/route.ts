@@ -18,7 +18,7 @@ const APP_BASE_URL = process.env.APP_BASE_URL ?? "https://aikonten.agustapstudio
 
 export async function POST(req: NextRequest) {
   const userId = getUserId(req);
-  const { planId } = await req.json();
+  const { planId, paymentMethod } = await req.json();
   if (typeof planId !== "string" || !planId) {
     return NextResponse.json({ error: "planId wajib diisi" }, { status: 400 });
   }
@@ -44,10 +44,14 @@ export async function POST(req: NextRequest) {
   });
 
   if (duitkuConfigured()) {
+    if (typeof paymentMethod !== "string" || !paymentMethod) {
+      return NextResponse.json({ error: "Metode pembayaran wajib dipilih" }, { status: 400 });
+    }
     try {
       const tx = await createTransaction({
         merchantOrderId: id,
         paymentAmount: plan.hargaBulananIdr,
+        paymentMethod,
         productDetails: `Paket ${plan.nama} - AI Konten`,
         email: user.email,
         customerName: user.namaBisnis ?? user.email,

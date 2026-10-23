@@ -61,6 +61,39 @@ export function verifyCallbackSignature(params: {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+export type DuitkuMethod = { paymentMethod: string; paymentName: string; paymentImage: string; totalFee: string };
+
+// Signature getpaymentmethod BEDA dari inquiry: HMAC-SHA256(merchantcode+amount+datetime, apiKey)
+// hex lowercase (lihat docs.duitku.com - SHA256 polos sudah obsolete). datetime: yyyy-MM-dd HH:mm:ss.
+function hmac256(msg: string): string {
+  return crypto.createHmac("sha256", DUITKU_API_KEY).update(msg).digest("hex");
+}
+
+// Ambil daftar metode pembayaran aktif utk nominal tertentu (dipanggil sebelum inquiry, krn
+// paymentMethod WAJIB di /v2/inquiry). Melempar Error kalau kredensial kosong / Duitku menolak.
+export async function getPaymentMethods(amount: number, datetime: string): Promise<DuitkuMethod[]> {
+  if (!duitkuConfigured()) {
+    throw new Error("Duitku belum dikonfigurasi (DUITKU_MERCHANT_CODE/DUITKU_API_KEY kosong)");
+  }
+  const amt = String(amount);
+  const body = {
+    merchantcode: DUITKU_MERCHANT_CODE,
+    amount: amt,
+    datetime,
+    signature: hmac256(DUITKU_MERCHANT_CODE + amt + datetime),
+  };
+  const res = await fetch(`${BASE_URL}/paymentmethod/getpaymentmethod`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.responseCode !== "00" || !Array.isArray(data.paymentFee)) {
+    throw new Error(`Duitku getpaymentmethod gagal: ${res.status} ${JSON.stringify(data).slice(0, 200)}`);
+  }
+  return data.paymentFee as DuitkuMethod[];
+}
+
 export type DuitkuTxResult = {
   paymentUrl: string;
   reference: string;
@@ -73,6 +106,7 @@ export async function createTransaction(opts: {
   merchantOrderId: string;
   paymentAmount: number;
   productDetails: string;
+  paymentMethod: string;
   email: string;
   customerName?: string;
   callbackUrl: string;
@@ -86,6 +120,7 @@ export async function createTransaction(opts: {
     merchantCode: DUITKU_MERCHANT_CODE,
     paymentAmount: opts.paymentAmount,
     merchantOrderId: opts.merchantOrderId,
+    paymentMethod: opts.paymentMethod,
     productDetails: opts.productDetails,
     email: opts.email,
     customerVaName: opts.customerName ?? opts.email,

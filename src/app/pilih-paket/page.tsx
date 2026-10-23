@@ -7,6 +7,7 @@ import { toast } from "sonner";
 // Halaman pilih paket (restyle + theme-aware 2026-10-11, ikut OS). LOGIKA & KONTRAK TETAP:
 // GET /api/plans, POST /api/account/select-plan { planId }. paymentUrl(Duitku)->redirect;
 // pending(manual)-> /pilih-paket/sukses?bill=&amt=&plan= (layar transfer BCA).
+type DuitkuMethod = { paymentMethod: string; paymentName: string; paymentImage: string; totalFee: string };
 type Plan = {
   id: string; nama: string; kreditBulanan: number; hargaBulananIdr: number;
   izinAutoPosting: boolean; maxBrand: number;
@@ -43,6 +44,17 @@ const CSS = `
 .kp-btn.ghost{border:1px solid rgba(var(--ink),.2);background:transparent;color:var(--fg)}
 .kp-btn:disabled{opacity:.6;cursor:default}
 .kp-note{margin-top:28px;text-align:center;font-size:14px;color:rgba(var(--ink),.55)}
+.kp-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+.kp-modal{background:var(--bg2);border:1px solid rgba(var(--ink),.12);border-radius:20px;padding:24px;max-width:420px;width:100%;max-height:85vh;overflow:auto}
+.kp-modal-h{font-size:18px;font-weight:800}
+.kp-modal-sub{margin-top:4px;font-size:14px;color:rgba(var(--ink),.6)}
+.kp-methods{margin:18px 0;display:flex;flex-direction:column;gap:8px}
+.kp-method{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid rgba(var(--ink),.14);background:var(--bg);border-radius:12px;cursor:pointer;font-family:inherit;font-size:15px;color:var(--fg);text-align:left}
+.kp-method:hover{border-color:var(--acc2)}
+.kp-method img{width:36px;height:24px;object-fit:contain}
+.kp-method span{flex:1}
+.kp-method small{color:rgba(var(--ink),.5);font-size:12px}
+.kp-method:disabled{opacity:.6;cursor:default}
 `;
 
 export default function PilihPaketPage() {
@@ -50,6 +62,8 @@ export default function PilihPaketPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [prosesId, setProsesId] = useState<string | null>(null);
+  const [planDipilih, setPlanDipilih] = useState<Plan | null>(null);
+  const [metode, setMetode] = useState<DuitkuMethod[]>([]);
 
   useEffect(() => {
     fetch("/api/plans")
@@ -59,13 +73,32 @@ export default function PilihPaketPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Langkah 1: cek metode pembayaran gateway. Ada -> buka modal pilih metode. Kosong
+  // (gateway belum aktif) -> fallback langsung ke select-plan (manual BCA).
   async function pilih(plan: Plan) {
+    setProsesId(plan.id);
+    try {
+      const res = await fetch(`/api/account/payment-methods?amount=${plan.hargaBulananIdr}`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.methods) && data.methods.length > 0) {
+        setMetode(data.methods); setPlanDipilih(plan); return;
+      }
+      await bayar(plan, null);
+    } catch {
+      toast.error("Terjadi kesalahan. Coba lagi.");
+    } finally {
+      setProsesId(null);
+    }
+  }
+
+  // Langkah 2: buat transaksi. paymentMethod null = jalur manual BCA.
+  async function bayar(plan: Plan, paymentMethod: string | null) {
     setProsesId(plan.id);
     try {
       const res = await fetch("/api/account/select-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: plan.id }),
+        body: JSON.stringify(paymentMethod ? { planId: plan.id, paymentMethod } : { planId: plan.id }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(data.error || "Gagal memproses pilihan paket"); return; }
@@ -75,7 +108,7 @@ export default function PilihPaketPage() {
     } catch {
       toast.error("Terjadi kesalahan. Coba lagi.");
     } finally {
-      setProsesId(null);
+      setProsesId(null); setPlanDipilih(null);
     }
   }
 
@@ -124,6 +157,26 @@ export default function PilihPaketPage() {
 
         <p className="kp-note">Pembayaran via transfer bank, dikonfirmasi manual (pembayaran otomatis via gateway menyusul).</p>
       </main>
+
+      {planDipilih && (
+        <div className="kp-modal-bg" onClick={() => { setPlanDipilih(null); setProsesId(null); }}>
+          <div className="kp-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="kp-modal-h">Pilih metode pembayaran</div>
+            <div className="kp-modal-sub">{planDipilih.nama} · {rupiah(planDipilih.hargaBulananIdr)}</div>
+            <div className="kp-methods">
+              {metode.map((m) => (
+                <button key={m.paymentMethod} className="kp-method" disabled={prosesId !== null}
+                  onClick={() => bayar(planDipilih, m.paymentMethod)}>
+                  <img src={m.paymentImage} alt="" />
+                  <span>{m.paymentName}</span>
+                  {Number(m.totalFee) > 0 && <small>+{rupiah(Number(m.totalFee))}</small>}
+                </button>
+              ))}
+            </div>
+            <button className="kp-btn ghost" onClick={() => { setPlanDipilih(null); setProsesId(null); }}>Batal</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
