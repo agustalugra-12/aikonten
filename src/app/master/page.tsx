@@ -269,6 +269,7 @@ export default function MasterPage() {
         </Card>
 
         <AuditLogCard />
+        <Keamanan2FACard />
       </div>
     </div>
   );
@@ -318,6 +319,76 @@ function AuditLogCard() {
           </div>
         </CardContent>
       )}
+    </Card>
+  );
+}
+
+function Keamanan2FACard() {
+  const [status, setStatus] = useState<{ enabled: boolean; setupPending: boolean } | null>(null);
+  const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function muatStatus() {
+    const d = await fetch("/api/master/2fa").then((r) => r.json()).catch(() => null);
+    setStatus(d);
+  }
+  useEffect(() => { muatStatus(); }, []);
+  async function mulaiSetup() {
+    setBusy(true);
+    const r = await fetch("/api/master/2fa", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "setup" }) });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (r.ok) setSetup(d); else toast.error(d.error || "Gagal setup");
+  }
+  async function aksiKode(action: "enable" | "disable") {
+    if (code.length !== 6) { toast.error("Masukkan 6 digit kode"); return; }
+    setBusy(true);
+    const r = await fetch("/api/master/2fa", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, code }) });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) { toast.error(d.error || "Gagal"); return; }
+    toast.success(action === "enable" ? "2FA diaktifkan" : "2FA dinonaktifkan");
+    setSetup(null); setCode(""); muatStatus();
+  }
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">Keamanan — Autentikasi 2 Langkah (2FA)</CardTitle></CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        {!status ? (
+          <p className="text-muted-foreground">Memuat…</p>
+        ) : status.enabled ? (
+          <>
+            <p><Badge className="bg-emerald-600">AKTIF</Badge> Login admin dilindungi kode dari authenticator.</p>
+            <div className="flex items-end gap-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="c2fa">Kode untuk menonaktifkan</Label>
+                <Input id="c2fa" inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} placeholder="123456" className="w-32" />
+              </div>
+              <Button variant="ghost" className="text-destructive" disabled={busy} onClick={() => aksiKode("disable")}>Nonaktifkan</Button>
+            </div>
+          </>
+        ) : setup ? (
+          <>
+            <p className="text-muted-foreground">Scan / tambahkan ke aplikasi authenticator (Google Authenticator, Authy), lalu masukkan kode untuk mengaktifkan.</p>
+            <div className="rounded-lg border p-3 space-y-2">
+              <div><span className="text-muted-foreground">Kunci manual: </span><code className="font-mono text-xs break-all">{setup.secret}</code></div>
+              <div className="break-all text-xs text-muted-foreground">{setup.uri}</div>
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="c2fa2">Kode dari authenticator</Label>
+                <Input id="c2fa2" inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} placeholder="123456" className="w-32" autoFocus />
+              </div>
+              <Button disabled={busy} onClick={() => aksiKode("enable")}>Aktifkan 2FA</Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-muted-foreground">Belum aktif. Tambahkan lapisan kedua: kode 6 digit dari aplikasi authenticator saat login admin.</p>
+            <Button disabled={busy} onClick={mulaiSetup}>Aktifkan 2FA</Button>
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }

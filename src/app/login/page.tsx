@@ -38,6 +38,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [need2fa, setNeed2fa] = useState(false);
+  const [code, setCode] = useState("");
+
+  async function lanjutMasuk() {
+    const me = await fetch("/api/master/me").then((r) => r.json()).catch(() => ({ isAdmin: false }));
+    router.push(me.isAdmin ? "/master" : "/");
+    router.refresh();
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -48,15 +56,24 @@ export default function LoginPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) {
-      setLoading(false);
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Gagal login");
-      return;
-    }
-    const me = await fetch("/api/master/me").then((r) => r.json()).catch(() => ({ isAdmin: false }));
-    router.push(me.isAdmin ? "/master" : "/");
-    router.refresh();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { setLoading(false); setError(data.error || "Gagal login"); return; }
+    if (data.need2fa) { setLoading(false); setNeed2fa(true); return; }
+    await lanjutMasuk();
+  }
+
+  async function submit2fa(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    const res = await fetch("/api/auth/2fa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { setLoading(false); setError(data.error || "Kode salah"); return; }
+    await lanjutMasuk();
   }
 
   return (
@@ -67,6 +84,8 @@ export default function LoginPage() {
           <img src={LOGO} alt="KontenPilot" />
           <span className="wm"><b>KontenPilot</b><s>by Agustap Studio</s></span>
         </a>
+        {!need2fa ? (
+        <>
         <h1>Masuk</h1>
         <p className="sub">Masuk ke dashboard KontenPilot kamu.</p>
         <form onSubmit={handleSubmit}>
@@ -79,6 +98,20 @@ export default function LoginPage() {
           {error && <p className="kp-err">{error}</p>}
           <button type="submit" className="kp-btn" disabled={loading}>{loading ? "Masuk…" : "Masuk"}</button>
         </form>
+        </>
+        ) : (
+        <>
+        <h1>Verifikasi 2FA</h1>
+        <p className="sub">Masukkan 6 digit kode dari aplikasi authenticator kamu.</p>
+        <form onSubmit={submit2fa}>
+          <label className="kp-field">Kode 2FA
+            <input inputMode="numeric" pattern="[0-9]*" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} autoFocus required placeholder="123456" style={{ letterSpacing: ".3em", textAlign: "center", fontSize: 22 }} />
+          </label>
+          {error && <p className="kp-err">{error}</p>}
+          <button type="submit" className="kp-btn" disabled={loading || code.length !== 6}>{loading ? "Memeriksa…" : "Verifikasi"}</button>
+        </form>
+        </>
+        )}
         <p className="kp-alt">Belum punya akun? <Link href="/signup" style={{ fontWeight: 700 }}>Daftar di sini</Link></p>
       </div>
     </div>

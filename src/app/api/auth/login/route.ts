@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { cekRateLimit, catatGagal, resetRateLimit } from "@/lib/rateLimit";
+import { isAdminEmail } from "@/lib/admin";
 
 // Login email+password per-akun. Pesan error SAMA ("Email atau password salah") baik email
 // tak ketemu MAUPUN password salah - tak bocorkan email mana yg terdaftar. Rate-limit
@@ -33,6 +34,16 @@ export async function POST(req: NextRequest) {
   }
 
   resetRateLimit(key);
+
+  // Admin ber-2FA: JANGAN terbitkan sesi penuh dulu - set cookie pending (bukti password
+  // lolos) & minta kode TOTP di /api/auth/2fa. Sesi penuh terbit di sana.
+  if (isAdminEmail(user.email) && user.totpEnabled && user.totpSecret) {
+    const pending = await createSessionToken(user.id);
+    const r = NextResponse.json({ ok: true, need2fa: true });
+    r.cookies.set("aikonten_2fa_pending", pending, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 300 });
+    return r;
+  }
+
   const token = await createSessionToken(user.id);
   const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, token, {

@@ -13,6 +13,8 @@ export const users = sqliteTable("users", {
   nomorWa: text("nomor_wa"),
   setujuAt: integer("setuju_at"),
   dihapusAt: integer("dihapus_at"),
+  totpSecret: text("totp_secret"),
+  totpEnabled: integer("totp_enabled", { mode: "boolean" }).notNull().default(false),
   namaBisnis: text("nama_bisnis"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   // Langganan & kredit (Fase 1 - Alur A/B/C). 1 akun = 1 langganan aktif; riwayat di billingLog.
