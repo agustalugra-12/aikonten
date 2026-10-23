@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/api/auth/login", "/api/version"];
+const PUBLIC_PATHS = ["/login", "/signup", "/api/auth/login", "/api/version", "/api/health"];
 
 // (2026-09-29) Gabungan proxy internal + gerbang multi-tenant Fase 1: konvensi Next 16
 // memakai SATU file `proxy.ts` (bukan `middleware.ts` lagi). Selain gate sesi (redirect

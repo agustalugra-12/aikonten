@@ -52,6 +52,17 @@ const CSS = `
 .kp-btn.ghost{border:1px solid rgba(var(--ink),.2);background:transparent;color:var(--fg)}
 .kp-btn:disabled{opacity:.6;cursor:default}
 .kp-topup{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.kp-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+.kp-modal{background:var(--bg2);border:1px solid rgba(var(--ink),.12);border-radius:20px;padding:24px;max-width:420px;width:100%;max-height:85vh;overflow:auto}
+.kp-modal-h{font-size:18px;font-weight:800}
+.kp-modal-sub{margin-top:4px;font-size:14px;color:rgba(var(--ink),.6)}
+.kp-methods{margin:18px 0;display:flex;flex-direction:column;gap:8px}
+.kp-method{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid rgba(var(--ink),.14);background:var(--bg);border-radius:12px;cursor:pointer;font-family:inherit;font-size:15px;color:var(--fg);text-align:left}
+.kp-method:hover{border-color:var(--acc2)}
+.kp-method img{width:36px;height:24px;object-fit:contain}
+.kp-method span{flex:1}
+.kp-method small{color:rgba(var(--ink),.5);font-size:12px}
+.kp-method:disabled{opacity:.6;cursor:default}
 .kp-pack{border:1px solid rgba(var(--ink),.1);background:var(--bg2);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:6px}
 .kp-pack .nm{font-size:16px;font-weight:800}
 .kp-pack .hg{font-size:22px;font-weight:800}
@@ -68,6 +79,8 @@ export default function KreditPage() {
   const [data, setData] = useState<Kredit | null>(null);
   const [loading, setLoading] = useState(true);
   const [beli, setBeli] = useState<string | null>(null);
+  const [packDipilih, setPackDipilih] = useState<(typeof TOPUP_PACKS)[number] | null>(null);
+  const [metode, setMetode] = useState<{ paymentMethod: string; paymentName: string; paymentImage: string; totalFee: string }[]>([]);
   const [aksi, setAksi] = useState(false);
 
   async function muat() {
@@ -82,11 +95,30 @@ export default function KreditPage() {
   }
   useEffect(() => { muat(); }, []);
 
-  async function topup(packId: string) {
-    setBeli(packId);
+  // Langkah 1: cek metode bayar gateway. Ada -> modal pilih metode. Kosong -> fallback manual BCA.
+  async function pilihTopup(pack: (typeof TOPUP_PACKS)[number]) {
+    setBeli(pack.id);
+    try {
+      const res = await fetch(`/api/account/payment-methods?amount=${pack.hargaIdr}`);
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(d.methods) && d.methods.length > 0) {
+        setMetode(d.methods); setPackDipilih(pack); return;
+      }
+      await bayarTopup(pack, null);
+    } catch {
+      toast.error("Terjadi kesalahan. Coba lagi.");
+    } finally {
+      setBeli(null);
+    }
+  }
+
+  // Langkah 2: buat transaksi top-up. paymentMethod null = jalur manual BCA.
+  async function bayarTopup(pack: (typeof TOPUP_PACKS)[number], paymentMethod: string | null) {
+    setBeli(pack.id);
     try {
       const res = await fetch("/api/account/topup", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ packId }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(paymentMethod ? { packId: pack.id, paymentMethod } : { packId: pack.id }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "Gagal memproses top-up"); return; }
@@ -96,7 +128,7 @@ export default function KreditPage() {
     } catch {
       toast.error("Terjadi kesalahan. Coba lagi.");
     } finally {
-      setBeli(null);
+      setBeli(null); setPackDipilih(null);
     }
   }
 
@@ -168,7 +200,7 @@ export default function KreditPage() {
                 <div className="nm">{p.nama}</div>
                 <div className="hg">{rupiah(p.hargaIdr)}</div>
                 <div className="kr">+{p.kredit} kredit langsung masuk</div>
-                <button className="kp-btn ghost" style={{ marginTop: 8 }} disabled={beli !== null} onClick={() => topup(p.id)}>
+                <button className="kp-btn ghost" style={{ marginTop: 8 }} disabled={beli !== null} onClick={() => pilihTopup(p)}>
                   {beli === p.id ? "Memproses…" : "Beli"}
                 </button>
               </div>
@@ -199,6 +231,25 @@ export default function KreditPage() {
             </table>
           </div>
         </div>
+      {packDipilih && (
+        <div className="kp-modal-bg" onClick={() => { setPackDipilih(null); setBeli(null); }}>
+          <div className="kp-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="kp-modal-h">Pilih metode pembayaran</div>
+            <div className="kp-modal-sub">{packDipilih.nama} · {rupiah(packDipilih.hargaIdr)}</div>
+            <div className="kp-methods">
+              {metode.map((m) => (
+                <button key={m.paymentMethod} className="kp-method" disabled={beli !== null}
+                  onClick={() => bayarTopup(packDipilih, m.paymentMethod)}>
+                  <img src={m.paymentImage} alt="" />
+                  <span>{m.paymentName}</span>
+                  {Number(m.totalFee) > 0 && <small>+{rupiah(Number(m.totalFee))}</small>}
+                </button>
+              ))}
+            </div>
+            <button className="kp-btn ghost" onClick={() => { setPackDipilih(null); setBeli(null); }}>Batal</button>
+          </div>
+        </div>
+      )}
       </main>
     </div>
   );

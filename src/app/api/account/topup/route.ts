@@ -27,6 +27,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Akun tidak ditemukan" }, { status: 404 });
   }
 
+  // Guard metode bayar SEBELUM insert (hindari billingLog pending yatim saat gateway aktif).
+  if (duitkuConfigured() && (typeof paymentMethod !== "string" || !paymentMethod)) {
+    return NextResponse.json({ error: "Metode pembayaran wajib dipilih" }, { status: 400 });
+  }
   const id = newId("bill");
   await db.insert(billingLog).values({
     id,
