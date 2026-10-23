@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getAdminOrNull } from "@/lib/admin";
+import { catatAudit } from "@/lib/audit";
 
 // Aksi admin atas 1 pelanggan (2026-09-30) - saat ini: ubah status akun (suspend /
 // aktifkan kembali). Hanya admin. Status akun ("aktif" = normal, selain itu = nonaktif/
@@ -29,5 +30,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   await db.update(users).set({ diblokirAdmin: body.diblokir }).where(eq(users.id, id));
+  await catatAudit({ adminEmail: admin.email, aksi: body.diblokir ? "suspend" : "aktifkan", targetUserId: id });
   return NextResponse.json({ ok: true });
 }

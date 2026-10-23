@@ -4,6 +4,7 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getAdminOrNull } from "@/lib/admin";
 import { hashPassword } from "@/lib/auth";
+import { catatAudit } from "@/lib/audit";
 
 // Admin reset password pelanggan dari Master Dashboard (2026-10-11) - pengganti reset
 // self-service via email (infra email belum ada). Admin set password baru, lalu beri tahu
@@ -19,5 +20,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const [target] = await db.select().from(users).where(eq(users.id, id));
   if (!target) return NextResponse.json({ error: "Pelanggan tidak ditemukan" }, { status: 404 });
   await db.update(users).set({ passwordHash: await hashPassword(newPassword) }).where(eq(users.id, id));
+  await catatAudit({ adminEmail: admin.email, aksi: "reset_password", targetUserId: id });
   return NextResponse.json({ ok: true });
 }

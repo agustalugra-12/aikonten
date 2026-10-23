@@ -267,8 +267,58 @@ export default function MasterPage() {
             </div>
           </CardContent>
         </Card>
+
+        <AuditLogCard />
       </div>
     </div>
+  );
+}
+
+function AuditLogCard() {
+  const [entries, setEntries] = useState<Array<{ id: string; adminEmail: string; aksi: string; targetEmail: string | null; detail: string | null; createdAt: number }>>([]);
+  const [buka, setBuka] = useState(false);
+  useEffect(() => {
+    if (!buka) return;
+    fetch("/api/master/audit-log").then((r) => r.json()).then((d) => setEntries(d.entries || [])).catch(() => {});
+  }, [buka]);
+  const AKSI: Record<string, string> = {
+    konfirmasi_bayar: "Konfirmasi bayar", tambah_kredit: "Tambah kredit", reset_password: "Reset password",
+    suspend: "Suspend akun", aktifkan: "Aktifkan akun", batal_paket: "Batalkan paket", lanjut_paket: "Lanjutkan paket",
+    hapus_data: "Hapus data", export_data: "Export data",
+  };
+  const waktu = (t: number) => new Date(t * 1000).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
+  return (
+    <Card>
+      <CardHeader className="cursor-pointer" onClick={() => setBuka((v) => !v)}>
+        <CardTitle className="text-base">Log aktivitas admin {buka ? "\u25B2" : "\u25BC"}</CardTitle>
+      </CardHeader>
+      {buka && (
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Waktu</TableHead><TableHead>Admin</TableHead><TableHead>Aksi</TableHead>
+                <TableHead>Target</TableHead><TableHead>Detail</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {entries.map((e) => (
+                  <TableRow key={e.id}>
+                    <TableCell className="text-xs whitespace-nowrap">{waktu(e.createdAt)}</TableCell>
+                    <TableCell className="text-xs">{e.adminEmail}</TableCell>
+                    <TableCell className="text-xs font-medium">{AKSI[e.aksi] || e.aksi}</TableCell>
+                    <TableCell className="text-xs">{e.targetEmail || "\u2014"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{e.detail || ""}</TableCell>
+                  </TableRow>
+                ))}
+                {entries.length === 0 && (
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6 text-sm">Belum ada aktivitas.</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      )}
+    </Card>
   );
 }
 

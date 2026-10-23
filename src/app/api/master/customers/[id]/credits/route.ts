@@ -4,6 +4,7 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getAdminOrNull } from "@/lib/admin";
 import { isiUlangKredit } from "@/lib/billing/credits";
+import { catatAudit } from "@/lib/audit";
 
 // Tambah kredit manual ke 1 pelanggan (2026-09-30) - untuk kasus: kompensasi generate
 // gagal, bonus, koreksi, atau aktivasi manual sebelum payment gateway tersambung. Hanya
@@ -33,5 +34,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const { saldoSetelah } = await isiUlangKredit(id, jumlah, `admin: ${catatan}`);
+  await catatAudit({ adminEmail: admin.email, aksi: "tambah_kredit", targetUserId: id, detail: `+${jumlah} (${catatan}) saldo=${saldoSetelah}` });
   return NextResponse.json({ ok: true, saldoSetelah });
 }

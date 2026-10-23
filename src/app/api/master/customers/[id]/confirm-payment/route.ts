@@ -4,6 +4,7 @@ import { billingLog } from "@/db/schema";
 import { and, eq, desc, isNotNull } from "drizzle-orm";
 import { getAdminOrNull } from "@/lib/admin";
 import { aktivasiPaketSetelahBayar } from "@/lib/billing/activation";
+import { catatAudit } from "@/lib/audit";
 
 // Konfirmasi pembayaran MANUAL oleh admin dari Master Dashboard (2026-10-11) - UI pengganti
 // scripts/confirm-payment.ts sampai gateway (Duitku) tersambung. Admin verifikasi transfer
@@ -37,5 +38,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message || "Gagal aktivasi paket" }, { status: 400 });
   }
+  await catatAudit({ adminEmail: admin.email, aksi: "konfirmasi_bayar", targetUserId: id, detail: `billingLogId=${billId}` });
   return NextResponse.json({ ok: true, billingLogId: billId });
 }

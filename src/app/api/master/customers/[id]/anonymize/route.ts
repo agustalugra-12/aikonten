@@ -4,6 +4,7 @@ import { sql, eq } from "drizzle-orm";
 import { users } from "@/db/schema";
 import { getAdminOrNull, isAdminEmail } from "@/lib/admin";
 import { sendTelegramNotification } from "@/lib/publish/telegram";
+import { catatAudit } from "@/lib/audit";
 
 // Hapus data pelanggan - ANONYMIZE + purge konten (PDP, 2026-10-11 #5; keputusan Agus:
 // BUKAN hard-delete total). Scrub data pribadi (email/nama/WA) + hapus brand+konten+aset+
@@ -64,7 +65,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     tx.run(sql`UPDATE users SET email = ${anonEmail}, password_hash = 'DELETED', nama = NULL, nomor_wa = NULL, nama_bisnis = NULL, plan_id = NULL, status = 'dihapus', periode_mulai = NULL, periode_berakhir = NULL, saldo_kredit = 0, diblokir_admin = 1, langganan_dibatalkan = 1, dihapus_at = ${nowSec} WHERE id = ${id}`);
   });
 
-  // Jejak audit ringan ke owner (tak ada tabel audit_log terpisah).
+  await catatAudit({ adminEmail: admin.email, aksi: "hapus_data", targetUserId: id, detail: `${emailAsli}; ${brandRows.length} brand, ${nKonten} konten` });
+  // Jejak audit ke owner via Telegram (selain tabel audit_log).
   void sendTelegramNotification(
     `\u{1F5D1} <b>Data pelanggan dihapus (anonymized)</b>\n` +
     `${emailAsli}\n` +

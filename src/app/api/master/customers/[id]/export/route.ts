@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { getAdminOrNull } from "@/lib/admin";
+import { catatAudit } from "@/lib/audit";
 
 // Export data pelanggan (PDP/hak akses data, 2026-10-11 #5). Admin unduh SEMUA data 1
 // pelanggan sbg JSON utk diserahkan atas permintaan. Admin-only. SENGAJA mengecualikan
@@ -33,6 +34,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     rencana_konten: rows(sql`SELECT * FROM content_plan WHERE brand_id IN ${brandSub}`),
   };
 
+  void catatAudit({ adminEmail: admin.email, aksi: "export_data", targetUserId: id });
   const slug = String(user.email).replace(/[^a-z0-9]+/gi, "_");
   return new NextResponse(JSON.stringify(data, null, 2), {
     headers: {

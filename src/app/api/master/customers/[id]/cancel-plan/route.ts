@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getAdminOrNull } from "@/lib/admin";
+import { catatAudit } from "@/lib/audit";
 
 // Admin batalkan / lanjutkan langganan pelanggan dari Master Dashboard (2026-10-11).
 // Model prepaid SAMA dgn /api/account/cancel: "batal" = tidak diperpanjang, AKSES TETAP
@@ -17,5 +18,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const [target] = await db.select().from(users).where(eq(users.id, id));
   if (!target) return NextResponse.json({ error: "Pelanggan tidak ditemukan" }, { status: 404 });
   await db.update(users).set({ langgananDibatalkan: dibatalkan }).where(eq(users.id, id));
+  await catatAudit({ adminEmail: admin.email, aksi: dibatalkan ? "batal_paket" : "lanjut_paket", targetUserId: id });
   return NextResponse.json({ ok: true, langgananDibatalkan: dibatalkan });
 }
