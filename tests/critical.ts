@@ -55,6 +55,27 @@ async function run() {
   rl.resetRateLimit(k);
   ok("RateLimit reset membuka blokir", !rl.cekRateLimit(k, 5).blocked);
 
+  // ---------- Aturan produk: video panjang + kredit carousel (2026-10-24) ----------
+  const ap = await import("../src/lib/billing/aturanProduk.ts");
+  ok("carousel 1 slide = 1 kredit", ap.hitungBiayaKredit("carousel", { carouselPhotosPerPost: 1 }) === 1);
+  ok("carousel 3 slide = 3 kredit", ap.hitungBiayaKredit("carousel", { carouselPhotosPerPost: 3 }) === 3);
+  ok("carousel 5 slide = 5 kredit", ap.hitungBiayaKredit("carousel", { carouselPhotosPerPost: 5 }) === 5);
+  ok("carousel >5 di-cap 5 (render cap)", ap.hitungBiayaKredit("carousel", { carouselPhotosPerPost: 10 }) === 5);
+  ok("foto (poster_feed) = 1 kredit", ap.hitungBiayaKredit("carousel", { contentFormat: "poster_feed", carouselPhotosPerPost: 5 }) === 1);
+  ok("video = 1 kredit (tak berubah)", ap.hitungBiayaKredit("video", {}) === 1);
+  ok("video 300s = long-form", ap.apakahVideoPanjang("video", null, 300) === true);
+  ok("video 60s = BUKAN long-form", ap.apakahVideoPanjang("video", null, 60) === false);
+  ok("youtube_shorts = BUKAN long-form", ap.apakahVideoPanjang("video", "youtube_shorts", 300) === false);
+  ok("carousel = BUKAN long-form", ap.apakahVideoPanjang("carousel", null, 300) === false);
+  let blokEkst = false; try { ap.pastikanFormatDiizinkan({ type: "video", contentFormat: null, videoDurationTarget: 300, unlimited: false }); } catch { blokEkst = true; }
+  ok("tenant eksternal + long-form DITOLAK", blokEkst);
+  let intOK = true; try { ap.pastikanFormatDiizinkan({ type: "video", contentFormat: null, videoDurationTarget: 300, unlimited: true }); } catch { intOK = false; }
+  ok("brand internal (unlimited) + long-form DIIZINKAN", intOK);
+  let pendekOK = true; try { ap.pastikanFormatDiizinkan({ type: "video", contentFormat: null, videoDurationTarget: 60, unlimited: false }); } catch { pendekOK = false; }
+  ok("tenant eksternal + video pendek DIIZINKAN", pendekOK);
+  let fotoOK = true; try { ap.pastikanFormatDiizinkan({ type: "carousel", contentFormat: "poster_feed", videoDurationTarget: null, unlimited: false }); } catch { fotoOK = false; }
+  ok("tenant eksternal + foto/carousel DIIZINKAN", fotoOK);
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

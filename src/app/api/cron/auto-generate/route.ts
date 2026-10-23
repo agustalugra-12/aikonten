@@ -85,8 +85,15 @@ export async function POST(req: NextRequest) {
           await markDailyIdeaUsed(idea.id);
           generated++;
         } catch (err) {
-          console.error(`[cron/auto-generate] gagal proses ide "${idea.idea.slice(0, 60)}..." brand ${brand.name}:`, err);
-          failed++;
+          if ((err as { kodeAturan?: string })?.kodeAturan === "video_panjang") {
+            // Tenant eksternal minta video panjang: JANGAN render, JANGAN hapus jadwal,
+            // tandai ide dipakai supaya TIDAK di-retry tiap cron. Catat alasan.
+            await markDailyIdeaUsed(idea.id);
+            console.warn(`[cron/auto-generate] ide "${idea.idea.slice(0, 60)}..." brand ${brand.name} DILEWATI: video panjang tak tersedia utk tenant eksternal`);
+          } else {
+            console.error(`[cron/auto-generate] gagal proses ide "${idea.idea.slice(0, 60)}..." brand ${brand.name}:`, err);
+            failed++;
+          }
         }
       }
       // Planner auto (2026-10-05, permintaan Agus) - baris content_plan autoMode="auto"

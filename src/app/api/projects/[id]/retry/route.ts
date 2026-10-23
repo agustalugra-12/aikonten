@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { mediaAssets, projects } from "@/db/schema";
+import { mediaAssets, projects, brands, users } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { processProject } from "@/lib/pipeline/processProject";
 import { publishProject } from "@/lib/publish/orchestrate";
@@ -9,6 +9,7 @@ import { getUserId, getOwnedProject } from "@/lib/session";
 import { gateGenerateManual } from "@/lib/billing/generateGate";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
 import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
+import { hitungBiayaKredit, pastikanFormatDiizinkan, VideoPanjangTidakTersediaError } from "@/lib/billing/aturanProduk";
 
 // "Coba Lagi" pintar (2026-08-07, permintaan Agus - konten yg SUDAH jadi videonya/
 // gambarnya sempat "tampil" [status ready] lalu "hilang lagi" krn status jatuh ke
@@ -68,7 +69,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     throw err;
   }
 
-  const biaya = CREDIT_COST_GENERATE[project.type];
+  const [brandRetry] = await db.select().from(brands).where(eq(brands.id, project.brandId));
+  const [pemilikRetry] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, userId));
+  try {
+    pastikanFormatDiizinkan({ type: project.type, contentFormat: project.contentFormat, videoDurationTarget: brandRetry?.videoDurationTarget, unlimited: pemilikRetry?.unlimited });
+  } catch (err) {
+    if (err instanceof VideoPanjangTidakTersediaError) return NextResponse.json({ error: err.message }, { status: 403 });
+    throw err;
+  }
+  const biaya = hitungBiayaKredit(project.type, { contentFormat: project.contentFormat, carouselPhotosPerPost: brandRetry?.carouselPhotosPerPost });
   try {
     await potongKredit(userId, biaya, `generate_${project.type}`, id);
   } catch (err) {

@@ -1,8 +1,9 @@
 import { db } from "@/db";
-import { projects, mediaAssets, brands, socialAccounts, footageBank, contentTypes } from "@/db/schema";
+import { projects, mediaAssets, brands, socialAccounts, footageBank, contentTypes, users } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { transcribeFootage, transcribeAudioBuffer, type TranscriptSegment } from "@/lib/ai/transcribe";
 import { alertCreditDepletionIfRelevant } from "@/lib/publish/telegram";
+import { pastikanFormatDiizinkan } from "@/lib/billing/aturanProduk";
 import {
   selectClips,
   scoreSegments,
@@ -127,6 +128,10 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // brand dipindah ke SINI (2026-08-11, sebelumnya di bawah) - dibutuhkan guard di
     // bawah SEBELUM titik lama fetch-nya.
     const [brand] = await db.select().from(brands).where(eq(brands.id, project.brandId));
+    // Backstop aturan produk (2026-10-24): video panjang hanya brand internal (unlimited) -
+    // pengaman terakhir di jalur render tunggal (tak bisa dilewati pemanggil mana pun).
+    const [pemilikBackstop] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, brand?.userId ?? ""));
+    pastikanFormatDiizinkan({ type: project.type, contentFormat: project.contentFormat, videoDurationTarget: brand?.videoDurationTarget, unlimited: pemilikBackstop?.unlimited });
     // Contextual Footage (2026-09-02, PRD Agustap Studio) - blocklist finansial dipakai
     // SEMUA titik searchBrollVideo di bawah utk brand ini. Default-block (bukan panggil
     // deriveAgustapBrollQuery lagi di tiap titik - satu LLM call ekstra sudah terjadi di

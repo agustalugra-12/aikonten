@@ -4,6 +4,10 @@ import { LockBusyError } from "@/lib/concurrency/locks";
 import { getUserId, getOwnedProject } from "@/lib/session";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
 import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
+import { db } from "@/db";
+import { brands, users } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { hitungBiayaKredit, pastikanFormatDiizinkan, VideoPanjangTidakTersediaError } from "@/lib/billing/aturanProduk";
 import { gateGenerateManual } from "@/lib/billing/generateGate";
 
 // Trigger manual dari NewProjectDialog.tsx setelah upload footage selesai. Logika
@@ -25,6 +29,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     );
   }
 
+  // Aturan produk (2026-10-24): video panjang hanya brand internal (unlimited); biaya
+  // carousel = jumlah slide. Divalidasi di backend SEBELUM potong kredit.
+  const [brandProj] = await db.select().from(brands).where(eq(brands.id, project.brandId));
+  const [pemilikProj] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, userId));
+  try {
+    pastikanFormatDiizinkan({ type: project.type, contentFormat: project.contentFormat, videoDurationTarget: brandProj?.videoDurationTarget, unlimited: pemilikProj?.unlimited });
+  } catch (err) {
+    if (err instanceof VideoPanjangTidakTersediaError) return NextResponse.json({ error: err.message }, { status: 403 });
+    throw err;
+  }
+
   // Gate status akun (2026-09-08, Fase 1 Alur C) - "terbatas" = paket kadaluarsa lewat
   // masa tenggang, tidak boleh generate BARU (baca/download konten lama tetap boleh).
   try {
@@ -40,7 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // terjadi apa pun hasil akhirnya, jadi ditagih di muka, bukan sesudah. Kalau
   // processProject gagal TOTAL (exception), refund penuh (alasan "refund_gagal") -
   // pelanggan tidak boleh bayar generate yang tidak menghasilkan apa-apa.
-  const biaya = CREDIT_COST_GENERATE[project.type];
+  const biaya = hitungBiayaKredit(project.type, { contentFormat: project.contentFormat, carouselPhotosPerPost: brandProj?.carouselPhotosPerPost });
   try {
     await potongKredit(userId, biaya, `generate_${project.type}`, id);
   } catch (err) {

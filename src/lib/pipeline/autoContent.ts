@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { projects, mediaAssets, brands, footageBank, socialAccounts } from "@/db/schema";
+import { projects, mediaAssets, brands, footageBank, socialAccounts, users } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { suggestContentIdeas } from "@/lib/ai/researchTopics";
 import { matchFootageForScript, pickAnyRealPhoto } from "@/lib/ai/matchFootageBank";
@@ -13,6 +13,7 @@ import { getDurationConfig } from "@/lib/ai/clipSelect";
 import { getChannelProfile } from "@/lib/ai/youtubeEditorial";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
 import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
+import { hitungBiayaKredit, pastikanFormatDiizinkan, VideoPanjangTidakTersediaError } from "@/lib/billing/aturanProduk";
 import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyContentPlanner";
 import { applyAgustapStrategyIfActive } from "@/lib/agustap/generationStrategy";
 import { isAgustapExtensionActive } from "@/lib/agustap/featureFlag";
@@ -447,7 +448,20 @@ export async function runAutoContent(
     throw err;
   }
 
-  const biaya = CREDIT_COST_GENERATE[type];
+  // Aturan produk (2026-10-24): validasi format + hitung biaya carousel SEBELUM potong.
+  const pfAturan = type === "video" ? (contentFormat ?? null) : (desiredType === "foto" ? "poster_feed" : null);
+  const [pemilikAturan] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, brand.userId));
+  try {
+    pastikanFormatDiizinkan({ type, contentFormat: pfAturan, videoDurationTarget: brand.videoDurationTarget, unlimited: pemilikAturan?.unlimited });
+  } catch (err) {
+    if (err instanceof VideoPanjangTidakTersediaError) {
+      const e = new AutoContentError(err.message, 403);
+      (e as unknown as { kodeAturan: string }).kodeAturan = "video_panjang";
+      throw e;
+    }
+    throw err;
+  }
+  const biaya = hitungBiayaKredit(type, { contentFormat: pfAturan, carouselPhotosPerPost: brand.carouselPhotosPerPost });
   try {
     await potongKredit(brand.userId, biaya, `generate_${type}`, projectId);
   } catch (err) {
