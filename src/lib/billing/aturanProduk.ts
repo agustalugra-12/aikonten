@@ -58,3 +58,17 @@ export function pastikanFormatDiizinkan(args: {
     throw new VideoPanjangTidakTersediaError();
   }
 }
+
+export type BatasHarian = { video: number; foto: number; carousel: number; shorts: number };
+
+// Plafon jumlah konten/hari per paket (2026-10-24). Membatasi beban render (video) & volume
+// agar box 1-proses tak kewalahan + adil per paket. Di-tune di SATU tempat. Paket tak dikenal
+// / tanpa paket → starter (paling konservatif). Brand internal (unlimited) tidak di-cap (lihat pemakai).
+export const BATAS_HARIAN_PAKET: Record<string, BatasHarian> = {
+  starter: { video: 1, foto: 2, carousel: 1, shorts: 0 },
+  pro:     { video: 3, foto: 3, carousel: 2, shorts: 1 },
+  agency:  { video: 5, foto: 5, carousel: 2, shorts: 2 },
+};
+export function batasHarianPaket(namaPaket: string | null | undefined): BatasHarian {
+  return BATAS_HARIAN_PAKET[(namaPaket ?? "").toLowerCase()] ?? BATAS_HARIAN_PAKET.starter;
+}

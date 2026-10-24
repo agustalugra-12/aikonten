@@ -1,10 +1,11 @@
 import { db } from "@/db";
-import { dailyIdeas, brands, projects, manualIdeas, socialAccounts, competitors } from "@/db/schema";
+import { dailyIdeas, brands, projects, manualIdeas, socialAccounts, competitors, users, plans } from "@/db/schema";
 import { and, eq, desc, asc, inArray } from "drizzle-orm";
 import { suggestScoredContentIdeas, todayDateKeyWita } from "./researchTopics";
 import { syncBrandPerformance } from "./performanceLearning";
 import { getChannelProfile, generateYoutubeDailyIdeas } from "./youtubeEditorial";
 import { newId } from "@/lib/ids";
+import { batasHarianPaket } from "@/lib/billing/aturanProduk";
 import { runWithUsageContext } from "./usageContext";
 import { generateTrendAdaptation, filterTrendsForContextFirewall } from "./trendAdaptation";
 import { getMonthlyReportData } from "@/lib/reports/monthlyReportData";
@@ -86,6 +87,19 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
 
   const [brand] = await db.select().from(brands).where(eq(brands.id, brandId));
   if (!brand) throw new Error("Brand tidak ditemukan");
+
+  // Batas produksi per paket (2026-10-24): clamp jumlah konten/hari ke plafon paket pemilik
+  // (beban render video & volume terkendali). Backend, di SUMBER ide -> berlaku utk cron &
+  // manual sekaligus, tanpa churn. Brand internal (unlimited) dikecualikan.
+  const [pemilikBrand] = await db.select({ unlimited: users.unlimited, planId: users.planId }).from(users).where(eq(users.id, brand.userId));
+  if (!pemilikBrand?.unlimited) {
+    const [planBrand] = pemilikBrand?.planId ? await db.select({ nama: plans.nama }).from(plans).where(eq(plans.id, pemilikBrand.planId)) : [];
+    const cap = batasHarianPaket(planBrand?.nama);
+    brand.dailyVideoCount = Math.min(brand.dailyVideoCount ?? 0, cap.video);
+    brand.dailySinglePhotoCount = Math.min(brand.dailySinglePhotoCount ?? 0, cap.foto);
+    brand.dailyCarouselCount = Math.min(brand.dailyCarouselCount ?? 0, cap.carousel);
+    brand.dailyYoutubeShortsCount = Math.min(brand.dailyYoutubeShortsCount ?? 0, cap.shorts);
+  }
 
   // AI Learning Engine (2026-08-05) - sync performa (views/engagement dari Buffer,
   // lihat performanceLearning.ts) SEKALI per hari, bareng dgn generate ide harian -

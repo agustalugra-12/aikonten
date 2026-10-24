@@ -76,6 +76,12 @@ async function run() {
   let fotoOK = true; try { ap.pastikanFormatDiizinkan({ type: "carousel", contentFormat: "poster_feed", videoDurationTarget: null, unlimited: false }); } catch { fotoOK = false; }
   ok("tenant eksternal + foto/carousel DIIZINKAN", fotoOK);
 
+  ok("batas starter video=1", ap.batasHarianPaket("starter").video === 1);
+  ok("batas pro video=3", ap.batasHarianPaket("pro").video === 3);
+  ok("batas agency video=5 foto=5", ap.batasHarianPaket("agency").video === 5 && ap.batasHarianPaket("agency").foto === 5);
+  ok("paket tak dikenal/null -> starter", ap.batasHarianPaket("xxx").video === 1 && ap.batasHarianPaket(null).video === 1);
+  ok("clamp min(setting 10, cap starter 1)=1", Math.min(10, ap.batasHarianPaket("starter").video) === 1);
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
