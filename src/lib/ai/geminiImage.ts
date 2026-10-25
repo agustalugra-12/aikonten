@@ -1,4 +1,5 @@
 import { GoogleGenAI, FinishReason } from "@google/genai";
+import OpenAI, { toFile } from "openai";
 import { logNonTokenUsage } from "./openaiClient";
 
 // Migrasi dari fal.ai (fal-ai/nano-banana-2) ke Gemini API LANGSUNG (2026-09-06,
@@ -104,6 +105,7 @@ export async function generateImageWithGemini(opts: {
   aspectRatio: string;
   usageLabel: string;
 }): Promise<GeneratedImage> {
+  if ((process.env.IMAGE_BACKEND || "").toLowerCase() === "openai") return generateImageWithGptMini(opts);
   const inputImages = opts.imageUrls ? await Promise.all(opts.imageUrls.map(urlToInlineImage)) : [];
 
   let lastError: unknown;
@@ -126,4 +128,29 @@ export async function generateImageWithGemini(opts: {
     }
   }
   throw lastError;
+}
+
+
+// Backend alternatif (2026-10-25, uji biaya): gpt-image-1-mini via flag IMAGE_BACKEND=openai
+// + IMAGE_QUALITY (low|medium|high). Jalur foto-asli pakai images.edit (pertahankan foto),
+// full-AI pakai images.generate. Tipe balikan sama (GeneratedImage). Gemini tetap default.
+async function generateImageWithGptMini(opts: { prompt: string; imageUrls?: string[]; aspectRatio: string; usageLabel: string }): Promise<GeneratedImage> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const quality = ((process.env.IMAGE_QUALITY || "medium").toLowerCase()) as "low" | "medium" | "high";
+  const ar = opts.aspectRatio;
+  const size = (ar === "4:5" || ar === "3:4" || ar === "9:16") ? "1024x1536" : (ar === "16:9" || ar === "3:2") ? "1536x1024" : "1024x1024";
+  let r: any;
+  if (opts.imageUrls && opts.imageUrls.length) {
+    const files = await Promise.all(opts.imageUrls.map(async (u, i) => {
+      const resp = await fetch(u); const ab = await resp.arrayBuffer();
+      return await toFile(Buffer.from(ab), `in${i}.png`, { type: "image/png" });
+    }));
+    r = await openai.images.edit({ model: "gpt-image-1-mini", image: files as any, prompt: opts.prompt, size: size as any, quality: quality as any });
+  } else {
+    r = await openai.images.generate({ model: "gpt-image-1-mini", prompt: opts.prompt, size: size as any, quality: quality as any });
+  }
+  const u = r.usage || {};
+  const cost = ((u.output_tokens ?? 0) * 8 + (u.input_tokens ?? 0) * 2) / 1e6;
+  console.log(`[gpt-image-mini] ${opts.usageLabel} q=${quality} size=${size} out_tok=${u.output_tokens ?? 0} biaya=$${cost.toFixed(5)}`);
+  return { buffer: Buffer.from(r.data[0].b64_json as string, "base64"), mimeType: "image/png" };
 }
