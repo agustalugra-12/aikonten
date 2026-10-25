@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
       const duePlan = await db
         .select()
         .from(contentPlan)
-        .where(and(eq(contentPlan.brandId, brand.id), eq(contentPlan.autoMode, "auto"), eq(contentPlan.status, "direncanakan"), lte(contentPlan.date, today)));
+        .where(and(eq(contentPlan.brandId, brand.id), eq(contentPlan.autoMode, "auto"), eq(contentPlan.status, "direncanakan"), eq(contentPlan.date, today)));
       for (const row of duePlan) {
         try {
           const pid = await runPlanRowGenerate(row);
@@ -114,6 +114,9 @@ export async function POST(req: NextRequest) {
           generated++;
         } catch (err) {
           console.error(`[cron/auto-generate] gagal generate baris Planner ${row.id} brand ${brand.name}:`, err);
+          // (2026-10-25) Tandai TERMINAL "gagal" - jangan biarkan "direncanakan" supaya tak
+          // di-retry tiap cron run (akar runaway Pelangi: baris gagal menumpuk + diulang).
+          await db.update(contentPlan).set({ status: "gagal", updatedAt: new Date() }).where(eq(contentPlan.id, row.id));
           failed++;
         }
       }
