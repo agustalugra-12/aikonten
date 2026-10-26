@@ -338,6 +338,8 @@ export async function renderFinalVideo(opts: {
   // middle-center / 2.5dtk (= perilaku titleCard Fase 1). Hanya relevan kalau titleText ada.
   titlePosition?: TitlePosition;
   titleDurationSeconds?: number;
+  // Lower Third warna aksen (2026-10-26, Fase 3) - "#RRGGBB" dari brand; undefined = putih lama.
+  lowerThirdAccentColor?: string;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -784,7 +786,7 @@ export async function renderFinalVideo(opts: {
       curLabel = outLabel;
     });
     if (opts.lowerThird) {
-      filterStages.push(`[${curLabel}]${buildLowerThirdFilter(opts.lowerThird.name, opts.lowerThird.tagline, TARGET_WIDTH, TARGET_HEIGHT, opts.headingFontFile)}[lowerthirded]`);
+      filterStages.push(`[${curLabel}]${buildLowerThirdFilter(opts.lowerThird.name, opts.lowerThird.tagline, TARGET_WIDTH, TARGET_HEIGHT, opts.headingFontFile, opts.lowerThirdAccentColor)}[lowerthirded]`);
       curLabel = "lowerthirded";
     }
     if (opts.comparisonBar && opts.comparisonBar.clipIndex >= 0 && opts.comparisonBar.clipIndex < clipStartOffsets.length) {

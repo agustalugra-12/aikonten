@@ -141,6 +141,8 @@ export type ResolvedBrandKit = {
   titleEnabled: boolean;
   titlePosition: TitlePosition;
   titleDurationSeconds: number;
+  // Lower Third (Fase 3) - warna aksen bar = primaryColor brand (undefined -> putih lama).
+  lowerThirdAccentColor?: string;
 };
 
 // Dipakai renderer (processProject). json = kolom brands.brandKit mentah. null/kosong/
@@ -194,5 +196,6 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
     titleEnabled: bk.title?.enabled === true,
     titlePosition: isTitlePosition(bk.title?.position) ? (bk.title!.position as TitlePosition) : DEFAULT_TITLE_POSITION,
     titleDurationSeconds: typeof bk.title?.durationSeconds === "number" ? bk.title.durationSeconds : 2.5,
+    lowerThirdAccentColor: bk.primaryColor,
   };
 }

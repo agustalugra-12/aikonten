@@ -159,6 +159,13 @@ async function run() {
   ok("resolveBrandKit title enabled -> titleEnabled true + preset + posisi", rtk?.titleEnabled === true && rtk?.titleCardDesign.animation === "PopBounce" && rtk?.titlePosition === "bottom-center" && rtk?.titleDurationSeconds === 4);
   ok("resolveBrandKit tanpa title -> titleEnabled FALSE (default-off, backward-compat)", bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "anton" }))?.titleEnabled === false);
 
+  // ---------- Fase 3: Lower Third warna aksen brand (2026-10-26) ----------
+  const lt = await import("../src/lib/render/lowerThird.ts");
+  ok("lowerThird default = bar putih (backward-compat)", lt.buildLowerThirdFilter("Nama", "tagline", 1080, 1920).includes("color=white@0.9"));
+  ok("lowerThird accent brand #RRGGBB -> 0xRRGGBB", lt.buildLowerThirdFilter("Nama", "tagline", 1080, 1920, undefined, "#FFD84D").includes("color=0xFFD84D@0.9"));
+  ok("lowerThird accent invalid -> fallback putih (anti-injeksi)", lt.buildLowerThirdFilter("Nama", "tagline", 1080, 1920, undefined, "red;drawbox").includes("color=white@0.9"));
+  ok("resolveBrandKit expose lowerThirdAccentColor dari primaryColor", bkm.resolveBrandKit(JSON.stringify({ primaryColor: "#112233" }))?.lowerThirdAccentColor === "#112233");
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

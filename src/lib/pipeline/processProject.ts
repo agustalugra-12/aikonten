@@ -1199,6 +1199,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         titleText: brandKit?.titleEnabled && hookText && hookText.trim() ? hookText.trim() : undefined,
         titlePosition: brandKit?.titlePosition,
         titleDurationSeconds: brandKit?.titleDurationSeconds,
+        // Lower Third warna aksen (Fase 3) - dari primaryColor brand; undefined = putih lama.
+        lowerThirdAccentColor: brandKit?.lowerThirdAccentColor,
         segments: selected,
         srtContent: srtForRender,
         wordTimings: wordTimingsForRender,

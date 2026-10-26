@@ -55,10 +55,15 @@ export function buildLowerThirdFilter(
   targetWidth: number,
   targetHeight: number,
   // Font Brand Kit (2026-10-25, Phase 2) - default = DejaVu lama (backward-compat).
-  fontFile: string = FONT_PATH
+  fontFile: string = FONT_PATH,
+  // Warna aksen bar (2026-10-26, Fase 3 Motion Library) - default "white" = perilaku lama.
+  // Terima "#RRGGBB" (dari brandKit.primaryColor, sudah tervalidasi hex) -> dikonversi ke
+  // format warna ffmpeg "0xRRGGBB". Nilai lain (mis. "white") diteruskan apa adanya.
+  accentColor: string = "white"
 ): string {
   const endSeconds = START_SECONDS + DISPLAY_SECONDS;
   const fadeOutStart = endSeconds - FADE_SECONDS;
+  const accent = /^#[0-9a-fA-F]{6}$/.test(accentColor) ? `0x${accentColor.slice(1)}` : "white";
   const escape = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "").replace(/:/g, "\\:");
   const nameUpper = name.toUpperCase();
   const nameEsc = escape(nameUpper);
@@ -92,7 +97,7 @@ export function buildLowerThirdFilter(
     `if(lt(t,${endSeconds.toFixed(2)}),(${endSeconds.toFixed(2)}-t)/${FADE_SECONDS},0))))`;
 
   return (
-    `drawbox=x=${barX}:y=${barY}:w=${barW}:h=${barH}:color=white@0.9:t=fill:` +
+    `drawbox=x=${barX}:y=${barY}:w=${barW}:h=${barH}:color=${accent}@0.9:t=fill:` +
     `enable='between(t,${START_SECONDS},${endSeconds.toFixed(2)})',` +
     `drawtext=fontfile=${fontFile}:text='${nameEsc}':fontsize=${nameFontSize}:fontcolor=white:` +
     `borderw=2:bordercolor=black@0.6:x=${textX}:y=${barY}:alpha='${alphaExpr}',` +
