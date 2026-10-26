@@ -35,7 +35,9 @@ export function buildSubscribeButtonFilterStages(
   durationSeconds: number,
   curLabel: string,
   outLabel: string,
-  showLastSeconds: number = SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS
+  showLastSeconds: number = SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS,
+  // Font Brand Kit (2026-10-25, Phase 2) - default = DejaVu lama (backward-compat).
+  fontFile: string = FONT_PATH
 ): string[] {
   const startAt = Math.max(0, durationSeconds - showLastSeconds);
   const fadeInEnd = startAt + FADE_SECONDS;
@@ -77,7 +79,7 @@ export function buildSubscribeButtonFilterStages(
     `[${curLabel}]drawbox=x=${boxX}:y=${boxY}:w=${boxW}:h=${boxH}:color=#CC1F1F@0.85:t=fill:enable='${enableExpr}'[${boxLabel}]`,
     `[${bellInputIdx}:v]format=rgba,scale=w='${pulseScale}':h='${pulseScale}':eval=frame[${bellFmtLabel}]`,
     `[${boxLabel}][${bellFmtLabel}]overlay=${bellX}:${bellY}:enable='${enableExpr}'[${bellOverlaidLabel}]`,
-    `[${bellOverlaidLabel}]drawtext=fontfile=${FONT_PATH}:text='${text}':fontsize=${fontSize}:fontcolor=white:` +
+    `[${bellOverlaidLabel}]drawtext=fontfile=${fontFile}:text='${text}':fontsize=${fontSize}:fontcolor=white:` +
       `x=${textX}:y=${boxY}+(${boxH}-text_h)/2:alpha='${alphaExpr}':enable='${enableExpr}'[${outLabel}]`,
   ];
 }

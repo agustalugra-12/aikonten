@@ -36,7 +36,9 @@ export function buildComparisonBarFilter(
   subjectKg: number,
   startSeconds: number,
   targetWidth: number,
-  targetHeight: number
+  targetHeight: number,
+  // Font Brand Kit (2026-10-25, Phase 2) - default = DejaVu lama (backward-compat).
+  fontFile: string = FONT_PATH
 ): string {
   const displaySeconds = 2.2;
   const fadeSeconds = 0.3;
@@ -65,10 +67,10 @@ export function buildComparisonBarFilter(
     // titik-dua MENTAH itu bikin drawtext berhenti baca "text=" di situ (sama kelas
     // bug dgn apostrof CTA sebelumnya), value-nya HILANG dari layar. Fix: escape()
     // SATU STRING GABUNGAN (sama pola yg SUDAH benar di baris "Average Human" bawah).
-    `drawtext=fontfile=${FONT_PATH}:text='${escape(`${subjectLabel}: ${subjectValueText}`)}':fontsize=${fontSize}:` +
+    `drawtext=fontfile=${fontFile}:text='${escape(`${subjectLabel}: ${subjectValueText}`)}':fontsize=${fontSize}:` +
       `fontcolor=white:x=${leftX}:y=${baseY - Math.round(fontSize * 1.15)}:alpha='${alphaExpr}'`,
     `drawbox=x=${leftX}:y=${baseY + gap}:w=${humanBarW}:h=${barH}:color=#4B9AE8@0.9:t=fill:enable='${enableExpr}'`,
-    `drawtext=fontfile=${FONT_PATH}:text='${escape(`Average Human: ~${HUMAN_REFERENCE_KG}kg`)}':fontsize=${fontSize}:` +
+    `drawtext=fontfile=${fontFile}:text='${escape(`Average Human: ~${HUMAN_REFERENCE_KG}kg`)}':fontsize=${fontSize}:` +
       `fontcolor=white:x=${leftX}:y=${baseY + gap - Math.round(fontSize * 1.15)}:alpha='${alphaExpr}'`,
   ].join(",");
 }

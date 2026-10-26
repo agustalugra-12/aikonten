@@ -52,7 +52,9 @@ export function buildStatOverlayFilterStages(
   targetWidth: number,
   targetHeight: number,
   curLabel: string,
-  outLabel: string
+  outLabel: string,
+  // Font Brand Kit (2026-10-25, Phase 2) - default = DejaVu lama (backward-compat).
+  fontFile: string = FONT_PATH
 ): string[] {
   const endSeconds = startSeconds + DISPLAY_SECONDS;
   const fadeOutStart = endSeconds - FADE_SECONDS;
@@ -103,7 +105,7 @@ export function buildStatOverlayFilterStages(
     // tidak pernah terlihat, bukan mengubah kapan ia terlihat).
     `[${iconInputIdx}:v]trim=duration=${(endSeconds + 0.5).toFixed(2)},format=rgba,scale=w='${popScale}':h='${popScale}':eval=frame[${iconFmtLabel}]`,
     `[${boxLabel}][${iconFmtLabel}]overlay=${iconX}:${iconY}:enable='between(t,${startSeconds.toFixed(2)},${endSeconds.toFixed(2)})'[${iconedLabel}]`,
-    `[${iconedLabel}]drawtext=fontfile=${FONT_PATH}:text='${text}':fontsize=${fontSize}:fontcolor=white:` +
+    `[${iconedLabel}]drawtext=fontfile=${fontFile}:text='${text}':fontsize=${fontSize}:fontcolor=white:` +
       `x=${textX}:y=${boxY}+(${boxH}-text_h)/2:` +
       `alpha='if(lt(t,${startSeconds.toFixed(2)}),0,if(lt(t,${(startSeconds + FADE_SECONDS).toFixed(2)}),` +
       `(t-${startSeconds.toFixed(2)})/${FADE_SECONDS},if(lt(t,${fadeOutStart.toFixed(2)}),1,` +

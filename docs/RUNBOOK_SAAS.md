@@ -17,6 +17,13 @@ npm run build && sudo systemctl restart aikonten-saas
 ```
 Selalu build dulu; kalau gagal, restore file lama sebelum restart (jangan restart dengan build gagal).
 
+## Prosedur perubahan schema DB (manual, ber-guard)
+Repo ini **TIDAK** memakai `drizzle-kit migrate` (jurnal `__drizzle_migrations` rusak + histori snapshot tertinggal jauh dari `schema.ts` — migrate akan gagal / meng-recreate tabel). Histori migrasi Drizzle **belum** diperbaiki; itu masalah lama terpisah. Perubahan schema diterapkan MANUAL + ber-guard (idempoten), per server:
+1. Update `src/db/schema.ts` (+ `src/types/index.ts` kalau tipe dipakai di UI) supaya kode tahu kolom/tabel baru.
+2. Tulis ALTER **ber-guard**: cek `PRAGMA table_info(<tabel>)` dulu, `ADD` hanya kalau belum ada (SQLite tak punya `ADD COLUMN IF NOT EXISTS`, jadi ALTER mentah TIDAK idempoten).
+3. Jalankan di **tiap** server (A & B). Contoh kolom `brands.brand_kit` (Phase 2 Font Studio): `npx tsx scripts/add-brand-kit-column.ts` — idempoten, aman diulang, "SKIP" kalau kolom sudah ada.
+4. Backup DB dulu utk perubahan besar. **JANGAN** `drizzle-kit migrate`.
+
 ## Env (.env server — nama saja, bukan nilai)
 | Var | Guna |
 |---|---|

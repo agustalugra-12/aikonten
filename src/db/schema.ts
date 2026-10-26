@@ -178,6 +178,14 @@ export const brands = sqliteTable("brands", {
   // (bukan warisan gaya Pelangi diam-diam, beda dari bug knowledgeSite yg baru
   // diperbaiki - pelajaran yg SAMA diterapkan di sini dari awal).
   posterBrandProfile: text("poster_brand_profile"),
+  // Brand Kit tipografi (2026-10-25, Phase 2 Font Studio) - JSON string {subtitleFont,
+  // subtitleWeight, headingFont, headingWeight, subtitleColor, highlightColor,
+  // outlineColor, outlineWidth, shadow, subtitleSize, position, animation, primaryColor,
+  // secondaryColor} - semua opsional, divalidasi di PATCH route via validateBrandKit
+  // (font = ID kurasi di fontRegistry.ts, BUKAN path mentah). Nullable - null = pakai
+  // DEFAULT_SUBTITLE_DESIGN (tampilan brand lama, video existing TIDAK berubah). Dipakai
+  // render via resolveBrandKit (render/brandKit.ts) di processProject.ts.
+  brandKit: text("brand_kit"),
   // Full AI-Generate Poster (2026-08-11, permintaan Agus - brand "laundry in bali":
   // "untuk konten foto laundry in bali bisa berikan sedikit kebebasan foto bisa full
   // generate ai juga, harganya sama saja") - SEBELUM ini SEMUA brand WAJIB foto ASLI

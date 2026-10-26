@@ -53,7 +53,9 @@ export function buildLowerThirdFilter(
   name: string,
   tagline: string,
   targetWidth: number,
-  targetHeight: number
+  targetHeight: number,
+  // Font Brand Kit (2026-10-25, Phase 2) - default = DejaVu lama (backward-compat).
+  fontFile: string = FONT_PATH
 ): string {
   const endSeconds = START_SECONDS + DISPLAY_SECONDS;
   const fadeOutStart = endSeconds - FADE_SECONDS;
@@ -92,9 +94,9 @@ export function buildLowerThirdFilter(
   return (
     `drawbox=x=${barX}:y=${barY}:w=${barW}:h=${barH}:color=white@0.9:t=fill:` +
     `enable='between(t,${START_SECONDS},${endSeconds.toFixed(2)})',` +
-    `drawtext=fontfile=${FONT_PATH}:text='${nameEsc}':fontsize=${nameFontSize}:fontcolor=white:` +
+    `drawtext=fontfile=${fontFile}:text='${nameEsc}':fontsize=${nameFontSize}:fontcolor=white:` +
     `borderw=2:bordercolor=black@0.6:x=${textX}:y=${barY}:alpha='${alphaExpr}',` +
-    `drawtext=fontfile=${FONT_PATH}:text='${taglineEsc}':fontsize=${taglineFontSize}:fontcolor=white@0.85:` +
+    `drawtext=fontfile=${fontFile}:text='${taglineEsc}':fontsize=${taglineFontSize}:fontcolor=white@0.85:` +
     `x=${textX}:y=${barY}+${Math.round(nameFontSize * 1.05)}:alpha='${alphaExpr}'`
   );
 }

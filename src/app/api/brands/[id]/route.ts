@@ -4,6 +4,7 @@ import { brands } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getUserId, getOwnedBrand } from "@/lib/session";
 import { planMengizinkanAutoPosting } from "@/lib/billing/planGate";
+import { validateBrandKit } from "@/lib/render/brandKit";
 
 // Update brand - awalnya khusus logoUrl (2026-08-05), sekarang jg dailyVideoCount/
 // dailyCarouselCount (2026-08-05, permintaan Agus - "dari 10 konten ini 3 dibuat foto
@@ -216,6 +217,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     update.publishMode = publishMode;
     update.autoPublishTimes = publishMode === "auto" ? JSON.stringify([...autoPublishTimes].sort()) : null;
+  }
+
+  // Brand Kit tipografi (2026-10-25, Phase 2 Font Studio) - divalidasi KETAT via
+  // validateBrandKit (font HARUS id kurasi, warna hex, angka dlm rentang) - input user
+  // TIDAK PERNAH jadi path font langsung (gerbang keamanan, lihat fontRegistry.ts).
+  // Disimpan sbg JSON (atau null utk reset ke default = tampilan brand lama).
+  if ("brandKit" in body) {
+    const res = validateBrandKit(body.brandKit);
+    if (!res.ok) {
+      return NextResponse.json({ error: res.error }, { status: 400 });
+    }
+    update.brandKit = body.brandKit === null ? null : JSON.stringify(res.value);
   }
 
   await db.update(brands).set(update).where(eq(brands.id, id));

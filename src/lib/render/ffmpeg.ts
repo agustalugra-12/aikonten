@@ -8,7 +8,8 @@ import type { WordTiming } from "@/lib/ai/transcribe";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { runFfmpeg } from "./ffmpegExec";
 import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/ai/logoOverlay";
-import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN } from "./subtitleDesign";
+import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN, type SubtitleDesign } from "./subtitleDesign";
+import { buildTitleCardAss, DEFAULT_TITLE_CARD_DESIGN, type TitleCardDesign } from "./titleCard";
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
 import {
   computeClipSequencePlan,
@@ -128,6 +129,18 @@ function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
+// Direktori font yg di-BUNDLE di repo (2026-10-25, Phase 1 audit video engine - fix font
+// Poppins). Dipassing ke filter libass `ass=...:fontsdir=...` supaya subtitle (& title
+// card) PASTI memakai font yg kita sertakan sendiri, TIDAK bergantung font yg terpasang
+// di sistem. Akar bug lama: Style ASS minta "Poppins SemiBold" tapi Poppins TIDAK ada di
+// server -> fontconfig substitusi DIAM2 ke DejaVu tanpa error (preview != MP4). Font kini
+// disertakan di src/lib/render/assets/fonts (OFL) + fontsdir ini = libass selalu nemu.
+// process.cwd() (BUKAN __dirname) - lihat alasan di lottieOverlay.ts (build Turbopack
+// menulis ulang __dirname jadi path salah).
+function fontsDir(): string {
+  return path.join(process.cwd(), "src/lib/render/assets/fonts");
+}
+
 function srtTimeToAss(srtTime: string): string {
   const [hms, ms] = srtTime.trim().split(",");
   const [h, m, s] = hms.split(":");
@@ -232,6 +245,12 @@ export async function renderFinalVideo(opts: {
   // FALLBACK kalau ini kosong/undefined (mis. Whisper gagal, lihat processProject.ts) -
   // subtitle tetap muncul (statis, tanpa animasi kata-per-kata) drpd video tanpa caption.
   wordTimings?: WordTiming[];
+  // Title Card OPSIONAL (2026-10-25, Phase 1 audit video engine - titleCard.ts). Teks
+  // judul/hook besar beranimasi di tengah frame utk ~2.5dtk pertama. undefined/null/
+  // kosong = TIDAK ada title card (default, jalur generate existing tidak berubah).
+  // Sumber alami utk Phase 2 = hookText (processProject.ts) - sengaja belum diwire ke
+  // sana supaya rollout-nya keputusan terpisah (per-brand/A-B), bukan memaksa SEMUA video.
+  titleText?: string | null;
   brollClips?: Array<{ videoUrl: string; durationSeconds: number }>;
   // Audio TTS SUDAH DIGENERATE sebelumnya (2026-08-06, permintaan Agus - "subtitle
   // presisi dgn dubbing") - caller (processProject.ts) generate TTS DULU, transkripsi
@@ -305,6 +324,15 @@ export async function renderFinalVideo(opts: {
   // input ffmpeg tambahan (beda dari stat card yg py ikon gambar).
   lowerThird?: { name: string; tagline: string } | null;
   comparisonBar?: { label: string; value: string; kg: number; clipIndex: number } | null;
+  // Brand Kit tipografi (2026-10-25, Phase 2 - lihat render/brandKit.ts). Semua OPSIONAL;
+  // undefined = pakai DEFAULT (tampilan brand lama, backward-compat). subtitleDesign =>
+  // font/warna/animasi subtitle ASS; titleCardDesign => title card; headingFontFile =>
+  // file font utk SEMUA drawtext overlay (lower third, stat, CTA, comparison). Nilai sudah
+  // DIVALIDASI di hulu (resolveBrandKit via registry kurasi) - fungsi ini tidak terima
+  // path font mentah dari user.
+  subtitleDesign?: SubtitleDesign;
+  titleCardDesign?: TitleCardDesign;
+  headingFontFile?: string;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -402,6 +430,9 @@ export async function renderFinalVideo(opts: {
     // narasinya, lihat adelay di bawah) digeser mundur supaya lower third dapat momen
     // sendirian dulu sebelum penjelasan+animasi lain masuk.
     const leadInSeconds = opts.lowerThird ? NARRATION_LEAD_IN_SECONDS : 0;
+    // Brand Kit (2026-10-25, Phase 2) - desain subtitle dari brand kalau ADA, else default
+    // (tampilan lama). Font di-resolve libass via fontsdir (lihat fontsDir()/stage ass=).
+    const subDesign = opts.subtitleDesign ?? DEFAULT_SUBTITLE_DESIGN;
     const assPath = path.join(workDir, "subtitles.ass");
     const assContent =
       opts.wordTimings && opts.wordTimings.length > 0
@@ -409,7 +440,7 @@ export async function renderFinalVideo(opts: {
             leadInSeconds > 0
               ? opts.wordTimings.map((w) => ({ ...w, start: w.start + leadInSeconds, end: w.end + leadInSeconds }))
               : opts.wordTimings,
-            DEFAULT_SUBTITLE_DESIGN,
+            subDesign,
             TARGET_WIDTH,
             TARGET_HEIGHT
           )
@@ -421,11 +452,25 @@ export async function renderFinalVideo(opts: {
                   end: shiftAssTime(e.end, leadInSeconds),
                 }))
               : parseSrt(opts.srtContent),
-            DEFAULT_SUBTITLE_DESIGN,
+            subDesign,
             TARGET_WIDTH,
             TARGET_HEIGHT
           );
     await writeFile(assPath, assContent);
+
+    // Title Card OPSIONAL (2026-10-25, Phase 1 - lihat titleCard.ts). Dibangun di sini
+    // (dekat subtitle) tapi digeser ikut leadInSeconds supaya selaras kalau ada lower
+    // third. titleAssPath null = fitur mati (default) -> stage ass= title dilewati.
+    let titleAssPath: string | null = null;
+    if (opts.titleText && opts.titleText.trim().length > 0) {
+      titleAssPath = path.join(workDir, "title.ass");
+      await writeFile(
+        titleAssPath,
+        buildTitleCardAss(opts.titleText.trim(), opts.titleCardDesign ?? DEFAULT_TITLE_CARD_DESIGN, TARGET_WIDTH, TARGET_HEIGHT, {
+          startSeconds: leadInSeconds,
+        })
+      );
+    }
 
     // 4) Logo brand OPSIONAL (2026-08-05, permintaan Agus) - crop lingkaran +
     // ukuran proporsional (logoOverlay.ts, dipakai jg utk foto - konsisten), disiapkan
@@ -651,8 +696,19 @@ export async function renderFinalVideo(opts: {
     // setelah subtitle, sekarang bisa +progress bar +CTA jg) - tahap TERAKHIR yg
     // benar2 jalan SELALU keluarkan label "vout" (dihitung di akhir, bukan diasumsikan
     // di tengah), tahap SEBELUM itu pakai label sementara unik.
-    filterStages.push(`[${curLabel}]ass=${escapeFilterPath(assPath)}[subbed]`);
+    // fontsdir (2026-10-25) - lihat fontsDir() di atas: paksa libass pakai font bundled
+    // (Poppins) drpd substitusi diam2 ke font sistem. Tambahan path pencarian saja, tidak
+    // mengubah perilaku lain.
+    filterStages.push(`[${curLabel}]ass=${escapeFilterPath(assPath)}:fontsdir=${escapeFilterPath(fontsDir())}[subbed]`);
     curLabel = "subbed";
+    // Title Card OPSIONAL (2026-10-25, Phase 1 - titleCard.ts) - hanya aktif kalau caller
+    // kirim opts.titleText. Dibakar sbg stage ass= terpisah SETELAH subtitle (layer di
+    // atasnya), animasi masuk/keluar sendiri di detik2 awal. Default-off = jalur generate
+    // existing TIDAK terpengaruh (titleAssPath null -> stage dilewati).
+    if (titleAssPath !== null) {
+      filterStages.push(`[${curLabel}]ass=${escapeFilterPath(titleAssPath)}:fontsdir=${escapeFilterPath(fontsDir())}[titled]`);
+      curLabel = "titled";
+    }
     if (logoInputIdx !== null) {
       // Fade-in 0.5dtk (2026-08-10, Motion Engine - PRD "AI Content Editing Engine"
       // section 19/20) - logo sebelumnya muncul INSTAN dari frame pertama, elemen
@@ -714,19 +770,20 @@ export async function renderFinalVideo(opts: {
           TARGET_WIDTH,
           TARGET_HEIGHT,
           curLabel,
-          outLabel
+          outLabel,
+          opts.headingFontFile
         )
       );
       curLabel = outLabel;
     });
     if (opts.lowerThird) {
-      filterStages.push(`[${curLabel}]${buildLowerThirdFilter(opts.lowerThird.name, opts.lowerThird.tagline, TARGET_WIDTH, TARGET_HEIGHT)}[lowerthirded]`);
+      filterStages.push(`[${curLabel}]${buildLowerThirdFilter(opts.lowerThird.name, opts.lowerThird.tagline, TARGET_WIDTH, TARGET_HEIGHT, opts.headingFontFile)}[lowerthirded]`);
       curLabel = "lowerthirded";
     }
     if (opts.comparisonBar && opts.comparisonBar.clipIndex >= 0 && opts.comparisonBar.clipIndex < clipStartOffsets.length) {
       const cb = opts.comparisonBar;
       const startSeconds = clipStartOffsets[cb.clipIndex];
-      filterStages.push(`[${curLabel}]${buildComparisonBarFilter(cb.label, cb.value, cb.kg, startSeconds, TARGET_WIDTH, TARGET_HEIGHT)}[compared]`);
+      filterStages.push(`[${curLabel}]${buildComparisonBarFilter(cb.label, cb.value, cb.kg, startSeconds, TARGET_WIDTH, TARGET_HEIGHT, opts.headingFontFile)}[compared]`);
       curLabel = "compared";
     }
     if (opts.showProgressBar) {
@@ -737,7 +794,7 @@ export async function renderFinalVideo(opts: {
     // (di atas, dekat subscribeAccentStart) utk alasan lengkap.
     if (opts.ctaText && bellInputIdx !== null) {
       filterStages.push(
-        ...buildSubscribeButtonFilterStages(bellInputIdx, opts.ctaText, TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds, curLabel, "vout")
+        ...buildSubscribeButtonFilterStages(bellInputIdx, opts.ctaText, TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds, curLabel, "vout", SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS, opts.headingFontFile)
       );
       curLabel = "vout";
     } else {

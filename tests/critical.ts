@@ -82,6 +82,59 @@ async function run() {
   ok("paket tak dikenal/null -> starter", ap.batasHarianPaket("xxx").video === 1 && ap.batasHarianPaket(null).video === 1);
   ok("clamp min(setting 10, cap starter 1)=1", Math.min(10, ap.batasHarianPaket("starter").video) === 1);
 
+  // ---------- Render: font subtitle + preset animasi + title card (Phase 1, 2026-10-25) ----------
+  const sd = await import("../src/lib/render/subtitleDesign.ts");
+  const words = [
+    { word: "Halo", start: 0, end: 0.4 },
+    { word: "dunia", start: 0.4, end: 0.9 },
+  ];
+  const ass = sd.buildWordHighlightAss(words, sd.DEFAULT_SUBTITLE_DESIGN, 1080, 1920);
+  ok("subtitle Style memakai font Poppins SemiBold (bukan hardcode lain)", ass.includes("Default,Poppins SemiBold,"));
+  ok("default animasi = PopIn (scale 70->100)", ass.includes("\\fscx70\\fscy70\\t(0,120,\\fscx100\\fscy100)"));
+  // Preset registry: tiap gaya hasilkan tag khas & berbeda.
+  const hl = "&H4DD8FF&"; // contoh tag warna (urutan bgr)
+  ok("preset PopIn ada \\fscx70", sd.SUBTITLE_ANIMATION_PRESETS.PopIn(hl).includes("\\fscx70"));
+  ok("preset FadeIn pakai \\alpha (fade), tanpa skala", sd.SUBTITLE_ANIMATION_PRESETS.FadeIn(hl).includes("\\alpha&HFF&") && !sd.SUBTITLE_ANIMATION_PRESETS.FadeIn(hl).includes("\\fscx"));
+  ok("preset Bounce overshoot (2x \\t)", sd.SUBTITLE_ANIMATION_PRESETS.Bounce(hl).match(/\\t\(/g)?.length === 2);
+  ok("preset None hanya warna (tanpa transform)", !sd.SUBTITLE_ANIMATION_PRESETS.None(hl).includes("\\t(") && !sd.SUBTITLE_ANIMATION_PRESETS.None(hl).includes("\\fscx"));
+  ok("buildWordHighlightAss hormati animation=FadeIn", sd.buildWordHighlightAss(words, { ...sd.DEFAULT_SUBTITLE_DESIGN, animation: "FadeIn" }, 1080, 1920).includes("\\alpha&HFF&"));
+
+  const tc = await import("../src/lib/render/titleCard.ts");
+  const titleAss = tc.buildTitleCardAss("Rahasia Sukses", tc.DEFAULT_TITLE_CARD_DESIGN, 1080, 1920, { startSeconds: 0 });
+  ok("title card berisi teks judul", titleAss.includes("Rahasia Sukses"));
+  ok("title card center (\\an5) + fade + pop", titleAss.includes("\\an5") && titleAss.includes("\\fad(") && titleAss.includes("\\t(0,250,\\fscx100\\fscy100)"));
+  ok("title card pakai font Poppins SemiBold", titleAss.includes("Title,Poppins SemiBold,"));
+  ok("title card sanitasi { } (tak bikin ASS override liar)", !tc.buildTitleCardAss("a{b}c", tc.DEFAULT_TITLE_CARD_DESIGN, 1080, 1920).includes("a{b}c"));
+
+  // ---------- Phase 2: Font Studio & Brand Kit (2026-10-25) ----------
+  const fr = await import("../src/lib/render/fontRegistry.ts");
+  const r1 = fr.resolveFont("poppins", "semibold");
+  ok("resolveFont poppins/semibold -> assName 'Poppins SemiBold'", r1.assName === "Poppins SemiBold" && r1.file.endsWith("Poppins-SemiBold.ttf") && !r1.usedFallback);
+  ok("resolveFont poppins/bold -> assBold -1 (file Bold)", fr.resolveFont("poppins", "bold").assBold === -1 && fr.resolveFont("poppins", "bold").file.endsWith("Poppins-Bold.ttf"));
+  const r2 = fr.resolveFont("tidakada", "bold");
+  ok("resolveFont family invalid -> fallback poppins + usedFallback", r2.family === "poppins" && r2.usedFallback === true);
+  const r3 = fr.resolveFont("anton", "bold");
+  ok("resolveFont anton/bold (weight tak ada) -> regular + usedFallback", r3.weight === "regular" && r3.usedFallback === true);
+  ok("fontCatalog berisi 6 family kurasi", fr.fontCatalog().length === 6 && fr.fontCatalog().some((f) => f.id === "bebasneue"));
+  ok("isFontFamilyId tolak sembarang", !fr.isFontFamilyId("../etc/passwd") && fr.isFontFamilyId("poppins"));
+
+  const bkm = await import("../src/lib/render/brandKit.ts");
+  ok("validateBrandKit terima config valid", bkm.validateBrandKit({ subtitleFont: "anton", subtitleColor: "#FF0000", outlineWidth: 3 }).ok === true);
+  ok("validateBrandKit tolak font asing", bkm.validateBrandKit({ subtitleFont: "comic-sans" }).ok === false);
+  ok("validateBrandKit tolak hex invalid", bkm.validateBrandKit({ subtitleColor: "red" }).ok === false);
+  ok("validateBrandKit tolak outlineWidth di luar rentang", bkm.validateBrandKit({ outlineWidth: 999 }).ok === false);
+  ok("validateBrandKit tolak path font mentah", bkm.validateBrandKit({ headingFont: "/usr/share/fonts/x.ttf" }).ok === false);
+  ok("validateBrandKit null -> ok (reset)", bkm.validateBrandKit(null).ok === true);
+  const rbk = bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "bebasneue", subtitleColor: "#00FF00", headingFont: "anton" }));
+  ok("resolveBrandKit set font subtitle + heading file", rbk?.subtitleDesign.font === "Bebas Neue" && rbk?.subtitleDesign.color === "#00FF00" && rbk?.headingFontFile.endsWith("Anton-Regular.ttf"));
+  ok("resolveBrandKit null => null (default)", bkm.resolveBrandKit(null) === null && bkm.resolveBrandKit("") === null);
+  ok("resolveBrandKit font asing di DB -> usedFallback (tak senyap)", (bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "nope" }))?.usedFallbacks.length ?? 0) > 0);
+
+  // bold flag di Style ASS: brand kit explicit vs default
+  const assBoldOff = sd.buildWordHighlightAss(words, { ...sd.DEFAULT_SUBTITLE_DESIGN, bold: false }, 1080, 1920);
+  ok("SubtitleDesign bold:false -> Style Bold 0", assBoldOff.includes(",&H00000000,0,0,0,0,100,100,"));
+  ok("SubtitleDesign default (undefined) -> Style Bold -1 (lama)", ass.includes(",&H00000000,-1,0,0,0,100,100,"));
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

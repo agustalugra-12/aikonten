@@ -19,6 +19,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
+import { resolveBrandKit } from "@/lib/render/brandKit";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { detectBeats } from "@/lib/ai/beatDetect";
 import { extractStatOverlays } from "@/lib/ai/statExtractor";
@@ -1178,9 +1179,20 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         throw new Error(errMsg);
       }
 
+      // Brand Kit tipografi (2026-10-25, Phase 2) - resolve dari brand (null = pakai
+      // default, tampilan lama). usedFallbacks di-log supaya substitusi font TIDAK senyap
+      // (pelajaran bug Poppins Phase 1).
+      const brandKit = resolveBrandKit(brand?.brandKit);
+      if (brandKit && brandKit.usedFallbacks.length > 0) {
+        console.warn(`[brandKit] ${project.brandId} font fallback: ${brandKit.usedFallbacks.join("; ")}`);
+      }
+
       return renderFinalVideo({
         projectId: id,
         brandId: project.brandId,
+        subtitleDesign: brandKit?.subtitleDesign,
+        titleCardDesign: brandKit?.titleCardDesign,
+        headingFontFile: brandKit?.headingFontFile,
         segments: selected,
         srtContent: srtForRender,
         wordTimings: wordTimingsForRender,

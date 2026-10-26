@@ -22,9 +22,39 @@ export type SubtitleDesign = {
   outlineWidth: number; // px, skala sama dgn size
   shadow: boolean;
   highlightColor: string; // hex - warna kata yg SEDANG diucapkan saat ini
-  animation: "PopIn" | "None";
+  animation: SubtitleAnimation;
   position: "bottom-center" | "middle-center" | "top-center";
   maxLines: number; // wrap - burst kata dipecah ke MAKS sekian baris tampil
+  // Bold flag Style ASS (2026-10-25, Phase 2 Brand Kit). undefined = -1 (bold ON) =
+  // perilaku LAMA, dipertahankan utk DEFAULT_SUBTITLE_DESIGN (Poppins SemiBold yg
+  // sengaja di-faux-bold). Brand Kit set eksplisit sesuai weight font terpilih (lihat
+  // fontRegistry assBold): weight yg sudah tebal sendiri -> false (jangan dobel-bold).
+  bold?: boolean;
+};
+
+// Style ASS: -1 = bold true, 0 = false. undefined dipertahankan sbg -1 (lihat `bold`).
+function boldFlag(design: SubtitleDesign): number {
+  return design.bold === undefined ? -1 : design.bold ? -1 : 0;
+}
+
+// Preset animasi kata-yg-disorot (2026-10-25, Phase 1 audit video engine - "Additional
+// configurable subtitle animation presets"). SATU sumber definisi (registry) utk semua
+// gaya masuk kata disorot - setiap preset = fungsi yg menerima tag warna highlight (sdh
+// jadi `&Hbgr&`) & mengembalikan blok override ASS lengkap `{...}` yg dipasang DI DEPAN
+// kata. Semua tag di sini SUDAH diverifikasi inline-safe (per-kata, 1 Dialogue/kata -
+// lihat buildWordHighlightAss) & pakai hanya transform `\t` / `\alpha` / `\fscx/y` yg
+// didukung libass build server ini. Default tetap "PopIn" (perilaku lama, tidak berubah).
+export type SubtitleAnimation = "PopIn" | "FadeIn" | "Bounce" | "None";
+
+export const SUBTITLE_ANIMATION_PRESETS: Record<SubtitleAnimation, (highlightColorTag: string) => string> = {
+  // Kata disorot membesar 70%->100% dlm 120ms (bounce singkat khas TikTok/CapCut).
+  PopIn: (c) => `{\\c${c}\\fscx70\\fscy70\\t(0,120,\\fscx100\\fscy100)}`,
+  // Muncul dgn fade opacity (transparan->penuh dlm 150ms) - lebih halus, tanpa skala.
+  FadeIn: (c) => `{\\c${c}\\alpha&HFF&\\t(0,150,\\alpha&H00&)}`,
+  // Overshoot: 60%->110%->100% (pantulan lebih "berenergi" drpd PopIn).
+  Bounce: (c) => `{\\c${c}\\fscx60\\fscy60\\t(0,90,\\fscx110\\fscy110)\\t(90,180,\\fscx100\\fscy100)}`,
+  // Highlight warna saja tanpa animasi skala (fallback aman bila animasi dimatikan).
+  None: (c) => `{\\c${c}}`,
 };
 
 // Default (2026-08-10) - warna/animasi PERSIS mengikuti contoh yg dikirim Agus (putih +
@@ -66,7 +96,7 @@ function hexToAssBgr(hex: string): string {
   return `${b}${g}${r}`.toUpperCase();
 }
 // Utk field [V4+ Styles] (butuh prefix alpha 2-digit, 00 = penuh terlihat).
-function assStyleColor(hex: string): string {
+export function assStyleColor(hex: string): string {
   return `&H00${hexToAssBgr(hex)}&`;
 }
 // Utk override tag inline `{\c...}` (tanpa prefix alpha - alpha diatur terpisah lewat
@@ -157,16 +187,13 @@ function wrapBurstIndices(burst: WordTiming[], maxLines: number): number[] {
   return breaks;
 }
 
-// PopIn (2026-08-10) - kata yg SEDANG diucapkan membesar dari 70% -> 100% dlm 120ms
-// (bounce singkat khas caption TikTok/CapCut), warna highlight, LALU reset ke gaya
-// default (\r) utk kata2 lain di baris yg sama. "None" = highlight warna saja tanpa
-// animasi skala (fallback aman kalau suatu saat perlu animasi dimatikan).
+// Tag override ASS utk kata yg SEDANG diucapkan - warna highlight + animasi masuk sesuai
+// preset (lihat SUBTITLE_ANIMATION_PRESETS). Dipasang DI DEPAN kata, LALU di-reset ke
+// gaya default (\r) utk kata2 lain di baris yg sama (lihat buildWordHighlightAss).
 function highlightTagFor(design: SubtitleDesign): string {
   const highlight = assTagColor(design.highlightColor);
-  if (design.animation === "None") {
-    return `{\\c${highlight}}`;
-  }
-  return `{\\c${highlight}\\fscx70\\fscy70\\t(0,120,\\fscx100\\fscy100)}`;
+  const preset = SUBTITLE_ANIMATION_PRESETS[design.animation] ?? SUBTITLE_ANIMATION_PRESETS.PopIn;
+  return preset(highlight);
 }
 
 // Bangun 1 file .ass LENGKAP dgn efek "kata per kata" - highlight kata yg SEDANG
@@ -192,7 +219,7 @@ export function buildWordHighlightAss(
     `[Script Info]\nPlayResX: ${frameWidth}\nPlayResY: ${frameHeight}\nScaledBorderAndShadow: yes\n\n` +
     `[V4+ Styles]\n` +
     `Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n` +
-    `Style: Default,${design.font},${fontSize},${assStyleColor(design.color)},&H000000FF,${assStyleColor(design.outline)},&H00000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},${shadowDepth},${alignment},10,10,${marginV},1\n\n` +
+    `Style: Default,${design.font},${fontSize},${assStyleColor(design.color)},&H000000FF,${assStyleColor(design.outline)},&H00000000,${boldFlag(design)},0,0,0,100,100,0,0,1,${outlineWidth},${shadowDepth},${alignment},10,10,${marginV},1\n\n` +
     `[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
 
   const bursts = groupIntoBursts(words);
@@ -250,7 +277,7 @@ export function buildStaticAss(
     `[Script Info]\nPlayResX: ${frameWidth}\nPlayResY: ${frameHeight}\nScaledBorderAndShadow: yes\n\n` +
     `[V4+ Styles]\n` +
     `Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n` +
-    `Style: Default,${design.font},${fontSize},${assStyleColor(design.color)},&H000000FF,${assStyleColor(design.outline)},&H00000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},${shadowDepth},${alignment},10,10,${marginV},1\n\n` +
+    `Style: Default,${design.font},${fontSize},${assStyleColor(design.color)},&H000000FF,${assStyleColor(design.outline)},&H00000000,${boldFlag(design)},0,0,0,100,100,0,0,1,${outlineWidth},${shadowDepth},${alignment},10,10,${marginV},1\n\n` +
     `[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
   const events = entries.map((e) => `Dialogue: 0,${e.start},${e.end},Default,,0,0,0,,${e.text}`).join("\n");
   return header + events + "\n";

@@ -65,6 +65,33 @@ function parseAutoPublishTimes(raw: string | null | undefined): string[] {
   }
 }
 
+// Brand Kit / Font Studio (2026-10-25, Phase 2). Daftar font = SALINAN STATIS dari kurasi
+// di src/lib/render/fontRegistry.ts - SENGAJA tidak di-import (fontRegistry pakai node
+// `path`, tak bisa di client component). Validasi sebenarnya tetap di server (validateBrandKit),
+// ini cuma pilihan dropdown. Jaga tetap sinkron kalau menambah font kurasi.
+const FONT_OPTIONS: { id: string; label: string; weights: string[] }[] = [
+  { id: "poppins", label: "Poppins (sans)", weights: ["regular", "medium", "semibold", "bold"] },
+  { id: "bebasneue", label: "Bebas Neue (display)", weights: ["regular"] },
+  { id: "anton", label: "Anton (display)", weights: ["regular"] },
+  { id: "archivoblack", label: "Archivo Black (display)", weights: ["regular"] },
+  { id: "dmserifdisplay", label: "DM Serif Display (serif)", weights: ["regular"] },
+  { id: "pacifico", label: "Pacifico (script)", weights: ["regular"] },
+];
+const BK_DEFAULT = {
+  subtitleFont: "poppins", subtitleWeight: "semibold", headingFont: "poppins", headingWeight: "bold",
+  subtitleColor: "#FFFFFF", highlightColor: "#FFD84D", outlineColor: "#000000", outlineWidth: 4,
+  shadow: true, subtitleSize: 64, position: "bottom-center", animation: "PopIn",
+  primaryColor: "#FFFFFF", secondaryColor: "#FFD84D",
+};
+function parseBrandKit(raw: string | null | undefined): Record<string, unknown> & { _enabled: boolean } {
+  if (!raw) return { ...BK_DEFAULT, _enabled: false };
+  try {
+    return { ...BK_DEFAULT, ...(JSON.parse(raw) as object), _enabled: true };
+  } catch {
+    return { ...BK_DEFAULT, _enabled: false };
+  }
+}
+
 export function BrandSettingsSidebar({
   brandId,
   brand,
@@ -108,6 +135,12 @@ export function BrandSettingsSidebar({
   const [publishMode, setPublishMode] = useState(brand?.publishMode ?? "draft");
   const [autoPublishTimes, setAutoPublishTimes] = useState<string[]>(parseAutoPublishTimes(brand?.autoPublishTimes));
   const [savingAutomation, setSavingAutomation] = useState(false);
+  // Brand Kit / Font Studio (2026-10-25, Phase 2) - 1 object state (pola sama identity).
+  const [bk, setBk] = useState<Record<string, unknown> & { _enabled: boolean }>(parseBrandKit(brand?.brandKit));
+  const [savingBk, setSavingBk] = useState(false);
+  const bkWeights = FONT_OPTIONS.find((f) => f.id === bk.subtitleFont)?.weights ?? ["regular"];
+  const bkHeadingWeights = FONT_OPTIONS.find((f) => f.id === bk.headingFont)?.weights ?? ["regular"];
+  const setBkField = (k: string, v: unknown) => setBk((p) => ({ ...p, [k]: v }));
 
   const [manualIdeaList, setManualIdeaList] = useState<
     { id: string; idea: string; source: string; used: boolean; createdAt: string }[] | null
@@ -275,6 +308,29 @@ export function BrandSettingsSidebar({
     }
   }
 
+  // Brand Kit / Font Studio (2026-10-25, Phase 2) - _enabled off => kirim brandKit:null
+  // (reset ke DEFAULT = tampilan lama). Validasi akhir di server (validateBrandKit).
+  async function handleSaveBrandKit() {
+    setSavingBk(true);
+    const payload = bk._enabled
+      ? {
+          subtitleFont: bk.subtitleFont, subtitleWeight: bk.subtitleWeight,
+          headingFont: bk.headingFont, headingWeight: bk.headingWeight,
+          subtitleColor: bk.subtitleColor, highlightColor: bk.highlightColor,
+          outlineColor: bk.outlineColor, outlineWidth: Number(bk.outlineWidth),
+          shadow: Boolean(bk.shadow), subtitleSize: Number(bk.subtitleSize),
+          position: bk.position, animation: bk.animation,
+          primaryColor: bk.primaryColor, secondaryColor: bk.secondaryColor,
+        }
+      : null;
+    const ok = await patchBrand({ brandKit: payload });
+    setSavingBk(false);
+    if (ok) {
+      toast.success(bk._enabled ? "Brand Kit disimpan - berlaku di video berikutnya" : "Brand Kit di-reset ke default");
+      onChanged();
+    }
+  }
+
   async function handleUploadIdeas(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
@@ -311,6 +367,7 @@ export function BrandSettingsSidebar({
             <TabsTrigger value="knowledge">Knowledge Base</TabsTrigger>
             <TabsTrigger value="ideabank">Bank Ide</TabsTrigger>
             <TabsTrigger value="automation">Automation</TabsTrigger>
+            <TabsTrigger value="brandkit">Brand Kit</TabsTrigger>
           </TabsList>
 
           <TabsContent value="logo" className="space-y-4 pt-3">
@@ -695,6 +752,101 @@ export function BrandSettingsSidebar({
 
             <Button size="sm" onClick={handleSaveAutomation} disabled={savingAutomation || automationInvalid || autoPublishInvalid}>
               {savingAutomation ? "Menyimpan..." : "Simpan Automation"}
+            </Button>
+          </TabsContent>
+
+          <TabsContent value="brandkit" className="space-y-4 pt-3">
+            <p className="text-xs rounded-md border bg-muted/50 p-2.5">
+              🎨 Font Studio &amp; Brand Kit - tipografi &amp; warna khas brand utk subtitle, judul, &amp;
+              overlay video. Font sudah di-bundle (lisensi SIL OFL). Nonaktif = pakai gaya default
+              (Poppins) - video lama TIDAK berubah kecuali kamu aktifkan &amp; simpan di sini.
+            </p>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={!!bk._enabled} onChange={(e) => setBkField("_enabled", e.target.checked)} />
+              <span>Aktifkan Brand Kit kustom untuk brand ini</span>
+            </label>
+
+            <div className={bk._enabled ? "space-y-3" : "space-y-3 opacity-50 pointer-events-none"}>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Font Subtitle</Label>
+                  <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                    value={String(bk.subtitleFont)} onChange={(e) => setBkField("subtitleFont", e.target.value)}>
+                    {FONT_OPTIONS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Weight Subtitle</Label>
+                  <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                    value={bkWeights.includes(String(bk.subtitleWeight)) ? String(bk.subtitleWeight) : bkWeights[0]}
+                    onChange={(e) => setBkField("subtitleWeight", e.target.value)}>
+                    {bkWeights.map((w) => <option key={w} value={w}>{w}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Font Judul (heading/overlay)</Label>
+                  <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                    value={String(bk.headingFont)} onChange={(e) => setBkField("headingFont", e.target.value)}>
+                    {FONT_OPTIONS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Weight Judul</Label>
+                  <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                    value={bkHeadingWeights.includes(String(bk.headingWeight)) ? String(bk.headingWeight) : bkHeadingWeights[0]}
+                    onChange={(e) => setBkField("headingWeight", e.target.value)}>
+                    {bkHeadingWeights.map((w) => <option key={w} value={w}>{w}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Animasi Subtitle</Label>
+                  <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                    value={String(bk.animation)} onChange={(e) => setBkField("animation", e.target.value)}>
+                    {["PopIn", "FadeIn", "Bounce", "None"].map((a) => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Posisi Subtitle</Label>
+                  <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                    value={String(bk.position)} onChange={(e) => setBkField("position", e.target.value)}>
+                    {["bottom-center", "middle-center", "top-center"].map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Ukuran Subtitle (px @1080)</Label>
+                  <input type="number" min={20} max={200} className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                    value={Number(bk.subtitleSize)} onChange={(e) => setBkField("subtitleSize", e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Tebal Outline (px)</Label>
+                  <input type="number" min={0} max={20} className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                    value={Number(bk.outlineWidth)} onChange={(e) => setBkField("outlineWidth", e.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                {([
+                  ["subtitleColor", "Warna Teks"],
+                  ["highlightColor", "Warna Highlight"],
+                  ["outlineColor", "Warna Outline"],
+                  ["primaryColor", "Warna Utama"],
+                  ["secondaryColor", "Warna Sekunder"],
+                ] as const).map(([k, label]) => (
+                  <div key={k} className="space-y-1">
+                    <Label className="text-xs">{label}</Label>
+                    <input type="color" className="h-8 w-full rounded-md border border-input bg-transparent"
+                      value={String(bk[k])} onChange={(e) => setBkField(k, e.target.value)} />
+                  </div>
+                ))}
+                <label className="flex items-center gap-2 text-xs cursor-pointer self-end pb-1">
+                  <input type="checkbox" checked={!!bk.shadow} onChange={(e) => setBkField("shadow", e.target.checked)} />
+                  <span>Bayangan</span>
+                </label>
+              </div>
+            </div>
+
+            <Button size="sm" onClick={handleSaveBrandKit} disabled={savingBk}>
+              {savingBk ? "Menyimpan..." : bk._enabled ? "Simpan Brand Kit" : "Reset ke Default"}
             </Button>
           </TabsContent>
         </Tabs>
