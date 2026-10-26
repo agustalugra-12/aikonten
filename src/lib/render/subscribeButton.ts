@@ -37,10 +37,14 @@ export function buildSubscribeButtonFilterStages(
   outLabel: string,
   showLastSeconds: number = SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS,
   // Font Brand Kit (2026-10-25, Phase 2) - default = DejaVu lama (backward-compat).
-  fontFile: string = FONT_PATH
+  fontFile: string = FONT_PATH,
+  // Warna box CTA (2026-10-26, Fase 3) - default "#CC1F1F" (merah YouTube, perilaku lama).
+  // Terima hanya #RRGGBB tervalidasi; nilai lain fallback ke default (anti-injeksi).
+  buttonColor: string = "#CC1F1F"
 ): string[] {
   const startAt = Math.max(0, durationSeconds - showLastSeconds);
   const fadeInEnd = startAt + FADE_SECONDS;
+  const btn = /^#[0-9a-fA-F]{6}$/.test(buttonColor) ? buttonColor : "#CC1F1F";
   const escape = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "").replace(/:/g, "\\:");
   const text = escape(ctaText);
 
@@ -76,7 +80,7 @@ export function buildSubscribeButtonFilterStages(
   const pulseScale = `trunc(${bellSize}*(1+${PULSE_AMPLITUDE}*sin(2*PI*t*${PULSE_HZ})))`;
 
   return [
-    `[${curLabel}]drawbox=x=${boxX}:y=${boxY}:w=${boxW}:h=${boxH}:color=#CC1F1F@0.85:t=fill:enable='${enableExpr}'[${boxLabel}]`,
+    `[${curLabel}]drawbox=x=${boxX}:y=${boxY}:w=${boxW}:h=${boxH}:color=${btn}@0.85:t=fill:enable='${enableExpr}'[${boxLabel}]`,
     `[${bellInputIdx}:v]format=rgba,scale=w='${pulseScale}':h='${pulseScale}':eval=frame[${bellFmtLabel}]`,
     `[${boxLabel}][${bellFmtLabel}]overlay=${bellX}:${bellY}:enable='${enableExpr}'[${bellOverlaidLabel}]`,
     `[${bellOverlaidLabel}]drawtext=fontfile=${fontFile}:text='${text}':fontsize=${fontSize}:fontcolor=white:` +

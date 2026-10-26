@@ -340,6 +340,8 @@ export async function renderFinalVideo(opts: {
   titleDurationSeconds?: number;
   // Lower Third warna aksen (2026-10-26, Fase 3) - "#RRGGBB" dari brand; undefined = putih lama.
   lowerThirdAccentColor?: string;
+  // CTA warna box (2026-10-26, Fase 3) - "#RRGGBB" dari brand; undefined = merah lama.
+  ctaButtonColor?: string;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -803,7 +805,7 @@ export async function renderFinalVideo(opts: {
     // (di atas, dekat subscribeAccentStart) utk alasan lengkap.
     if (opts.ctaText && bellInputIdx !== null) {
       filterStages.push(
-        ...buildSubscribeButtonFilterStages(bellInputIdx, opts.ctaText, TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds, curLabel, "vout", SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS, opts.headingFontFile)
+        ...buildSubscribeButtonFilterStages(bellInputIdx, opts.ctaText, TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds, curLabel, "vout", SUBSCRIBE_BUTTON_SHOW_LAST_SECONDS, opts.headingFontFile, opts.ctaButtonColor)
       );
       curLabel = "vout";
     } else {

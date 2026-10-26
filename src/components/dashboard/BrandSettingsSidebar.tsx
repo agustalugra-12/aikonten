@@ -84,7 +84,7 @@ const BK_DEFAULT = {
   subtitleFont: "poppins", subtitleWeight: "semibold", headingFont: "poppins", headingWeight: "bold",
   subtitleColor: "#FFFFFF", highlightColor: "#FFD84D", outlineColor: "#000000", outlineWidth: 4,
   shadow: true, subtitleSize: 64, position: "bottom-center", animation: "PopIn",
-  primaryColor: "#FFFFFF", secondaryColor: "#FFD84D",
+  primaryColor: "#FFFFFF", secondaryColor: "#FFD84D", ctaColor: "#CC1F1F",
   // Animated Title (Fase 3) - flat di state, di-nest jadi {title:{...}} saat simpan.
   titleEnabled: false, titlePreset: "FadePop", titlePosition: "middle-center", titleDuration: 2.5,
 };
@@ -336,7 +336,7 @@ export function BrandSettingsSidebar({
           outlineColor: bk.outlineColor, outlineWidth: Number(bk.outlineWidth),
           shadow: Boolean(bk.shadow), subtitleSize: Number(bk.subtitleSize),
           position: bk.position, animation: bk.animation,
-          primaryColor: bk.primaryColor, secondaryColor: bk.secondaryColor,
+          primaryColor: bk.primaryColor, secondaryColor: bk.secondaryColor, ctaColor: bk.ctaColor,
           title: {
             enabled: Boolean(bk.titleEnabled), preset: bk.titlePreset,
             position: bk.titlePosition, durationSeconds: Number(bk.titleDuration),
@@ -851,6 +851,7 @@ export function BrandSettingsSidebar({
                   ["outlineColor", "Warna Outline"],
                   ["primaryColor", "Warna Utama"],
                   ["secondaryColor", "Warna Sekunder"],
+                  ["ctaColor", "Warna CTA"],
                 ] as const).map(([k, label]) => (
                   <div key={k} className="space-y-1">
                     <Label className="text-xs">{label}</Label>

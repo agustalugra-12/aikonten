@@ -1201,6 +1201,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         titleDurationSeconds: brandKit?.titleDurationSeconds,
         // Lower Third warna aksen (Fase 3) - dari primaryColor brand; undefined = putih lama.
         lowerThirdAccentColor: brandKit?.lowerThirdAccentColor,
+        // CTA warna box (Fase 3) - dari ctaColor brand; undefined = merah YouTube lama.
+        ctaButtonColor: brandKit?.ctaButtonColor,
         segments: selected,
         srtContent: srtForRender,
         wordTimings: wordTimingsForRender,

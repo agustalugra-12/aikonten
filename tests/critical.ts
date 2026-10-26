@@ -166,6 +166,17 @@ async function run() {
   ok("lowerThird accent invalid -> fallback putih (anti-injeksi)", lt.buildLowerThirdFilter("Nama", "tagline", 1080, 1920, undefined, "red;drawbox").includes("color=white@0.9"));
   ok("resolveBrandKit expose lowerThirdAccentColor dari primaryColor", bkm.resolveBrandKit(JSON.stringify({ primaryColor: "#112233" }))?.lowerThirdAccentColor === "#112233");
 
+  // ---------- Fase 3: CTA warna box brand (2026-10-26) ----------
+  const sb = await import("../src/lib/render/subscribeButton.ts");
+  const ctaDefault = sb.buildSubscribeButtonFilterStages(1, "Subscribe", 1080, 1920, 30, "v", "out").join("|");
+  ok("CTA default = box merah #CC1F1F (backward-compat)", ctaDefault.includes("color=#CC1F1F@0.85"));
+  const ctaBrand = sb.buildSubscribeButtonFilterStages(1, "Follow", 1080, 1920, 30, "v", "out", undefined, undefined, "#1DA1F2").join("|");
+  ok("CTA warna brand #1DA1F2 dipakai", ctaBrand.includes("color=#1DA1F2@0.85"));
+  const ctaBad = sb.buildSubscribeButtonFilterStages(1, "Follow", 1080, 1920, 30, "v", "out", undefined, undefined, "x;drawbox").join("|");
+  ok("CTA warna invalid -> fallback merah (anti-injeksi)", ctaBad.includes("color=#CC1F1F@0.85"));
+  ok("validateBrandKit ctaColor hex valid", bkm.validateBrandKit({ ctaColor: "#1DA1F2" }).ok === true && bkm.validateBrandKit({ ctaColor: "biru" }).ok === false);
+  ok("resolveBrandKit expose ctaButtonColor", bkm.resolveBrandKit(JSON.stringify({ ctaColor: "#1DA1F2" }))?.ctaButtonColor === "#1DA1F2");
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

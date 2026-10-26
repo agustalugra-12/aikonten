@@ -38,8 +38,9 @@ export type BrandKit = {
   subtitleSize?: number; // px @ 1080
   position?: SubtitleDesign["position"];
   animation?: SubtitleAnimation;
-  primaryColor?: string; // #RRGGBB - warna brand utama (heading/title, aksen)
+  primaryColor?: string; // #RRGGBB - warna brand utama (heading/title, aksen lower third)
   secondaryColor?: string; // #RRGGBB - warna brand sekunder
+  ctaColor?: string; // #RRGGBB - warna box CTA/subscribe (Fase 3); undefined = merah YouTube
   // Animated Title (2026-10-26, Fase 3 Motion Library). Opsional & DEFAULT-OFF: kalau
   // title.enabled tidak true, title card TIDAK dirender (video lama tak berubah). Teksnya
   // dari hookText (processProject.ts). Font/warna judul ikut heading font + primaryColor.
@@ -76,7 +77,7 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
       out[key] = o[key] as FontWeight;
     }
   }
-  for (const key of ["subtitleColor", "highlightColor", "outlineColor", "primaryColor", "secondaryColor"] as const) {
+  for (const key of ["subtitleColor", "highlightColor", "outlineColor", "primaryColor", "secondaryColor", "ctaColor"] as const) {
     if (key in o && o[key] !== undefined) {
       if (typeof o[key] !== "string" || !HEX.test(o[key] as string)) return { ok: false, error: `${key} harus warna hex #RRGGBB` };
       out[key] = o[key] as string;
@@ -143,6 +144,8 @@ export type ResolvedBrandKit = {
   titleDurationSeconds: number;
   // Lower Third (Fase 3) - warna aksen bar = primaryColor brand (undefined -> putih lama).
   lowerThirdAccentColor?: string;
+  // CTA (Fase 3) - warna box subscribe/follow = ctaColor brand (undefined -> merah lama).
+  ctaButtonColor?: string;
 };
 
 // Dipakai renderer (processProject). json = kolom brands.brandKit mentah. null/kosong/
@@ -197,5 +200,6 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
     titlePosition: isTitlePosition(bk.title?.position) ? (bk.title!.position as TitlePosition) : DEFAULT_TITLE_POSITION,
     titleDurationSeconds: typeof bk.title?.durationSeconds === "number" ? bk.title.durationSeconds : 2.5,
     lowerThirdAccentColor: bk.primaryColor,
+    ctaButtonColor: bk.ctaColor,
   };
 }
