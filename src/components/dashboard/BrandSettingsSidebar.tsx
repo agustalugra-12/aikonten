@@ -77,16 +77,32 @@ const FONT_OPTIONS: { id: string; label: string; weights: string[] }[] = [
   { id: "dmserifdisplay", label: "DM Serif Display (serif)", weights: ["regular"] },
   { id: "pacifico", label: "Pacifico (script)", weights: ["regular"] },
 ];
+// Animated Title (Fase 3) - opsi preset (SALINAN STATIS dari motionPresets.TITLE_ANIMATION_IDS).
+const TITLE_PRESET_OPTIONS = ["FadePop", "ZoomIn", "PopBounce"];
+const TITLE_POSITION_OPTIONS = ["top-center", "middle-center", "bottom-center"];
 const BK_DEFAULT = {
   subtitleFont: "poppins", subtitleWeight: "semibold", headingFont: "poppins", headingWeight: "bold",
   subtitleColor: "#FFFFFF", highlightColor: "#FFD84D", outlineColor: "#000000", outlineWidth: 4,
   shadow: true, subtitleSize: 64, position: "bottom-center", animation: "PopIn",
   primaryColor: "#FFFFFF", secondaryColor: "#FFD84D",
+  // Animated Title (Fase 3) - flat di state, di-nest jadi {title:{...}} saat simpan.
+  titleEnabled: false, titlePreset: "FadePop", titlePosition: "middle-center", titleDuration: 2.5,
 };
 function parseBrandKit(raw: string | null | undefined): Record<string, unknown> & { _enabled: boolean } {
   if (!raw) return { ...BK_DEFAULT, _enabled: false };
   try {
-    return { ...BK_DEFAULT, ...(JSON.parse(raw) as object), _enabled: true };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const t = (parsed.title ?? {}) as Record<string, unknown>;
+    // Ratakan title.{...} -> field flat state (abaikan title mentah di spread).
+    const { title: _ignore, ...rest } = parsed;
+    void _ignore;
+    return {
+      ...BK_DEFAULT, ...rest, _enabled: true,
+      titleEnabled: t.enabled === true,
+      titlePreset: typeof t.preset === "string" ? t.preset : BK_DEFAULT.titlePreset,
+      titlePosition: typeof t.position === "string" ? t.position : BK_DEFAULT.titlePosition,
+      titleDuration: typeof t.durationSeconds === "number" ? t.durationSeconds : BK_DEFAULT.titleDuration,
+    };
   } catch {
     return { ...BK_DEFAULT, _enabled: false };
   }
@@ -321,6 +337,10 @@ export function BrandSettingsSidebar({
           shadow: Boolean(bk.shadow), subtitleSize: Number(bk.subtitleSize),
           position: bk.position, animation: bk.animation,
           primaryColor: bk.primaryColor, secondaryColor: bk.secondaryColor,
+          title: {
+            enabled: Boolean(bk.titleEnabled), preset: bk.titlePreset,
+            position: bk.titlePosition, durationSeconds: Number(bk.titleDuration),
+          },
         }
       : null;
     const ok = await patchBrand({ brandKit: payload });
@@ -842,6 +862,34 @@ export function BrandSettingsSidebar({
                   <input type="checkbox" checked={!!bk.shadow} onChange={(e) => setBkField("shadow", e.target.checked)} />
                   <span>Bayangan</span>
                 </label>
+              </div>
+
+              <div className="space-y-2 border-t pt-3">
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input type="checkbox" checked={!!bk.titleEnabled} onChange={(e) => setBkField("titleEnabled", e.target.checked)} />
+                  <span>🎬 Judul beranimasi (dari hook konten, muncul di awal video)</span>
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Animasi</Label>
+                    <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                      value={String(bk.titlePreset)} onChange={(e) => setBkField("titlePreset", e.target.value)}>
+                      {TITLE_PRESET_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Posisi</Label>
+                    <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                      value={String(bk.titlePosition)} onChange={(e) => setBkField("titlePosition", e.target.value)}>
+                      {TITLE_POSITION_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Durasi (dtk)</Label>
+                    <input type="number" min={1} max={6} step={0.5} className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                      value={Number(bk.titleDuration)} onChange={(e) => setBkField("titleDuration", e.target.value)} />
+                  </div>
+                </div>
               </div>
             </div>
 

@@ -135,6 +135,30 @@ async function run() {
   ok("SubtitleDesign bold:false -> Style Bold 0", assBoldOff.includes(",&H00000000,0,0,0,0,100,100,"));
   ok("SubtitleDesign default (undefined) -> Style Bold -1 (lama)", ass.includes(",&H00000000,-1,0,0,0,100,100,"));
 
+  // ---------- Fase 3: Motion Library - Animated Title (2026-10-26) ----------
+  const mp = await import("../src/lib/render/motionPresets.ts");
+  ok("TITLE_ANIMATIONS FadePop (default) = \\fad+pop 60->100", mp.TITLE_ANIMATIONS.FadePop({ an: 5 }).includes("\\an5\\fad(300,300)\\fscx60"));
+  ok("TITLE_ANIMATIONS ZoomIn = skala 35", mp.TITLE_ANIMATIONS.ZoomIn({ an: 5 }).includes("\\fscx35"));
+  ok("TITLE_ANIMATIONS PopBounce = 2x \\t (overshoot)", (mp.TITLE_ANIMATIONS.PopBounce({ an: 5 }).match(/\\t\(/g) ?? []).length === 2);
+  ok("titleAlignment top/middle/bottom = 8/5/2", mp.titleAlignment("top-center") === 8 && mp.titleAlignment("middle-center") === 5 && mp.titleAlignment("bottom-center") === 2);
+  ok("resolveTitleAnimation invalid -> FadePop + fallback", mp.resolveTitleAnimation("ngawur").animation === "FadePop" && mp.resolveTitleAnimation("ngawur").usedFallback === true);
+  ok("isTitleAnimation tolak sembarang", !mp.isTitleAnimation("../x") && mp.isTitleAnimation("ZoomIn"));
+
+  // (tc = titleCard sudah di-import di blok tes Fase 1 di atas - reuse)
+  ok("buildTitleCardAss default = FadePop (fscx60)", tc.buildTitleCardAss("Halo", tc.DEFAULT_TITLE_CARD_DESIGN, 1080, 1920).includes("\\fscx60"));
+  ok("buildTitleCardAss animation=ZoomIn", tc.buildTitleCardAss("Halo", { ...tc.DEFAULT_TITLE_CARD_DESIGN, animation: "ZoomIn" }, 1080, 1920).includes("\\fscx35"));
+  ok("buildTitleCardAss position top-center -> alignment 8 di Style", tc.buildTitleCardAss("Halo", tc.DEFAULT_TITLE_CARD_DESIGN, 1080, 1920, { position: "top-center" }).includes(",1,6,0,8,40,40,"));
+
+  ok("validateBrandKit title valid", bkm.validateBrandKit({ title: { enabled: true, preset: "ZoomIn", position: "top-center", durationSeconds: 3 } }).ok === true);
+  ok("validateBrandKit title.preset asing ditolak", bkm.validateBrandKit({ title: { preset: "Explode" } }).ok === false);
+  ok("validateBrandKit title.position asing ditolak", bkm.validateBrandKit({ title: { position: "corner" } }).ok === false);
+  ok("validateBrandKit title.durationSeconds di luar rentang ditolak", bkm.validateBrandKit({ title: { durationSeconds: 99 } }).ok === false);
+  ok("validateBrandKit title.enabled non-bool ditolak", bkm.validateBrandKit({ title: { enabled: "ya" } }).ok === false);
+
+  const rtk = bkm.resolveBrandKit(JSON.stringify({ title: { enabled: true, preset: "PopBounce", position: "bottom-center", durationSeconds: 4 } }));
+  ok("resolveBrandKit title enabled -> titleEnabled true + preset + posisi", rtk?.titleEnabled === true && rtk?.titleCardDesign.animation === "PopBounce" && rtk?.titlePosition === "bottom-center" && rtk?.titleDurationSeconds === 4);
+  ok("resolveBrandKit tanpa title -> titleEnabled FALSE (default-off, backward-compat)", bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "anton" }))?.titleEnabled === false);
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

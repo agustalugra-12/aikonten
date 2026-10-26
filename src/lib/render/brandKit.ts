@@ -11,6 +11,14 @@ import {
   type SubtitleAnimation,
 } from "./subtitleDesign";
 import { DEFAULT_TITLE_CARD_DESIGN, type TitleCardDesign } from "./titleCard";
+import {
+  isTitleAnimation,
+  isTitlePosition,
+  resolveTitleAnimation,
+  DEFAULT_TITLE_POSITION,
+  type TitleAnimation,
+  type TitlePosition,
+} from "./motionPresets";
 
 // Brand Kit (2026-10-25, Phase 2). Tipografi & palet per-tenant yg DISIMPAN sbg 1 kolom
 // JSON `brandKit` di tabel brands (lihat schema.ts). SEMUA field opsional - yg kosong
@@ -32,6 +40,15 @@ export type BrandKit = {
   animation?: SubtitleAnimation;
   primaryColor?: string; // #RRGGBB - warna brand utama (heading/title, aksen)
   secondaryColor?: string; // #RRGGBB - warna brand sekunder
+  // Animated Title (2026-10-26, Fase 3 Motion Library). Opsional & DEFAULT-OFF: kalau
+  // title.enabled tidak true, title card TIDAK dirender (video lama tak berubah). Teksnya
+  // dari hookText (processProject.ts). Font/warna judul ikut heading font + primaryColor.
+  title?: {
+    enabled?: boolean;
+    preset?: TitleAnimation;
+    position?: TitlePosition;
+    durationSeconds?: number; // 1-6 dtk tampil
+  };
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -87,6 +104,30 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
     if (!ANIMATIONS.includes(o.animation as string)) return { ok: false, error: "animation harus PopIn/FadeIn/Bounce/None" };
     out.animation = o.animation as SubtitleAnimation;
   }
+  // Animated Title (2026-10-26, Fase 3) - validasi ketat tiap sub-field (enum/bool/range).
+  if ("title" in o && o.title !== undefined && o.title !== null) {
+    if (typeof o.title !== "object" || Array.isArray(o.title)) return { ok: false, error: "title harus object" };
+    const t = o.title as Record<string, unknown>;
+    const ot: NonNullable<BrandKit["title"]> = {};
+    if ("enabled" in t && t.enabled !== undefined) {
+      if (typeof t.enabled !== "boolean") return { ok: false, error: "title.enabled harus boolean" };
+      ot.enabled = t.enabled;
+    }
+    if ("preset" in t && t.preset !== undefined) {
+      if (!isTitleAnimation(t.preset)) return { ok: false, error: "title.preset harus FadePop/ZoomIn/PopBounce" };
+      ot.preset = t.preset as TitleAnimation;
+    }
+    if ("position" in t && t.position !== undefined) {
+      if (!isTitlePosition(t.position)) return { ok: false, error: "title.position harus top-center/middle-center/bottom-center" };
+      ot.position = t.position as TitlePosition;
+    }
+    if ("durationSeconds" in t && t.durationSeconds !== undefined) {
+      const v = Number(t.durationSeconds);
+      if (!Number.isFinite(v) || v < 1 || v > 6) return { ok: false, error: "title.durationSeconds harus 1-6" };
+      ot.durationSeconds = v;
+    }
+    out.title = ot;
+  }
   return { ok: true, value: out };
 }
 
@@ -95,6 +136,11 @@ export type ResolvedBrandKit = {
   titleCardDesign: TitleCardDesign;
   headingFontFile: string; // path absolut utk drawtext fontfile=
   usedFallbacks: string[]; // non-kosong = ada font yg disubstitusi (WAJIB di-log)
+  // Animated Title (Fase 3). titleEnabled=false => renderer TIDAK render title card
+  // (default-off, backward-compat). Posisi/durasi dipakai saat enabled.
+  titleEnabled: boolean;
+  titlePosition: TitlePosition;
+  titleDurationSeconds: number;
 };
 
 // Dipakai renderer (processProject). json = kolom brands.brandKit mentah. null/kosong/
@@ -126,16 +172,27 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
     maxLines: DEFAULT_SUBTITLE_DESIGN.maxLines,
   };
 
+  const titleAnim = resolveTitleAnimation(bk.title?.preset);
   const titleCardDesign: TitleCardDesign = {
     ...DEFAULT_TITLE_CARD_DESIGN,
     font: heading.assName,
     color: bk.primaryColor ?? DEFAULT_TITLE_CARD_DESIGN.color,
     outline: bk.outlineColor ?? DEFAULT_TITLE_CARD_DESIGN.outline,
+    animation: titleAnim.animation,
   };
 
   const usedFallbacks: string[] = [];
   if (sub.usedFallback) usedFallbacks.push(`subtitle font (${String(bk.subtitleFont)}/${String(bk.subtitleWeight)} -> ${sub.family}/${sub.weight})`);
   if (heading.usedFallback) usedFallbacks.push(`heading font (${String(bk.headingFont)}/${String(bk.headingWeight)} -> ${heading.family}/${heading.weight})`);
+  if (titleAnim.usedFallback) usedFallbacks.push(`title preset (${String(bk.title?.preset)} -> ${titleAnim.animation})`);
 
-  return { subtitleDesign, titleCardDesign, headingFontFile: heading.fileAbsolute, usedFallbacks };
+  return {
+    subtitleDesign,
+    titleCardDesign,
+    headingFontFile: heading.fileAbsolute,
+    usedFallbacks,
+    titleEnabled: bk.title?.enabled === true,
+    titlePosition: isTitlePosition(bk.title?.position) ? (bk.title!.position as TitlePosition) : DEFAULT_TITLE_POSITION,
+    titleDurationSeconds: typeof bk.title?.durationSeconds === "number" ? bk.title.durationSeconds : 2.5,
+  };
 }

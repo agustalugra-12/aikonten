@@ -1193,6 +1193,12 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         subtitleDesign: brandKit?.subtitleDesign,
         titleCardDesign: brandKit?.titleCardDesign,
         headingFontFile: brandKit?.headingFontFile,
+        // Animated Title (2026-10-26, Fase 3) - HANYA kalau brand mengaktifkan di Brand Kit
+        // (default-off). Teks = hookText (hook konten). Kosong/null hookText -> tak ada
+        // title (undefined) -> perilaku lama. Video brand tanpa Brand Kit tak terpengaruh.
+        titleText: brandKit?.titleEnabled && hookText && hookText.trim() ? hookText.trim() : undefined,
+        titlePosition: brandKit?.titlePosition,
+        titleDurationSeconds: brandKit?.titleDurationSeconds,
         segments: selected,
         srtContent: srtForRender,
         wordTimings: wordTimingsForRender,

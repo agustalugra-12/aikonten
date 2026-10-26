@@ -1,4 +1,11 @@
 import { assStyleColor } from "./subtitleDesign";
+import {
+  TITLE_ANIMATIONS,
+  DEFAULT_TITLE_ANIMATION,
+  titleAlignment,
+  type TitleAnimation,
+  type TitlePosition,
+} from "./motionPresets";
 
 // Title Card animasi (2026-10-25, Phase 1 audit video engine - "Animated title or
 // title-card preset"). Teks judul/hook besar di TENGAH frame utk beberapa detik PERTAMA
@@ -23,6 +30,9 @@ export type TitleCardDesign = {
   outline: string; // hex
   size: number; // px @ lebar referensi 1080 (diskalakan ke lebar frame asli)
   outlineWidth: number; // px @ 1080
+  // Preset animasi masuk (2026-10-26, Fase 3 - lihat motionPresets.TITLE_ANIMATIONS).
+  // undefined = FadePop (perilaku Fase 1 persis).
+  animation?: TitleAnimation;
 };
 
 export const DEFAULT_TITLE_CARD_DESIGN: TitleCardDesign = {
@@ -31,6 +41,7 @@ export const DEFAULT_TITLE_CARD_DESIGN: TitleCardDesign = {
   outline: "#000000",
   size: 96,
   outlineWidth: 6,
+  animation: DEFAULT_TITLE_ANIMATION,
 };
 
 const REFERENCE_WIDTH = 1080;
@@ -54,7 +65,7 @@ export function buildTitleCardAss(
   design: TitleCardDesign,
   frameWidth: number,
   frameHeight: number,
-  opts: { startSeconds?: number; durationSeconds?: number } = {}
+  opts: { startSeconds?: number; durationSeconds?: number; position?: TitlePosition } = {}
 ): string {
   const start = opts.startSeconds ?? 0;
   const duration = opts.durationSeconds ?? 2.5;
@@ -62,20 +73,26 @@ export function buildTitleCardAss(
   const fontSize = scaleToFrame(design.size, frameWidth);
   const outlineWidth = scaleToFrame(design.outlineWidth, frameWidth);
 
+  // Posisi (2026-10-26, Fase 3) - default middle-center (perilaku Fase 1). Alignment 5
+  // (tengah) abaikan MarginV; atas/bawah pakai margin ~12% tinggi frame biar tak mepet tepi.
+  const position = opts.position ?? "middle-center";
+  const alignment = titleAlignment(position);
+  const marginV = alignment === 5 ? 0 : Math.round(frameHeight * 0.12);
+
   // Buang karakter yg bentrok dgn ASS override tags; batasi 1 baris aman (wrap otomatis
   // libass kalau kepanjangan). Judul biasanya pendek (hook) - tidak diparse NLP.
   const clean = text.replace(/[{}\n\r]/g, " ").trim();
 
-  const fadeInMs = 300;
-  const fadeOutMs = 300;
-  const popMs = 250;
-  const entrance = `{\\an5\\fad(${fadeInMs},${fadeOutMs})\\fscx60\\fscy60\\t(0,${popMs},\\fscx100\\fscy100)}`;
+  // Animasi masuk dari registry (default FadePop = Fase 1). Fallback aman kalau animation
+  // tak dikenal (seharusnya sudah divalidasi di hulu).
+  const animFn = TITLE_ANIMATIONS[design.animation ?? DEFAULT_TITLE_ANIMATION] ?? TITLE_ANIMATIONS[DEFAULT_TITLE_ANIMATION];
+  const entrance = animFn({ an: alignment });
 
   const header =
     `[Script Info]\nPlayResX: ${frameWidth}\nPlayResY: ${frameHeight}\nScaledBorderAndShadow: yes\n\n` +
     `[V4+ Styles]\n` +
     `Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n` +
-    `Style: Title,${design.font},${fontSize},${assStyleColor(design.color)},&H000000FF,${assStyleColor(design.outline)},&H00000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},0,5,40,40,0,1\n\n` +
+    `Style: Title,${design.font},${fontSize},${assStyleColor(design.color)},&H000000FF,${assStyleColor(design.outline)},&H00000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},0,${alignment},40,40,${marginV},1\n\n` +
     `[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
 
   const event = `Dialogue: 0,${secondsToAss(start)},${secondsToAss(end)},Title,,0,0,0,,${entrance}${clean}`;

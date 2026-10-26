@@ -10,6 +10,7 @@ import { runFfmpeg } from "./ffmpegExec";
 import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/ai/logoOverlay";
 import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN, type SubtitleDesign } from "./subtitleDesign";
 import { buildTitleCardAss, DEFAULT_TITLE_CARD_DESIGN, type TitleCardDesign } from "./titleCard";
+import type { TitlePosition } from "./motionPresets";
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
 import {
   computeClipSequencePlan,
@@ -333,6 +334,10 @@ export async function renderFinalVideo(opts: {
   subtitleDesign?: SubtitleDesign;
   titleCardDesign?: TitleCardDesign;
   headingFontFile?: string;
+  // Animated Title posisi & durasi (2026-10-26, Fase 3) - opsional, default
+  // middle-center / 2.5dtk (= perilaku titleCard Fase 1). Hanya relevan kalau titleText ada.
+  titlePosition?: TitlePosition;
+  titleDurationSeconds?: number;
 }): Promise<RenderResult> {
   if (opts.segments.length === 0) {
     throw new Error("Tidak ada klip footage asli terpilih utk dirender");
@@ -468,6 +473,8 @@ export async function renderFinalVideo(opts: {
         titleAssPath,
         buildTitleCardAss(opts.titleText.trim(), opts.titleCardDesign ?? DEFAULT_TITLE_CARD_DESIGN, TARGET_WIDTH, TARGET_HEIGHT, {
           startSeconds: leadInSeconds,
+          position: opts.titlePosition,
+          durationSeconds: opts.titleDurationSeconds,
         })
       );
     }
