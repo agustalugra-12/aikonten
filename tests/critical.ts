@@ -177,6 +177,18 @@ async function run() {
   ok("validateBrandKit ctaColor hex valid", bkm.validateBrandKit({ ctaColor: "#1DA1F2" }).ok === true && bkm.validateBrandKit({ ctaColor: "biru" }).ok === false);
   ok("resolveBrandKit expose ctaButtonColor", bkm.resolveBrandKit(JSON.stringify({ ctaColor: "#1DA1F2" }))?.ctaButtonColor === "#1DA1F2");
 
+  // ---------- Fase 3D: Transitions per Brand (2026-10-27) ----------
+  const tr = await import("../src/lib/render/transitions.ts");
+  ok("brandTransitionType fade->fade, dissolve->dissolve, wipe->wipeleft", tr.brandTransitionType("fade") === "fade" && tr.brandTransitionType("dissolve") === "dissolve" && tr.brandTransitionType("wipe") === "wipeleft");
+  ok("brandTransitionType auto->null (tak override = perilaku lama)", tr.brandTransitionType("auto") === null && tr.brandTransitionType("ngawur") === null);
+  ok("isBrandTransitionStyle tolak sembarang", !tr.isBrandTransitionStyle("xfade=0") && tr.isBrandTransitionStyle("dissolve"));
+  ok("dissolve/wipeleft TIDAK di ALL_TRANSITION_TYPES (fallback Director tak berubah)", !tr.ALL_TRANSITION_TYPES.includes("dissolve") && !tr.ALL_TRANSITION_TYPES.includes("wipeleft") && tr.ALL_TRANSITION_TYPES.length === 10);
+  ok("override jaga panjang array (durasi sama)", [..."abc"].map(() => tr.brandTransitionType("dissolve")).length === 3);
+  ok("validateBrandKit transition.style valid", bkm.validateBrandKit({ transition: { style: "dissolve" } }).ok === true);
+  ok("validateBrandKit transition.style asing ditolak (anti filter mentah)", bkm.validateBrandKit({ transition: { style: "xfade=custom" } }).ok === false);
+  ok("resolveBrandKit transitionStyle di-set", bkm.resolveBrandKit(JSON.stringify({ transition: { style: "wipe" } }))?.transitionStyle === "wipe");
+  ok("resolveBrandKit tanpa transition -> auto (default lama)", bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "anton" }))?.transitionStyle === "auto");
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

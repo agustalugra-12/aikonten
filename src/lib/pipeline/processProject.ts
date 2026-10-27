@@ -21,6 +21,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit } from "@/lib/render/brandKit";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
+import { brandTransitionType } from "@/lib/render/transitions";
 import { detectBeats } from "@/lib/ai/beatDetect";
 import { extractStatOverlays } from "@/lib/ai/statExtractor";
 import { extractLowerThird } from "@/lib/ai/lowerThirdExtractor";
@@ -1187,6 +1188,16 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         console.warn(`[brandKit] ${project.brandId} font fallback: ${brandKit.usedFallbacks.join("; ")}`);
       }
 
+      // Transitions per Brand (2026-10-27, Fase 3D) - kalau brand pilih style spesifik
+      // (fade/dissolve/wipe), PAKSA tipe itu utk SEMUA boundary. Panjang array DIPERTAHANKAN
+      // (= jumlah celah yg sama) sehingga computeBoundaryPlans tetap putuskan transisi vs cut
+      // dari durasi klip -> STRUKTUR & DURASI video SAMA, audio tak bergeser. "auto"/tanpa
+      // Brand Kit -> null -> tetap pakai keputusan AI Director (perilaku lama).
+      const forcedTransition = brandKit ? brandTransitionType(brandKit.transitionStyle) : null;
+      const finalTransitions = forcedTransition
+        ? directorDecision.transitions.map(() => forcedTransition)
+        : directorDecision.transitions;
+
       return renderFinalVideo({
         projectId: id,
         brandId: project.brandId,
@@ -1212,7 +1223,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         // presisi dibangun) - di sini tinggal diteruskan, bukan generate baru lagi.
         voiceoverAudioBuffer: voiceoverBuffer,
         motions: directorDecision.motions,
-        transitions: directorDecision.transitions,
+        transitions: finalTransitions,
         musicUrl,
         musicBeatTimestamps: musicBeats.beatTimestamps,
         stickerClipIndex: directorDecision.stickerClipIndex,

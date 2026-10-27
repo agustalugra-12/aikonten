@@ -80,6 +80,9 @@ const FONT_OPTIONS: { id: string; label: string; weights: string[] }[] = [
 // Animated Title (Fase 3) - opsi preset (SALINAN STATIS dari motionPresets.TITLE_ANIMATION_IDS).
 const TITLE_PRESET_OPTIONS = ["FadePop", "ZoomIn", "PopBounce"];
 const TITLE_POSITION_OPTIONS = ["top-center", "middle-center", "bottom-center"];
+// Transitions per Brand (Fase 3D) - style transisi antar-adegan (SALINAN STATIS dari
+// transitions.BRAND_TRANSITION_STYLES). "auto" = AI Director (default lama).
+const TRANSITION_STYLE_OPTIONS = ["auto", "fade", "dissolve", "wipe"];
 const BK_DEFAULT = {
   subtitleFont: "poppins", subtitleWeight: "semibold", headingFont: "poppins", headingWeight: "bold",
   subtitleColor: "#FFFFFF", highlightColor: "#FFD84D", outlineColor: "#000000", outlineWidth: 4,
@@ -87,21 +90,25 @@ const BK_DEFAULT = {
   primaryColor: "#FFFFFF", secondaryColor: "#FFD84D", ctaColor: "#CC1F1F",
   // Animated Title (Fase 3) - flat di state, di-nest jadi {title:{...}} saat simpan.
   titleEnabled: false, titlePreset: "FadePop", titlePosition: "middle-center", titleDuration: 2.5,
+  // Transitions (Fase 3D) - flat; di-nest jadi {transition:{style}} saat simpan.
+  transitionStyle: "auto",
 };
 function parseBrandKit(raw: string | null | undefined): Record<string, unknown> & { _enabled: boolean } {
   if (!raw) return { ...BK_DEFAULT, _enabled: false };
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const t = (parsed.title ?? {}) as Record<string, unknown>;
-    // Ratakan title.{...} -> field flat state (abaikan title mentah di spread).
-    const { title: _ignore, ...rest } = parsed;
-    void _ignore;
+    const tr = (parsed.transition ?? {}) as Record<string, unknown>;
+    // Ratakan title/transition -> field flat state (abaikan bentuk nested di spread).
+    const { title: _it, transition: _itr, ...rest } = parsed;
+    void _it; void _itr;
     return {
       ...BK_DEFAULT, ...rest, _enabled: true,
       titleEnabled: t.enabled === true,
       titlePreset: typeof t.preset === "string" ? t.preset : BK_DEFAULT.titlePreset,
       titlePosition: typeof t.position === "string" ? t.position : BK_DEFAULT.titlePosition,
       titleDuration: typeof t.durationSeconds === "number" ? t.durationSeconds : BK_DEFAULT.titleDuration,
+      transitionStyle: typeof tr.style === "string" ? tr.style : BK_DEFAULT.transitionStyle,
     };
   } catch {
     return { ...BK_DEFAULT, _enabled: false };
@@ -341,6 +348,7 @@ export function BrandSettingsSidebar({
             enabled: Boolean(bk.titleEnabled), preset: bk.titlePreset,
             position: bk.titlePosition, durationSeconds: Number(bk.titleDuration),
           },
+          transition: { style: bk.transitionStyle },
         }
       : null;
     const ok = await patchBrand({ brandKit: payload });
@@ -891,6 +899,15 @@ export function BrandSettingsSidebar({
                       value={Number(bk.titleDuration)} onChange={(e) => setBkField("titleDuration", e.target.value)} />
                   </div>
                 </div>
+              </div>
+
+              <div className="space-y-1 border-t pt-3">
+                <Label className="text-xs">🎞️ Transisi antar-adegan</Label>
+                <p className="text-xs text-muted-foreground">auto = dipilih AI Director (perilaku lama). fade/dissolve/wipe = seragam.</p>
+                <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                  value={String(bk.transitionStyle)} onChange={(e) => setBkField("transitionStyle", e.target.value)}>
+                  {TRANSITION_STYLE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
             </div>
 

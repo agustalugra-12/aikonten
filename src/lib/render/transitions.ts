@@ -26,7 +26,12 @@ export type TransitionType =
   | "hblur"
   | "coverleft"
   | "hlwind"
-  | "hrwind";
+  | "hrwind"
+  // 2026-10-27 (Fase 3D) - preset xfade BAWAAN ffmpeg (dicek `ffmpeg -h filter=xfade`:
+  // dissolve=25, wipeleft=1) utk opsi transisi per-brand. SENGAJA TIDAK dimasukkan ke
+  // ALL_TRANSITION_TYPES (rotasi fallback AI Director tetap sama = video lama tak berubah).
+  | "dissolve"
+  | "wipeleft";
 
 export const ALL_TRANSITION_TYPES: TransitionType[] = [
   "fade",
@@ -54,6 +59,34 @@ const MIN_CLIP_DURATION_FOR_TRANSITION = 1.5;
 // upfront selalu cocok persis dgn yg benar2 dirender.
 export function getTransitionForStep(stepIndex: number, transitions: TransitionType[]): TransitionType {
   return transitions[stepIndex] || ALL_TRANSITION_TYPES[stepIndex % ALL_TRANSITION_TYPES.length];
+}
+
+// Transitions per Brand (2026-10-27, Fase 3D). Style yg DIPAPARKAN ke brand (enum aman,
+// bukan filter mentah). "auto" = biarkan AI Director memilih (perilaku lama, default).
+// Lainnya = PAKSA satu tipe utk SEMUA boundary -> ganti TIPE saja, struktur boundary
+// (mana yg transisi vs cut, dari durasi klip) TIDAK berubah -> durasi & audio SAMA.
+// "cut" SENGAJA TIDAK didukung di sini: menghapus transisi memanjangkan video (hilang
+// overlap 0.5dtk/transisi) -> ubah durasi & sync audio (butuh keputusan terpisah).
+export const BRAND_TRANSITION_STYLES = ["auto", "fade", "dissolve", "wipe"] as const;
+export type BrandTransitionStyle = (typeof BRAND_TRANSITION_STYLES)[number];
+
+export function isBrandTransitionStyle(v: unknown): v is BrandTransitionStyle {
+  return typeof v === "string" && (BRAND_TRANSITION_STYLES as readonly string[]).includes(v);
+}
+
+// Map style brand -> TransitionType konkret. "auto" -> null (tak ada override, Director
+// yg putuskan). Nilai tak dikenal -> null (fallback aman = perilaku lama).
+export function brandTransitionType(style: unknown): TransitionType | null {
+  switch (style) {
+    case "fade":
+      return "fade";
+    case "dissolve":
+      return "dissolve";
+    case "wipe":
+      return "wipeleft";
+    default:
+      return null; // "auto" / tak dikenal
+  }
 }
 
 export function canUseTransition(durationA: number, durationB: number): boolean {

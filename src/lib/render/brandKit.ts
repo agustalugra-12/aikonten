@@ -19,6 +19,7 @@ import {
   type TitleAnimation,
   type TitlePosition,
 } from "./motionPresets";
+import { isBrandTransitionStyle, type BrandTransitionStyle } from "./transitions";
 
 // Brand Kit (2026-10-25, Phase 2). Tipografi & palet per-tenant yg DISIMPAN sbg 1 kolom
 // JSON `brandKit` di tabel brands (lihat schema.ts). SEMUA field opsional - yg kosong
@@ -50,6 +51,9 @@ export type BrandKit = {
     position?: TitlePosition;
     durationSeconds?: number; // 1-6 dtk tampil
   };
+  // Transitions per Brand (2026-10-27, Fase 3D). style "auto"=AI Director (default lama).
+  // fade/dissolve/wipe = paksa 1 tipe transisi (durasi/audio tak berubah). "cut" belum.
+  transition?: { style?: BrandTransitionStyle };
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -129,6 +133,15 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
     }
     out.title = ot;
   }
+  // Transitions per Brand (2026-10-27, Fase 3D) - validasi enum style.
+  if ("transition" in o && o.transition !== undefined && o.transition !== null) {
+    if (typeof o.transition !== "object" || Array.isArray(o.transition)) return { ok: false, error: "transition harus object" };
+    const tr = o.transition as Record<string, unknown>;
+    if ("style" in tr && tr.style !== undefined) {
+      if (!isBrandTransitionStyle(tr.style)) return { ok: false, error: "transition.style harus auto/fade/dissolve/wipe" };
+      out.transition = { style: tr.style as BrandTransitionStyle };
+    }
+  }
   return { ok: true, value: out };
 }
 
@@ -146,6 +159,9 @@ export type ResolvedBrandKit = {
   lowerThirdAccentColor?: string;
   // CTA (Fase 3) - warna box subscribe/follow = ctaColor brand (undefined -> merah lama).
   ctaButtonColor?: string;
+  // Transitions per Brand (Fase 3D) - "auto" (default) = AI Director; fade/dissolve/wipe
+  // = paksa 1 tipe. Dipakai processProject utk override directorDecision.transitions.
+  transitionStyle: BrandTransitionStyle;
 };
 
 // Dipakai renderer (processProject). json = kolom brands.brandKit mentah. null/kosong/
@@ -201,5 +217,6 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
     titleDurationSeconds: typeof bk.title?.durationSeconds === "number" ? bk.title.durationSeconds : 2.5,
     lowerThirdAccentColor: bk.primaryColor,
     ctaButtonColor: bk.ctaColor,
+    transitionStyle: isBrandTransitionStyle(bk.transition?.style) ? (bk.transition!.style as BrandTransitionStyle) : "auto",
   };
 }
