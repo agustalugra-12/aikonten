@@ -10,6 +10,7 @@ import { runFfmpeg } from "./ffmpegExec";
 import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/ai/logoOverlay";
 import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN, type SubtitleDesign } from "./subtitleDesign";
 import { buildTitleCardAss, DEFAULT_TITLE_CARD_DESIGN, type TitleCardDesign } from "./titleCard";
+import { buildKineticTextAss, DEFAULT_KINETIC_DESIGN, type KineticDesign } from "./kineticText";
 import type { TitlePosition } from "./motionPresets";
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
 import {
@@ -338,6 +339,12 @@ export async function renderFinalVideo(opts: {
   // middle-center / 2.5dtk (= perilaku titleCard Fase 1). Hanya relevan kalau titleText ada.
   titlePosition?: TitlePosition;
   titleDurationSeconds?: number;
+  // Kinetic Typography (2026-10-27, Fase 3E) - overlay teks hook beranimasi. Semua OPSIONAL;
+  // undefined/kosong kineticText = tak dirender (default-off, video lama tak berubah).
+  kineticText?: string | null;
+  kineticDesign?: KineticDesign;
+  kineticPosition?: TitlePosition;
+  kineticDurationSeconds?: number;
   // Lower Third warna aksen (2026-10-26, Fase 3) - "#RRGGBB" dari brand; undefined = putih lama.
   lowerThirdAccentColor?: string;
   // CTA warna box (2026-10-26, Fase 3) - "#RRGGBB" dari brand; undefined = merah lama.
@@ -479,6 +486,22 @@ export async function renderFinalVideo(opts: {
           startSeconds: leadInSeconds,
           position: opts.titlePosition,
           durationSeconds: opts.titleDurationSeconds,
+        })
+      );
+    }
+
+    // Kinetic Typography OPSIONAL (2026-10-27, Fase 3E - lihat kineticText.ts). Stage ass=
+    // terpisah; kineticText kosong/null -> dilewati (default-off). Digeser ikut leadInSeconds
+    // supaya selaras dgn lower third/subtitle.
+    let kineticAssPath: string | null = null;
+    if (opts.kineticText && opts.kineticText.trim().length > 0) {
+      kineticAssPath = path.join(workDir, "kinetic.ass");
+      await writeFile(
+        kineticAssPath,
+        buildKineticTextAss(opts.kineticText.trim(), opts.kineticDesign ?? DEFAULT_KINETIC_DESIGN, TARGET_WIDTH, TARGET_HEIGHT, {
+          startSeconds: leadInSeconds,
+          position: opts.kineticPosition,
+          durationSeconds: opts.kineticDurationSeconds,
         })
       );
     }
@@ -719,6 +742,12 @@ export async function renderFinalVideo(opts: {
     if (titleAssPath !== null) {
       filterStages.push(`[${curLabel}]ass=${escapeFilterPath(titleAssPath)}:fontsdir=${escapeFilterPath(fontsDir())}[titled]`);
       curLabel = "titled";
+    }
+    // Kinetic Typography (2026-10-27, Fase 3E) - stage ass= terpisah; kineticAssPath null
+    // (default) -> dilewati. Teknik SAMA dgn title (fontsdir), 1 Dialogue ringan.
+    if (kineticAssPath !== null) {
+      filterStages.push(`[${curLabel}]ass=${escapeFilterPath(kineticAssPath)}:fontsdir=${escapeFilterPath(fontsDir())}[kinetic]`);
+      curLabel = "kinetic";
     }
     if (logoInputIdx !== null) {
       // Fade-in 0.5dtk (2026-08-10, Motion Engine - PRD "AI Content Editing Engine"

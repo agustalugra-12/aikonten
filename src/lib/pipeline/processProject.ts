@@ -1207,9 +1207,16 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         // Animated Title (2026-10-26, Fase 3) - HANYA kalau brand mengaktifkan di Brand Kit
         // (default-off). Teks = hookText (hook konten). Kosong/null hookText -> tak ada
         // title (undefined) -> perilaku lama. Video brand tanpa Brand Kit tak terpengaruh.
-        titleText: brandKit?.titleEnabled && hookText && hookText.trim() ? hookText.trim() : undefined,
+        // Kalau Kinetic aktif, dia yg tampilkan hook (title polos dilewati biar tak dobel).
+        titleText: brandKit?.titleEnabled && !brandKit?.kineticEnabled && hookText && hookText.trim() ? hookText.trim() : undefined,
         titlePosition: brandKit?.titlePosition,
         titleDurationSeconds: brandKit?.titleDurationSeconds,
+        // Kinetic Typography (2026-10-27, Fase 3E) - HANYA kalau brand aktifkan. Teks =
+        // hookText. Default-off -> undefined -> tak dirender (video lama tak berubah).
+        kineticText: brandKit?.kineticEnabled && hookText && hookText.trim() ? hookText.trim() : undefined,
+        kineticDesign: brandKit?.kineticDesign,
+        kineticPosition: brandKit?.kineticPosition,
+        kineticDurationSeconds: brandKit?.kineticDurationSeconds,
         // Lower Third warna aksen (Fase 3) - dari primaryColor brand; undefined = putih lama.
         lowerThirdAccentColor: brandKit?.lowerThirdAccentColor,
         // CTA warna box (Fase 3) - dari ctaColor brand; undefined = merah YouTube lama.

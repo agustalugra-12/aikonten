@@ -189,6 +189,33 @@ async function run() {
   ok("resolveBrandKit transitionStyle di-set", bkm.resolveBrandKit(JSON.stringify({ transition: { style: "wipe" } }))?.transitionStyle === "wipe");
   ok("resolveBrandKit tanpa transition -> auto (default lama)", bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "anton" }))?.transitionStyle === "auto");
 
+  // ---------- Fase 3E: Kinetic Typography (2026-10-27) ----------
+  const kt = await import("../src/lib/render/kineticText.ts");
+  const kmp = await import("../src/lib/render/motionPresets.ts");
+  const kd = (p: string) => ({ ...kt.DEFAULT_KINETIC_DESIGN, preset: p as never });
+  ok("kinetic FadeIn -> \\fad", kt.buildKineticTextAss("Promo Spesial", kd("FadeIn"), 1080, 1920).includes("\\fad(300,300)"));
+  ok("kinetic Pop -> scale 55", kt.buildKineticTextAss("Promo Spesial", kd("Pop"), 1080, 1920).includes("\\fscx55"));
+  ok("kinetic SlideUp -> \\move", kt.buildKineticTextAss("Promo Spesial", kd("SlideUp"), 1080, 1920).includes("\\move("));
+  ok("kinetic WordByWord -> banyak \\alpha (reveal bertahap)", (kt.buildKineticTextAss("satu dua tiga", kd("WordByWord"), 1080, 1920).match(/\\alpha&HFF&/g) ?? []).length === 3);
+  ok("kinetic HighlightKeyword -> warna highlight pada kata terpanjang", kt.buildKineticTextAss("beli sekarang", kd("HighlightKeyword"), 1080, 1920).includes("{\\c&H"));
+  ok("kinetic SANITASI injeksi ({ } \\ newline dibuang)", (() => { const a = kt.buildKineticTextAss("Hack {\\an1}evil", kd("FadeIn"), 1080, 1920); return a.includes("Hack an1 evil") && !a.includes("{\\an1}evil"); })());
+  ok("kinetic durasi di-clamp 1-6", (() => { const a = kt.buildKineticTextAss("x", { ...kt.DEFAULT_KINETIC_DESIGN }, 1080, 1920, { durationSeconds: 99, startSeconds: 0 }); return a.includes("0:00:00.00,0:00:06.00"); })());
+  ok("kinetic teks kosong -> tanpa Dialogue (no-op aman)", !kt.buildKineticTextAss("   ", kt.DEFAULT_KINETIC_DESIGN, 1080, 1920).includes("Dialogue:"));
+  ok("kinetic 1 Dialogue saja (tak ubah durasi/audio)", (kt.buildKineticTextAss("satu dua", kt.DEFAULT_KINETIC_DESIGN, 1080, 1920).match(/Dialogue:/g) ?? []).length === 1);
+  ok("motionPresets resolveKineticPreset invalid -> FadeIn + fallback", kmp.resolveKineticPreset("ledakan").preset === "FadeIn" && kmp.resolveKineticPreset("ledakan").usedFallback === true);
+  ok("isKineticPreset tolak sembarang", !kmp.isKineticPreset("drawtext") && kmp.isKineticPreset("WordByWord"));
+  // Validasi brandKit + resolve
+  ok("validateBrandKit kinetic valid", bkm.validateBrandKit({ kineticTypography: { enabled: true, preset: "WordByWord", position: "middle-center", durationSeconds: 3, primaryColor: "#FFFFFF", highlightColor: "#FF0000" } }).ok === true);
+  ok("validateBrandKit kinetic preset asing ditolak", bkm.validateBrandKit({ kineticTypography: { preset: "Explode" } }).ok === false);
+  ok("validateBrandKit kinetic warna invalid ditolak", bkm.validateBrandKit({ kineticTypography: { primaryColor: "biru" } }).ok === false);
+  ok("validateBrandKit kinetic durasi di luar rentang ditolak", bkm.validateBrandKit({ kineticTypography: { durationSeconds: 99 } }).ok === false);
+  const rk = bkm.resolveBrandKit(JSON.stringify({ headingFont: "anton", kineticTypography: { enabled: true, preset: "Pop", position: "top-center", primaryColor: "#00FF00" } }));
+  ok("resolveBrandKit kinetic enabled + design", rk?.kineticEnabled === true && rk?.kineticDesign.preset === "Pop" && rk?.kineticDesign.font === "Anton" && rk?.kineticDesign.color === "#00FF00" && rk?.kineticPosition === "top-center");
+  ok("resolveBrandKit tanpa kinetic -> disabled (default-off, backward-compat)", bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "anton" }))?.kineticEnabled === false);
+  // Kompatibilitas fitur lain tetap ada di resolve yg sama (title/lowerThird/cta/transitions)
+  const rall = bkm.resolveBrandKit(JSON.stringify({ title: { enabled: true }, ctaColor: "#1DA1F2", primaryColor: "#112233", transition: { style: "dissolve" }, kineticTypography: { enabled: true } }));
+  ok("kinetic + Animated Title + CTA + LowerThird + Transitions ko-eksis", rall?.titleEnabled === true && rall?.ctaButtonColor === "#1DA1F2" && rall?.lowerThirdAccentColor === "#112233" && rall?.transitionStyle === "dissolve" && rall?.kineticEnabled === true);
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

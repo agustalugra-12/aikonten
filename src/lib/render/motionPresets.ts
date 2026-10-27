@@ -49,3 +49,22 @@ export function resolveTitleAnimation(id: unknown): { animation: TitleAnimation;
   if (isTitleAnimation(id)) return { animation: id, usedFallback: false };
   return { animation: DEFAULT_TITLE_ANIMATION, usedFallback: id !== undefined && id !== null };
 }
+
+// ---------- Kinetic Typography (2026-10-27, Fase 3E) ----------
+// Preset teks kinetik utk hook/judul promosi (lihat kineticText.ts). Reuse posisi (\an)
+// & pola fallback yg sama. FadeIn/SlideUp/Pop = animasi masuk SELURUH teks; WordByWord =
+// kata muncul bertahap (timing RATA sepanjang durasi, bukan Whisper -> nol dampak audio);
+// HighlightKeyword = kata kunci (terpanjang) diberi warna highlight. Perilaku detail ada
+// di buildKineticTextAss - di sini cuma enum + resolver (gerbang: brand simpan ID enum).
+export const KINETIC_PRESET_IDS = ["FadeIn", "SlideUp", "Pop", "WordByWord", "HighlightKeyword"] as const;
+export type KineticPreset = (typeof KINETIC_PRESET_IDS)[number];
+export const DEFAULT_KINETIC_PRESET: KineticPreset = "FadeIn";
+
+export function isKineticPreset(v: unknown): v is KineticPreset {
+  return typeof v === "string" && (KINETIC_PRESET_IDS as readonly string[]).includes(v);
+}
+
+export function resolveKineticPreset(id: unknown): { preset: KineticPreset; usedFallback: boolean } {
+  if (isKineticPreset(id)) return { preset: id, usedFallback: false };
+  return { preset: DEFAULT_KINETIC_PRESET, usedFallback: id !== undefined && id !== null };
+}

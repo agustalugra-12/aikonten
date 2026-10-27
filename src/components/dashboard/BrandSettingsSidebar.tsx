@@ -83,6 +83,8 @@ const TITLE_POSITION_OPTIONS = ["top-center", "middle-center", "bottom-center"];
 // Transitions per Brand (Fase 3D) - style transisi antar-adegan (SALINAN STATIS dari
 // transitions.BRAND_TRANSITION_STYLES). "auto" = AI Director (default lama).
 const TRANSITION_STYLE_OPTIONS = ["auto", "fade", "dissolve", "wipe"];
+// Kinetic Typography (Fase 3E) - SALINAN STATIS dari motionPresets.KINETIC_PRESET_IDS.
+const KINETIC_PRESET_OPTIONS = ["FadeIn", "SlideUp", "Pop", "WordByWord", "HighlightKeyword"];
 const BK_DEFAULT = {
   subtitleFont: "poppins", subtitleWeight: "semibold", headingFont: "poppins", headingWeight: "bold",
   subtitleColor: "#FFFFFF", highlightColor: "#FFD84D", outlineColor: "#000000", outlineWidth: 4,
@@ -92,6 +94,9 @@ const BK_DEFAULT = {
   titleEnabled: false, titlePreset: "FadePop", titlePosition: "middle-center", titleDuration: 2.5,
   // Transitions (Fase 3D) - flat; di-nest jadi {transition:{style}} saat simpan.
   transitionStyle: "auto",
+  // Kinetic Typography (Fase 3E) - flat; di-nest jadi {kineticTypography:{...}} saat simpan.
+  kineticEnabled: false, kineticPreset: "FadeIn", kineticPosition: "middle-center", kineticDuration: 2.5,
+  kineticPrimaryColor: "#FFFFFF", kineticHighlightColor: "#FFD84D",
 };
 function parseBrandKit(raw: string | null | undefined): Record<string, unknown> & { _enabled: boolean } {
   if (!raw) return { ...BK_DEFAULT, _enabled: false };
@@ -99,9 +104,10 @@ function parseBrandKit(raw: string | null | undefined): Record<string, unknown> 
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const t = (parsed.title ?? {}) as Record<string, unknown>;
     const tr = (parsed.transition ?? {}) as Record<string, unknown>;
-    // Ratakan title/transition -> field flat state (abaikan bentuk nested di spread).
-    const { title: _it, transition: _itr, ...rest } = parsed;
-    void _it; void _itr;
+    const kn = (parsed.kineticTypography ?? {}) as Record<string, unknown>;
+    // Ratakan nested -> field flat state (abaikan bentuk nested di spread).
+    const { title: _it, transition: _itr, kineticTypography: _ikn, ...rest } = parsed;
+    void _it; void _itr; void _ikn;
     return {
       ...BK_DEFAULT, ...rest, _enabled: true,
       titleEnabled: t.enabled === true,
@@ -109,6 +115,12 @@ function parseBrandKit(raw: string | null | undefined): Record<string, unknown> 
       titlePosition: typeof t.position === "string" ? t.position : BK_DEFAULT.titlePosition,
       titleDuration: typeof t.durationSeconds === "number" ? t.durationSeconds : BK_DEFAULT.titleDuration,
       transitionStyle: typeof tr.style === "string" ? tr.style : BK_DEFAULT.transitionStyle,
+      kineticEnabled: kn.enabled === true,
+      kineticPreset: typeof kn.preset === "string" ? kn.preset : BK_DEFAULT.kineticPreset,
+      kineticPosition: typeof kn.position === "string" ? kn.position : BK_DEFAULT.kineticPosition,
+      kineticDuration: typeof kn.durationSeconds === "number" ? kn.durationSeconds : BK_DEFAULT.kineticDuration,
+      kineticPrimaryColor: typeof kn.primaryColor === "string" ? kn.primaryColor : BK_DEFAULT.kineticPrimaryColor,
+      kineticHighlightColor: typeof kn.highlightColor === "string" ? kn.highlightColor : BK_DEFAULT.kineticHighlightColor,
     };
   } catch {
     return { ...BK_DEFAULT, _enabled: false };
@@ -349,6 +361,10 @@ export function BrandSettingsSidebar({
             position: bk.titlePosition, durationSeconds: Number(bk.titleDuration),
           },
           transition: { style: bk.transitionStyle },
+          kineticTypography: {
+            enabled: Boolean(bk.kineticEnabled), preset: bk.kineticPreset, position: bk.kineticPosition,
+            durationSeconds: Number(bk.kineticDuration), primaryColor: bk.kineticPrimaryColor, highlightColor: bk.kineticHighlightColor,
+          },
         }
       : null;
     const ok = await patchBrand({ brandKit: payload });
@@ -908,6 +924,44 @@ export function BrandSettingsSidebar({
                   value={String(bk.transitionStyle)} onChange={(e) => setBkField("transitionStyle", e.target.value)}>
                   {TRANSITION_STYLE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
+              </div>
+
+              <div className="space-y-2 border-t pt-3">
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input type="checkbox" checked={!!bk.kineticEnabled} onChange={(e) => setBkField("kineticEnabled", e.target.checked)} />
+                  <span>✨ Kinetic Typography (teks hook beranimasi; menggantikan Judul polos)</span>
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Animasi</Label>
+                    <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                      value={String(bk.kineticPreset)} onChange={(e) => setBkField("kineticPreset", e.target.value)}>
+                      {KINETIC_PRESET_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Posisi</Label>
+                    <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                      value={String(bk.kineticPosition)} onChange={(e) => setBkField("kineticPosition", e.target.value)}>
+                      {TITLE_POSITION_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Durasi (dtk)</Label>
+                    <input type="number" min={1} max={6} step={0.5} className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                      value={Number(bk.kineticDuration)} onChange={(e) => setBkField("kineticDuration", e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Warna Teks</Label>
+                    <input type="color" className="h-8 w-full rounded-md border border-input bg-transparent"
+                      value={String(bk.kineticPrimaryColor)} onChange={(e) => setBkField("kineticPrimaryColor", e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Warna Highlight</Label>
+                    <input type="color" className="h-8 w-full rounded-md border border-input bg-transparent"
+                      value={String(bk.kineticHighlightColor)} onChange={(e) => setBkField("kineticHighlightColor", e.target.value)} />
+                  </div>
+                </div>
               </div>
             </div>
 

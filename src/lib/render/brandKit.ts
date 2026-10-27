@@ -15,11 +15,15 @@ import {
   isTitleAnimation,
   isTitlePosition,
   resolveTitleAnimation,
+  resolveKineticPreset,
+  isKineticPreset,
   DEFAULT_TITLE_POSITION,
   type TitleAnimation,
   type TitlePosition,
+  type KineticPreset,
 } from "./motionPresets";
 import { isBrandTransitionStyle, type BrandTransitionStyle } from "./transitions";
+import { DEFAULT_KINETIC_DESIGN, type KineticDesign } from "./kineticText";
 
 // Brand Kit (2026-10-25, Phase 2). Tipografi & palet per-tenant yg DISIMPAN sbg 1 kolom
 // JSON `brandKit` di tabel brands (lihat schema.ts). SEMUA field opsional - yg kosong
@@ -54,6 +58,16 @@ export type BrandKit = {
   // Transitions per Brand (2026-10-27, Fase 3D). style "auto"=AI Director (default lama).
   // fade/dissolve/wipe = paksa 1 tipe transisi (durasi/audio tak berubah). "cut" belum.
   transition?: { style?: BrandTransitionStyle };
+  // Kinetic Typography (2026-10-27, Fase 3E) - overlay teks hook beranimasi. DEFAULT-OFF:
+  // enabled!=true -> tak dirender. Teks dari hookText (processProject). Nol dampak durasi/audio.
+  kineticTypography?: {
+    enabled?: boolean;
+    preset?: KineticPreset;
+    position?: TitlePosition;
+    durationSeconds?: number; // 1-6
+    primaryColor?: string; // #RRGGBB
+    highlightColor?: string; // #RRGGBB
+  };
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -142,6 +156,36 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
       out.transition = { style: tr.style as BrandTransitionStyle };
     }
   }
+  // Kinetic Typography (2026-10-27, Fase 3E) - validasi ketat tiap sub-field.
+  if ("kineticTypography" in o && o.kineticTypography !== undefined && o.kineticTypography !== null) {
+    if (typeof o.kineticTypography !== "object" || Array.isArray(o.kineticTypography)) return { ok: false, error: "kineticTypography harus object" };
+    const k = o.kineticTypography as Record<string, unknown>;
+    const ok2: NonNullable<BrandKit["kineticTypography"]> = {};
+    if ("enabled" in k && k.enabled !== undefined) {
+      if (typeof k.enabled !== "boolean") return { ok: false, error: "kineticTypography.enabled harus boolean" };
+      ok2.enabled = k.enabled;
+    }
+    if ("preset" in k && k.preset !== undefined) {
+      if (!isKineticPreset(k.preset)) return { ok: false, error: "kineticTypography.preset harus FadeIn/SlideUp/Pop/WordByWord/HighlightKeyword" };
+      ok2.preset = k.preset as KineticPreset;
+    }
+    if ("position" in k && k.position !== undefined) {
+      if (!isTitlePosition(k.position)) return { ok: false, error: "kineticTypography.position harus top-center/middle-center/bottom-center" };
+      ok2.position = k.position as TitlePosition;
+    }
+    if ("durationSeconds" in k && k.durationSeconds !== undefined) {
+      const v = Number(k.durationSeconds);
+      if (!Number.isFinite(v) || v < 1 || v > 6) return { ok: false, error: "kineticTypography.durationSeconds harus 1-6" };
+      ok2.durationSeconds = v;
+    }
+    for (const key of ["primaryColor", "highlightColor"] as const) {
+      if (key in k && k[key] !== undefined) {
+        if (typeof k[key] !== "string" || !HEX.test(k[key] as string)) return { ok: false, error: `kineticTypography.${key} harus warna hex #RRGGBB` };
+        ok2[key] = k[key] as string;
+      }
+    }
+    out.kineticTypography = ok2;
+  }
   return { ok: true, value: out };
 }
 
@@ -162,6 +206,11 @@ export type ResolvedBrandKit = {
   // Transitions per Brand (Fase 3D) - "auto" (default) = AI Director; fade/dissolve/wipe
   // = paksa 1 tipe. Dipakai processProject utk override directorDecision.transitions.
   transitionStyle: BrandTransitionStyle;
+  // Kinetic Typography (Fase 3E). kineticEnabled=false => tak render (default-off).
+  kineticEnabled: boolean;
+  kineticDesign: KineticDesign;
+  kineticPosition: TitlePosition;
+  kineticDurationSeconds: number;
 };
 
 // Dipakai renderer (processProject). json = kolom brands.brandKit mentah. null/kosong/
@@ -218,5 +267,16 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
     lowerThirdAccentColor: bk.primaryColor,
     ctaButtonColor: bk.ctaColor,
     transitionStyle: isBrandTransitionStyle(bk.transition?.style) ? (bk.transition!.style as BrandTransitionStyle) : "auto",
+    kineticEnabled: bk.kineticTypography?.enabled === true,
+    kineticDesign: {
+      ...DEFAULT_KINETIC_DESIGN,
+      font: heading.assName,
+      color: bk.kineticTypography?.primaryColor ?? bk.primaryColor ?? DEFAULT_KINETIC_DESIGN.color,
+      highlightColor: bk.kineticTypography?.highlightColor ?? bk.highlightColor ?? DEFAULT_KINETIC_DESIGN.highlightColor,
+      outline: bk.outlineColor ?? DEFAULT_KINETIC_DESIGN.outline,
+      preset: resolveKineticPreset(bk.kineticTypography?.preset).preset,
+    },
+    kineticPosition: isTitlePosition(bk.kineticTypography?.position) ? (bk.kineticTypography!.position as TitlePosition) : DEFAULT_TITLE_POSITION,
+    kineticDurationSeconds: typeof bk.kineticTypography?.durationSeconds === "number" ? bk.kineticTypography.durationSeconds : 2.5,
   };
 }
