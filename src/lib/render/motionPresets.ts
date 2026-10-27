@@ -68,3 +68,20 @@ export function resolveKineticPreset(id: unknown): { preset: KineticPreset; used
   if (isKineticPreset(id)) return { preset: id, usedFallback: false };
   return { preset: DEFAULT_KINETIC_PRESET, usedFallback: id !== undefined && id !== null };
 }
+
+// ---------- Background Animation (2026-10-27, Fase 3F) ----------
+// Efek latar ringan seluruh frame (lihat bgAnimation.ts). None=default (perilaku lama).
+// Ambient=hue shimmer (1 filter). Gradient=overlay gradasi warna brand (gradients source).
+// Slow Zoom & Pan SENGAJA TIDAK ada di sini (sudah via camera motion AI Director).
+export const BG_ANIMATION_IDS = ["None", "Ambient", "Gradient"] as const;
+export type BgAnimation = (typeof BG_ANIMATION_IDS)[number];
+export const DEFAULT_BG_ANIMATION: BgAnimation = "None";
+
+export function isBgAnimation(v: unknown): v is BgAnimation {
+  return typeof v === "string" && (BG_ANIMATION_IDS as readonly string[]).includes(v);
+}
+
+export function resolveBgAnimation(id: unknown): { preset: BgAnimation; usedFallback: boolean } {
+  if (isBgAnimation(id)) return { preset: id, usedFallback: false };
+  return { preset: DEFAULT_BG_ANIMATION, usedFallback: id !== undefined && id !== null };
+}

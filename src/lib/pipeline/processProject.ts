@@ -1217,6 +1217,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         kineticDesign: brandKit?.kineticDesign,
         kineticPosition: brandKit?.kineticPosition,
         kineticDurationSeconds: brandKit?.kineticDurationSeconds,
+        // Background Animation (2026-10-27, Fase 3F) - HANYA kalau brand aktifkan. Default-off
+        // -> undefined -> buildBackgroundStages dilewati (video lama tak berubah).
+        backgroundDesign: brandKit?.bgEnabled ? brandKit.bgDesign : undefined,
         // Lower Third warna aksen (Fase 3) - dari primaryColor brand; undefined = putih lama.
         lowerThirdAccentColor: brandKit?.lowerThirdAccentColor,
         // CTA warna box (Fase 3) - dari ctaColor brand; undefined = merah YouTube lama.

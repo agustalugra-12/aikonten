@@ -17,13 +17,17 @@ import {
   resolveTitleAnimation,
   resolveKineticPreset,
   isKineticPreset,
+  isBgAnimation,
+  resolveBgAnimation,
   DEFAULT_TITLE_POSITION,
   type TitleAnimation,
   type TitlePosition,
   type KineticPreset,
+  type BgAnimation,
 } from "./motionPresets";
 import { isBrandTransitionStyle, type BrandTransitionStyle } from "./transitions";
 import { DEFAULT_KINETIC_DESIGN, type KineticDesign } from "./kineticText";
+import { DEFAULT_BG_DESIGN, type BgDesign } from "./bgAnimation";
 
 // Brand Kit (2026-10-25, Phase 2). Tipografi & palet per-tenant yg DISIMPAN sbg 1 kolom
 // JSON `brandKit` di tabel brands (lihat schema.ts). SEMUA field opsional - yg kosong
@@ -67,6 +71,15 @@ export type BrandKit = {
     durationSeconds?: number; // 1-6
     primaryColor?: string; // #RRGGBB
     highlightColor?: string; // #RRGGBB
+  };
+  // Background Animation (2026-10-27, Fase 3F) - efek latar ringan. DEFAULT-OFF.
+  backgroundAnimation?: {
+    enabled?: boolean;
+    preset?: BgAnimation; // None/Ambient/Gradient
+    durationSeconds?: number; // 2-20 periode siklus
+    primaryColor?: string; // #RRGGBB
+    secondaryColor?: string; // #RRGGBB
+    intensity?: number; // 0-100
   };
 };
 
@@ -186,6 +199,37 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
     }
     out.kineticTypography = ok2;
   }
+  // Background Animation (2026-10-27, Fase 3F) - validasi allowlist/hex/range.
+  if ("backgroundAnimation" in o && o.backgroundAnimation !== undefined && o.backgroundAnimation !== null) {
+    if (typeof o.backgroundAnimation !== "object" || Array.isArray(o.backgroundAnimation)) return { ok: false, error: "backgroundAnimation harus object" };
+    const b = o.backgroundAnimation as Record<string, unknown>;
+    const ob: NonNullable<BrandKit["backgroundAnimation"]> = {};
+    if ("enabled" in b && b.enabled !== undefined) {
+      if (typeof b.enabled !== "boolean") return { ok: false, error: "backgroundAnimation.enabled harus boolean" };
+      ob.enabled = b.enabled;
+    }
+    if ("preset" in b && b.preset !== undefined) {
+      if (!isBgAnimation(b.preset)) return { ok: false, error: "backgroundAnimation.preset harus None/Ambient/Gradient" };
+      ob.preset = b.preset as BgAnimation;
+    }
+    if ("durationSeconds" in b && b.durationSeconds !== undefined) {
+      const v = Number(b.durationSeconds);
+      if (!Number.isFinite(v) || v < 2 || v > 20) return { ok: false, error: "backgroundAnimation.durationSeconds harus 2-20" };
+      ob.durationSeconds = v;
+    }
+    if ("intensity" in b && b.intensity !== undefined) {
+      const v = Number(b.intensity);
+      if (!Number.isFinite(v) || v < 0 || v > 100) return { ok: false, error: "backgroundAnimation.intensity harus 0-100" };
+      ob.intensity = v;
+    }
+    for (const key of ["primaryColor", "secondaryColor"] as const) {
+      if (key in b && b[key] !== undefined) {
+        if (typeof b[key] !== "string" || !HEX.test(b[key] as string)) return { ok: false, error: `backgroundAnimation.${key} harus warna hex #RRGGBB` };
+        ob[key] = b[key] as string;
+      }
+    }
+    out.backgroundAnimation = ob;
+  }
   return { ok: true, value: out };
 }
 
@@ -211,6 +255,9 @@ export type ResolvedBrandKit = {
   kineticDesign: KineticDesign;
   kineticPosition: TitlePosition;
   kineticDurationSeconds: number;
+  // Background Animation (Fase 3F). bgEnabled=false => tak dirender (default-off).
+  bgEnabled: boolean;
+  bgDesign: BgDesign;
 };
 
 // Dipakai renderer (processProject). json = kolom brands.brandKit mentah. null/kosong/
@@ -278,5 +325,14 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
     },
     kineticPosition: isTitlePosition(bk.kineticTypography?.position) ? (bk.kineticTypography!.position as TitlePosition) : DEFAULT_TITLE_POSITION,
     kineticDurationSeconds: typeof bk.kineticTypography?.durationSeconds === "number" ? bk.kineticTypography.durationSeconds : 2.5,
+    bgEnabled: bk.backgroundAnimation?.enabled === true,
+    bgDesign: {
+      ...DEFAULT_BG_DESIGN,
+      preset: resolveBgAnimation(bk.backgroundAnimation?.preset).preset,
+      primaryColor: bk.backgroundAnimation?.primaryColor ?? bk.primaryColor ?? DEFAULT_BG_DESIGN.primaryColor,
+      secondaryColor: bk.backgroundAnimation?.secondaryColor ?? bk.secondaryColor ?? DEFAULT_BG_DESIGN.secondaryColor,
+      intensity: typeof bk.backgroundAnimation?.intensity === "number" ? bk.backgroundAnimation.intensity : DEFAULT_BG_DESIGN.intensity,
+      durationSeconds: typeof bk.backgroundAnimation?.durationSeconds === "number" ? bk.backgroundAnimation.durationSeconds : DEFAULT_BG_DESIGN.durationSeconds,
+    },
   };
 }

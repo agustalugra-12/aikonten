@@ -216,6 +216,26 @@ async function run() {
   const rall = bkm.resolveBrandKit(JSON.stringify({ title: { enabled: true }, ctaColor: "#1DA1F2", primaryColor: "#112233", transition: { style: "dissolve" }, kineticTypography: { enabled: true } }));
   ok("kinetic + Animated Title + CTA + LowerThird + Transitions ko-eksis", rall?.titleEnabled === true && rall?.ctaButtonColor === "#1DA1F2" && rall?.lowerThirdAccentColor === "#112233" && rall?.transitionStyle === "dissolve" && rall?.kineticEnabled === true);
 
+  // ---------- Fase 3F: Background Animation (2026-10-27) ----------
+  const bg = await import("../src/lib/render/bgAnimation.ts");
+  const bgd = (p: string, extra = {}) => ({ ...bg.DEFAULT_BG_DESIGN, preset: p as never, ...extra });
+  ok("bg None -> 0 stage (no-op, perilaku lama)", bg.buildBackgroundStages(bgd("None"), 1080, 1920, 30, "0:v", "o").length === 0);
+  ok("bg Ambient -> 1 stage hue (1 filter ringan)", (() => { const s = bg.buildBackgroundStages(bgd("Ambient"), 1080, 1920, 30, "0:v", "o"); return s.length === 1 && s[0].includes("hue=h=") && s[0].includes("[o]"); })());
+  ok("bg Gradient -> 2 stage (gradients source + overlay, tanpa -i)", (() => { const s = bg.buildBackgroundStages(bgd("Gradient", { primaryColor: "#FF0000", secondaryColor: "#00FF00" }), 1080, 1920, 30, "0:v", "o"); return s.length === 2 && s[0].startsWith("gradients=") && s[0].includes("c0=0xFF0000") && s[0].includes("c1=0x00FF00") && s[1].includes("overlay=0:0"); })());
+  ok("bg Gradient d = ceil(durasi+1) tutup penuh", bg.buildBackgroundStages(bgd("Gradient"), 1080, 1920, 42.3, "0:v", "o")[0].includes("d=44"));
+  ok("bg warna invalid di design -> fallback (anti-injeksi filter)", bg.buildBackgroundStages(bgd("Gradient", { primaryColor: "evil;drawbox" }), 1080, 1920, 30, "0:v", "o")[0].includes("c0=0x14213D"));
+  ok("bg intensity di-clamp (tak meledak)", (() => { const s = bg.buildBackgroundStages(bgd("Gradient", { intensity: 9999 }), 1080, 1920, 30, "0:v", "o"); const m = s[0].match(/aa=([0-9.]+)/); return !!m && Number(m[1]) <= 0.4; })());
+
+  ok("bg resolveBgAnimation invalid -> None + fallback", kmp.resolveBgAnimation("boom").preset === "None" && kmp.resolveBgAnimation("boom").usedFallback === true && kmp.isBgAnimation("Gradient"));
+  ok("validateBrandKit bg valid", bkm.validateBrandKit({ backgroundAnimation: { enabled: true, preset: "Gradient", durationSeconds: 8, intensity: 60, primaryColor: "#112233", secondaryColor: "#445566" } }).ok === true);
+  ok("validateBrandKit bg preset asing ditolak", bkm.validateBrandKit({ backgroundAnimation: { preset: "Fireworks" } }).ok === false);
+  ok("validateBrandKit bg warna/intensity/durasi invalid ditolak", bkm.validateBrandKit({ backgroundAnimation: { primaryColor: "x" } }).ok === false && bkm.validateBrandKit({ backgroundAnimation: { intensity: 999 } }).ok === false && bkm.validateBrandKit({ backgroundAnimation: { durationSeconds: 99 } }).ok === false);
+  const rb = bkm.resolveBrandKit(JSON.stringify({ primaryColor: "#101010", secondaryColor: "#202020", backgroundAnimation: { enabled: true, preset: "Ambient", intensity: 70 } }));
+  ok("resolveBrandKit bg enabled + warna fallback ke brand", rb?.bgEnabled === true && rb?.bgDesign.preset === "Ambient" && rb?.bgDesign.primaryColor === "#101010" && rb?.bgDesign.secondaryColor === "#202020" && rb?.bgDesign.intensity === 70);
+  ok("resolveBrandKit tanpa bg -> disabled (default-off, backward-compat)", bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "anton" }))?.bgEnabled === false);
+  const rfull = bkm.resolveBrandKit(JSON.stringify({ title: { enabled: true }, ctaColor: "#1DA1F2", primaryColor: "#112233", transition: { style: "dissolve" }, kineticTypography: { enabled: true }, backgroundAnimation: { enabled: true, preset: "Gradient" } }));
+  ok("bg ko-eksis dgn Title+CTA+LowerThird+Transitions+Kinetic", rfull?.titleEnabled === true && rfull?.ctaButtonColor === "#1DA1F2" && rfull?.transitionStyle === "dissolve" && rfull?.kineticEnabled === true && rfull?.bgEnabled === true);
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

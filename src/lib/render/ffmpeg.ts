@@ -11,6 +11,7 @@ import { buildCircularLogoPng, LOGO_SIZE_RATIO, LOGO_MARGIN_RATIO } from "@/lib/
 import { buildWordHighlightAss, buildStaticAss, DEFAULT_SUBTITLE_DESIGN, type SubtitleDesign } from "./subtitleDesign";
 import { buildTitleCardAss, DEFAULT_TITLE_CARD_DESIGN, type TitleCardDesign } from "./titleCard";
 import { buildKineticTextAss, DEFAULT_KINETIC_DESIGN, type KineticDesign } from "./kineticText";
+import { buildBackgroundStages, type BgDesign } from "./bgAnimation";
 import type { TitlePosition } from "./motionPresets";
 import { buildCameraMotionFilter, ALL_MOTION_TYPES, type MotionType } from "./cameraMotion";
 import {
@@ -345,6 +346,9 @@ export async function renderFinalVideo(opts: {
   kineticDesign?: KineticDesign;
   kineticPosition?: TitlePosition;
   kineticDurationSeconds?: number;
+  // Background Animation (2026-10-27, Fase 3F) - efek latar ringan. preset "None"/undefined
+  // = tak dirender (default-off). Lihat bgAnimation.ts.
+  backgroundDesign?: BgDesign;
   // Lower Third warna aksen (2026-10-26, Fase 3) - "#RRGGBB" dari brand; undefined = putih lama.
   lowerThirdAccentColor?: string;
   // CTA warna box (2026-10-26, Fase 3) - "#RRGGBB" dari brand; undefined = merah lama.
@@ -718,6 +722,17 @@ export async function renderFinalVideo(opts: {
     const logoMargin = Math.round(TARGET_WIDTH * LOGO_MARGIN_RATIO);
     const filterStages: string[] = [];
     let curLabel = "0:v";
+    // Background Animation (2026-10-27, Fase 3F - lihat bgAnimation.ts) - PALING AWAL di
+    // atas footage, SEBELUM color grade/subtitle/overlay (teks tetap di atas, tak kena efek).
+    // Default-off: preset None / tanpa design -> buildBackgroundStages balik [] -> dilewati.
+    // Tak menambah input ffmpeg & tak mengubah durasi/audio.
+    if (opts.backgroundDesign && opts.backgroundDesign.preset !== "None") {
+      const bgStages = buildBackgroundStages(opts.backgroundDesign, TARGET_WIDTH, TARGET_HEIGHT, outputDurationSeconds, curLabel, "bganim");
+      if (bgStages.length > 0) {
+        filterStages.push(...bgStages);
+        curLabel = "bganim";
+      }
+    }
     // Color Grading (2026-08-10, preset editing - lihat colorGrade.ts) - DILAKUKAN
     // PALING AWAL, SEBELUM subtitle dibakar - grading cuma mengubah warna/kontras
     // FOOTAGE, teks subtitle (putih/kuning solid) TIDAK PERLU ikut ke-grading (bisa

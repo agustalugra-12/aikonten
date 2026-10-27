@@ -85,6 +85,8 @@ const TITLE_POSITION_OPTIONS = ["top-center", "middle-center", "bottom-center"];
 const TRANSITION_STYLE_OPTIONS = ["auto", "fade", "dissolve", "wipe"];
 // Kinetic Typography (Fase 3E) - SALINAN STATIS dari motionPresets.KINETIC_PRESET_IDS.
 const KINETIC_PRESET_OPTIONS = ["FadeIn", "SlideUp", "Pop", "WordByWord", "HighlightKeyword"];
+// Background Animation (Fase 3F) - SALINAN STATIS dari motionPresets.BG_ANIMATION_IDS.
+const BG_PRESET_OPTIONS = ["None", "Ambient", "Gradient"];
 const BK_DEFAULT = {
   subtitleFont: "poppins", subtitleWeight: "semibold", headingFont: "poppins", headingWeight: "bold",
   subtitleColor: "#FFFFFF", highlightColor: "#FFD84D", outlineColor: "#000000", outlineWidth: 4,
@@ -97,6 +99,9 @@ const BK_DEFAULT = {
   // Kinetic Typography (Fase 3E) - flat; di-nest jadi {kineticTypography:{...}} saat simpan.
   kineticEnabled: false, kineticPreset: "FadeIn", kineticPosition: "middle-center", kineticDuration: 2.5,
   kineticPrimaryColor: "#FFFFFF", kineticHighlightColor: "#FFD84D",
+  // Background Animation (Fase 3F) - flat; di-nest jadi {backgroundAnimation:{...}} saat simpan.
+  bgEnabled: false, bgPreset: "None", bgDuration: 6, bgIntensity: 50,
+  bgPrimaryColor: "#14213D", bgSecondaryColor: "#FFD84D",
 };
 function parseBrandKit(raw: string | null | undefined): Record<string, unknown> & { _enabled: boolean } {
   if (!raw) return { ...BK_DEFAULT, _enabled: false };
@@ -105,9 +110,10 @@ function parseBrandKit(raw: string | null | undefined): Record<string, unknown> 
     const t = (parsed.title ?? {}) as Record<string, unknown>;
     const tr = (parsed.transition ?? {}) as Record<string, unknown>;
     const kn = (parsed.kineticTypography ?? {}) as Record<string, unknown>;
+    const bgn = (parsed.backgroundAnimation ?? {}) as Record<string, unknown>;
     // Ratakan nested -> field flat state (abaikan bentuk nested di spread).
-    const { title: _it, transition: _itr, kineticTypography: _ikn, ...rest } = parsed;
-    void _it; void _itr; void _ikn;
+    const { title: _it, transition: _itr, kineticTypography: _ikn, backgroundAnimation: _ibg, ...rest } = parsed;
+    void _it; void _itr; void _ikn; void _ibg;
     return {
       ...BK_DEFAULT, ...rest, _enabled: true,
       titleEnabled: t.enabled === true,
@@ -121,6 +127,12 @@ function parseBrandKit(raw: string | null | undefined): Record<string, unknown> 
       kineticDuration: typeof kn.durationSeconds === "number" ? kn.durationSeconds : BK_DEFAULT.kineticDuration,
       kineticPrimaryColor: typeof kn.primaryColor === "string" ? kn.primaryColor : BK_DEFAULT.kineticPrimaryColor,
       kineticHighlightColor: typeof kn.highlightColor === "string" ? kn.highlightColor : BK_DEFAULT.kineticHighlightColor,
+      bgEnabled: bgn.enabled === true,
+      bgPreset: typeof bgn.preset === "string" ? bgn.preset : BK_DEFAULT.bgPreset,
+      bgDuration: typeof bgn.durationSeconds === "number" ? bgn.durationSeconds : BK_DEFAULT.bgDuration,
+      bgIntensity: typeof bgn.intensity === "number" ? bgn.intensity : BK_DEFAULT.bgIntensity,
+      bgPrimaryColor: typeof bgn.primaryColor === "string" ? bgn.primaryColor : BK_DEFAULT.bgPrimaryColor,
+      bgSecondaryColor: typeof bgn.secondaryColor === "string" ? bgn.secondaryColor : BK_DEFAULT.bgSecondaryColor,
     };
   } catch {
     return { ...BK_DEFAULT, _enabled: false };
@@ -364,6 +376,10 @@ export function BrandSettingsSidebar({
           kineticTypography: {
             enabled: Boolean(bk.kineticEnabled), preset: bk.kineticPreset, position: bk.kineticPosition,
             durationSeconds: Number(bk.kineticDuration), primaryColor: bk.kineticPrimaryColor, highlightColor: bk.kineticHighlightColor,
+          },
+          backgroundAnimation: {
+            enabled: Boolean(bk.bgEnabled), preset: bk.bgPreset, durationSeconds: Number(bk.bgDuration),
+            intensity: Number(bk.bgIntensity), primaryColor: bk.bgPrimaryColor, secondaryColor: bk.bgSecondaryColor,
           },
         }
       : null;
@@ -960,6 +976,42 @@ export function BrandSettingsSidebar({
                     <Label className="text-xs">Warna Highlight</Label>
                     <input type="color" className="h-8 w-full rounded-md border border-input bg-transparent"
                       value={String(bk.kineticHighlightColor)} onChange={(e) => setBkField("kineticHighlightColor", e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2 border-t pt-3">
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input type="checkbox" checked={!!bk.bgEnabled} onChange={(e) => setBkField("bgEnabled", e.target.checked)} />
+                  <span>🌈 Background Animation (efek latar ringan di atas footage)</span>
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Preset</Label>
+                    <select className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                      value={String(bk.bgPreset)} onChange={(e) => setBkField("bgPreset", e.target.value)}>
+                      {BG_PRESET_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Intensitas (0-100)</Label>
+                    <input type="number" min={0} max={100} className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                      value={Number(bk.bgIntensity)} onChange={(e) => setBkField("bgIntensity", e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Siklus (dtk)</Label>
+                    <input type="number" min={2} max={20} className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                      value={Number(bk.bgDuration)} onChange={(e) => setBkField("bgDuration", e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Warna 1</Label>
+                    <input type="color" className="h-8 w-full rounded-md border border-input bg-transparent"
+                      value={String(bk.bgPrimaryColor)} onChange={(e) => setBkField("bgPrimaryColor", e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Warna 2 (Gradient)</Label>
+                    <input type="color" className="h-8 w-full rounded-md border border-input bg-transparent"
+                      value={String(bk.bgSecondaryColor)} onChange={(e) => setBkField("bgSecondaryColor", e.target.value)} />
                   </div>
                 </div>
               </div>
