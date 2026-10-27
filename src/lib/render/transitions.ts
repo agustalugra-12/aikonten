@@ -46,6 +46,14 @@ export const ALL_TRANSITION_TYPES: TransitionType[] = [
   "hrwind",
 ];
 
+// Daftar LENGKAP semua TransitionType sah (termasuk dissolve/wipeleft Fase 3D yg SENGAJA
+// tidak masuk ALL_TRANSITION_TYPES utk rotasi fallback). Dipakai utk VALIDASI (mis. Scene
+// Manifest Fase 4) - beda tujuan dari ALL_TRANSITION_TYPES (pool rotasi Director).
+const ALL_TRANSITION_TYPES_COMPLETE: TransitionType[] = [...ALL_TRANSITION_TYPES, "dissolve", "wipeleft"];
+export function isTransitionType(v: unknown): v is TransitionType {
+  return typeof v === "string" && (ALL_TRANSITION_TYPES_COMPLETE as string[]).includes(v);
+}
+
 // 0.5dtk - cukup terasa TANPA bikin video terasa lambat/ngambang (PRD: "transisi halus
 // dan tidak berlebihan"). Klip WAJIB >= 1.5dtk (sama floor dgn camera motion) supaya
 // transisi tidak "memakan" sebagian besar durasi klip pendek.

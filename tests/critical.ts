@@ -236,6 +236,44 @@ async function run() {
   const rfull = bkm.resolveBrandKit(JSON.stringify({ title: { enabled: true }, ctaColor: "#1DA1F2", primaryColor: "#112233", transition: { style: "dissolve" }, kineticTypography: { enabled: true }, backgroundAnimation: { enabled: true, preset: "Gradient" } }));
   ok("bg ko-eksis dgn Title+CTA+LowerThird+Transitions+Kinetic", rfull?.titleEnabled === true && rfull?.ctaButtonColor === "#1DA1F2" && rfull?.transitionStyle === "dissolve" && rfull?.kineticEnabled === true && rfull?.bgEnabled === true);
 
+  // ---------- Fase 4: Scene Manifest JSON (2026-10-27) ----------
+  const sm = await import("../src/lib/render/sceneManifest.ts");
+  const validManifest = {
+    version: 1, orientation: "portrait",
+    scenes: [
+      { id: "s0", footage: { kind: "segment", sourceUrl: "https://x/a.mp4", start: 0, end: 3 }, motion: "zoom-in", transitionAfter: "fade" },
+      { id: "s1", footage: { kind: "segment", sourceUrl: "https://x/b.mp4", start: 1, end: 4 }, motion: "pan-left", transitionAfter: "dissolve" },
+      { id: "s2", footage: { kind: "broll", videoUrl: "https://x/c.mp4", durationSeconds: 2 } },
+    ],
+    overlays: { titleText: "Hook", ctaText: "Follow", lowerThird: { name: "Toko A", tagline: "UMKM" } },
+    audio: { musicUrl: "https://x/m.mp3", hasVoiceover: true }, subtitlePresent: true,
+  };
+  ok("manifest valid diterima", sm.validateSceneManifest(validManifest).ok === true);
+  ok("manifest version salah ditolak", sm.validateSceneManifest({ ...validManifest, version: 2 }).ok === false);
+  ok("manifest orientation asing ditolak", sm.validateSceneManifest({ ...validManifest, orientation: "diagonal" }).ok === false);
+  ok("manifest scenes kosong ditolak", sm.validateSceneManifest({ ...validManifest, scenes: [] }).ok === false);
+  ok("manifest footage sourceUrl kosong ditolak (aset tak ada)", sm.validateSceneManifest({ version: 1, orientation: "portrait", scenes: [{ id: "x", footage: { kind: "segment", sourceUrl: "", start: 0, end: 1 } }] }).ok === false);
+  ok("manifest start>=end ditolak", sm.validateSceneManifest({ version: 1, orientation: "portrait", scenes: [{ id: "x", footage: { kind: "segment", sourceUrl: "u", start: 2, end: 2 } }] }).ok === false);
+  ok("manifest motion/transisi asing ditolak", sm.validateSceneManifest({ version: 1, orientation: "portrait", scenes: [{ id: "x", footage: { kind: "segment", sourceUrl: "u", start: 0, end: 1 }, motion: "teleport" }] }).ok === false);
+  ok("manifest sourceUrl non-string (anti-injeksi) ditolak", sm.validateSceneManifest({ version: 1, orientation: "portrait", scenes: [{ id: "x", footage: { kind: "segment", sourceUrl: { evil: 1 }, start: 0, end: 1 } }] }).ok === false);
+  ok("resolveSceneManifest null/invalid -> null (backward-compat proyek lama)", sm.resolveSceneManifest(null) === null && sm.resolveSceneManifest("{bukan json") === null && sm.resolveSceneManifest(JSON.stringify({ version: 9 })) === null);
+
+  const vmRes = sm.validateSceneManifest(validManifest);
+  if (!vmRes.ok) throw new Error("validManifest seharusnya valid");
+  const manifest = vmRes.value;
+  const compiled = sm.compileManifestToRenderInputs(manifest);
+  ok("compile: 2 segment + 1 broll", compiled.segments.length === 2 && compiled.brollClips.length === 1);
+  ok("compile: transitions N-1 (3 klip -> 2)", compiled.transitions.length === 2 && compiled.transitions[0] === "fade");
+  ok("compile: motions per klip urutan allClips (seg dulu lalu broll)", compiled.motions.length === 3 && compiled.motions[0] === "zoom-in" && compiled.motions[2] === "static");
+  ok("compile: overlay + music diteruskan", compiled.titleText === "Hook" && compiled.ctaText === "Follow" && compiled.musicUrl === "https://x/m.mp3");
+  ok("estimasi durasi (3+3+2 - 2x0.5 overlap = 7)", sm.estimateManifestDurationSeconds(manifest) === 7);
+
+  // roundtrip build->compile konsisten
+  const built = sm.buildManifestFromRenderInputs({ segments: [{ sourceUrl: "u1", start: 0, end: 2 }, { sourceUrl: "u2", start: 0, end: 3 }], brollClips: [{ videoUrl: "b1", durationSeconds: 1 }], motions: ["zoom-in", "static", "pan-right"], transitions: ["slideleft", "fade"], orientation: "portrait" });
+  ok("build->validate valid", sm.validateSceneManifest(built).ok === true);
+  const rc = sm.compileManifestToRenderInputs(built);
+  ok("roundtrip build->compile konsisten", rc.segments.length === 2 && rc.brollClips.length === 1 && rc.motions.join() === "zoom-in,static,pan-right" && rc.transitions.length === 2);
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
