@@ -475,6 +475,17 @@ async function run() {
   })());
   ok("5D setSceneTransition invalid -> no-op", red.setSceneTransition(base, sid, "warpspeed" as unknown as import("../src/lib/render/transitions.ts").TransitionType).scenes[0].transitionAfter === base.scenes[0].transitionAfter);
 
+  // ---------- Fase 5E fix: normalisasi manifest stabil (anti false-conflict) ----------
+  // validateSceneManifest harus menghasilkan string IDENTIK terlepas dari urutan key input
+  // (motion-lalu-transisi vs sebaliknya). Ini dasar perbaikan serverStr = JSON.stringify(v.value)
+  // supaya cocok dgn yg server simpan & GET kembalikan -> tak ada konflik palsu.
+  ok("5E normalisasi: urutan key motion/transisi tak pengaruhi bentuk tersimpan", (() => {
+    const a = { version: 1, orientation: "portrait", scenes: [{ id: "a", footage: { kind: "segment", sourceUrl: "u", start: 0, end: 2 }, motion: "pan-left", transitionAfter: "dissolve" }] };
+    const b = { version: 1, orientation: "portrait", scenes: [{ id: "a", footage: { kind: "segment", sourceUrl: "u", start: 0, end: 2 }, transitionAfter: "dissolve", motion: "pan-left" }] };
+    const ra = sm.validateSceneManifest(a), rb = sm.validateSceneManifest(b);
+    return ra.ok && rb.ok && JSON.stringify(ra.value) === JSON.stringify(rb.value);
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

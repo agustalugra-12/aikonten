@@ -148,9 +148,12 @@ function EditorView({ projectId, brandId, initial, source, serverManifest, onClo
         setSaveError(e.error || (r.status === 404 ? "Proyek tidak ditemukan." : `Gagal menyimpan (${r.status}).`));
         return false;
       }
-      const savedStr = JSON.stringify(manifest);
-      setBaseline(savedStr);
-      setServerStr(savedStr);
+      // baseline (utk dirty) = bentuk client. serverStr (utk deteksi konflik) HARUS = bentuk
+      // ter-normalisasi yg server simpan = JSON.stringify(validateSceneManifest(m).value), karena
+      // GET berikutnya mengembalikan bentuk itu. Pakai client string di sini menimbulkan
+      // false-conflict saat urutan key berbeda (mis. set transisi lalu motion). v sudah valid.
+      setBaseline(JSON.stringify(manifest));
+      setServerStr(JSON.stringify(v.value));
       return true;
     } catch {
       setSaveError("Gagal menyimpan - masalah jaringan.");
@@ -207,6 +210,12 @@ function EditorView({ projectId, brandId, initial, source, serverManifest, onClo
 
   const scenes = manifest.scenes;
   const selectedScene = scenes.find((s) => s.id === selectedId) ?? null;
+  // Renderer menyusun klip segment-dulu-lalu-broll (compileManifestToRenderInputs), jadi
+  // menggeser melewati batas jenis TIDAK WYSIWYG. Batasi geser hanya antar klip SEJENIS supaya
+  // urutan track = urutan render. (Tak ubah renderer -> aman.)
+  const selIdx = selectedScene ? scenes.findIndex((s) => s.id === selectedScene.id) : -1;
+  const canMoveUp = !!selectedScene && selIdx > 0 && scenes[selIdx - 1].footage.kind === selectedScene.footage.kind;
+  const canMoveDown = !!selectedScene && selIdx >= 0 && selIdx < scenes.length - 1 && scenes[selIdx + 1].footage.kind === selectedScene.footage.kind;
 
   return (
     <div className="space-y-3">
@@ -259,8 +268,8 @@ function EditorView({ projectId, brandId, initial, source, serverManifest, onClo
       {selectedId && (
         <div className="flex items-center gap-2 flex-wrap border rounded-md p-2">
           <span className="text-xs text-muted-foreground">Scene terpilih:</span>
-          <Button variant="outline" size="sm" onClick={() => apply(moveScene(manifest, selectedId, "up"))} disabled={scenes.findIndex((s) => s.id === selectedId) === 0}>← Geser</Button>
-          <Button variant="outline" size="sm" onClick={() => apply(moveScene(manifest, selectedId, "down"))} disabled={scenes.findIndex((s) => s.id === selectedId) === scenes.length - 1}>Geser →</Button>
+          <Button variant="outline" size="sm" onClick={() => apply(moveScene(manifest, selectedId, "up"))} disabled={!canMoveUp}>← Geser</Button>
+          <Button variant="outline" size="sm" onClick={() => apply(moveScene(manifest, selectedId, "down"))} disabled={!canMoveDown}>Geser →</Button>
           <Button variant="outline" size="sm" onClick={() => setPicker({ mode: "replace", sceneId: selectedId })}>Ganti footage</Button>
           <Button variant="destructive" size="sm" onClick={() => apply(removeScene(manifest, selectedId))} disabled={scenes.length <= 1}>Hapus</Button>
         </div>
@@ -305,7 +314,7 @@ function EditorView({ projectId, brandId, initial, source, serverManifest, onClo
 
       <p className="text-xs text-muted-foreground border-t pt-2">
         Gaya visual (subtitle, judul, animasi, background) diatur dari <span className="font-medium">Brand Kit</span>, bukan di sini.
-        Trim klip serta pengaturan motion & transisi menyusul di tahap berikutnya. Menyimpan tidak me-render ulang — perubahan berlaku saat render berikutnya.
+        Menyimpan tidak me-render ulang — perubahan berlaku saat Render ulang. Catatan: b-roll selalu dirender setelah semua segment, jadi geser hanya tersedia antar klip sejenis.
       </p>
     </div>
   );
