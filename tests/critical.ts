@@ -367,6 +367,37 @@ async function run() {
   })());
   apiDb.close();
 
+  // ---------- Fase 5A: seedManifestFromProject (2026-10-28) ----------
+  const seedMod = await import("../src/lib/scene/seedManifest.ts");
+  // (1) Manifest tersimpan menang -> source "stored", orientasi dari manifest (bukan arg).
+  const sStored = seedMod.seedManifestFromProject({ sceneManifest: JSON.stringify(validManifest), clipSelection: null, orientation: "landscape" });
+  ok("seed: manifest tersimpan dipakai (source=stored, orientasi dari manifest)", sStored.source === "stored" && sStored.manifest?.orientation === "portrait" && sStored.manifest?.scenes.length === 3);
+  // (2) Proyek lama (manifest NULL) + clipSelection valid -> seed, compile lengkap, orientasi brand.
+  const clip = JSON.stringify([
+    { sourceUrl: "https://x/a.mp4", start: 0, end: 3, score: 9 },
+    { sourceUrl: "https://x/b.mp4", start: 1, end: 4, score: 7 },
+  ]);
+  const sSeed = seedMod.seedManifestFromProject({ sceneManifest: null, clipSelection: clip, orientation: "landscape" });
+  ok("seed: proyek lama -> source=seeded + 2 scene + orientasi brand", sSeed.source === "seeded" && sSeed.manifest?.scenes.length === 2 && sSeed.manifest?.orientation === "landscape");
+  ok("seed: hasil seed valid & bisa dikompilasi", (() => {
+    if (!sSeed.manifest) return false;
+    const v = sm.validateSceneManifest(sSeed.manifest);
+    if (!v.ok) return false;
+    const ci = sm.compileManifestToRenderInputs(sSeed.manifest);
+    return ci.segments.length === 2 && ci.segments[0].sourceUrl === "https://x/a.mp4";
+  })());
+  // (3) Entri cacat dibuang (anti data kotor): start>=end & non-string sourceUrl diabaikan.
+  const dirty = JSON.stringify([
+    { sourceUrl: "https://x/ok.mp4", start: 0, end: 2 },
+    { sourceUrl: "https://x/bad.mp4", start: 5, end: 5 },        // start>=end
+    { sourceUrl: 123, start: 0, end: 1 },                         // sourceUrl bukan string
+    { start: 0, end: 1 },                                         // tanpa sourceUrl
+  ]);
+  const sDirty = seedMod.seedManifestFromProject({ sceneManifest: null, clipSelection: dirty, orientation: "portrait" });
+  ok("seed: entri clipSelection cacat dibuang (sisa 1 valid)", sDirty.source === "seeded" && sDirty.manifest?.scenes.length === 1);
+  // (4) Tak ada manifest & tak ada clip valid -> empty (editor tampilkan state kosong).
+  ok("seed: manifest null + clipSelection kosong/invalid -> empty", seedMod.seedManifestFromProject({ sceneManifest: null, clipSelection: null, orientation: "portrait" }).source === "empty" && seedMod.seedManifestFromProject({ sceneManifest: null, clipSelection: "{bukan array}", orientation: "portrait" }).manifest === null);
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

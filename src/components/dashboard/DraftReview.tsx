@@ -5,6 +5,8 @@ import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { TimelineEditor } from "@/components/dashboard/TimelineEditor";
 import { toast } from "sonner";
 import { getSimilarityTier, SIMILARITY_TIER_LABELS, SIMILARITY_TIER_COLORS } from "@/lib/ai/similarityTier";
 import type { Project, ProjectDetail, SocialAccount } from "@/types";
@@ -81,6 +83,9 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
   // murni assembly read-only (lihat contentBrief.ts), tidak ada biaya AI tapi tetap
   // tidak perlu selalu di-fetch tiap draft dimuat kalau tidak dilihat.
   const [briefOpen, setBriefOpen] = useState(false);
+  // Timeline Editor (2026-10-28, Fase 5A) - panel read-only urutan scene. Default tertutup;
+  // tak mengubah alur draft/publish yg ada.
+  const [timelineOpen, setTimelineOpen] = useState(false);
   const [brief, setBrief] = useState<{
     objective: string | null; targetAudience: string | null; platforms: string[];
     pillar: string | null; topic: string | null; angle: string | null; hook: string | null;
@@ -213,7 +218,10 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
       {!detail ? (
         <p className="text-sm text-muted-foreground">Memuat pratinjau...</p>
       ) : finalVideo ? (
-        <video controls src={previewUrl(finalVideo.fileUrl)} className="w-full max-h-[420px] rounded-md bg-black" />
+        <div className="space-y-1.5">
+          <video controls src={previewUrl(finalVideo.fileUrl)} className="w-full max-h-[420px] rounded-md bg-black" />
+          <Button variant="outline" size="sm" onClick={() => setTimelineOpen(true)}>Edit Timeline</Button>
+        </div>
       ) : finalImages.length === 1 ? (
         // Foto TUNGGAL (poster) - tampil PENUH & UTUH (2026-08-05, bug nyata dilaporkan
         // Agus: sebelumnya poster foto tunggal ikut dipaksa masuk grid-cols-3 yg dibuat
@@ -334,6 +342,15 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
           </Button>
         </div>
       </div>
+
+      <Dialog open={timelineOpen} onOpenChange={setTimelineOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Timeline Editor</DialogTitle>
+          </DialogHeader>
+          <TimelineEditor projectId={project.id} brandId={project.brandId} onClose={() => setTimelineOpen(false)} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
