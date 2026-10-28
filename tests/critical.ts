@@ -314,6 +314,59 @@ async function run() {
   ok("isolasi tenant: id tak dikenal -> null", store.readSceneManifestColumn(dbCol, "tidak-ada") === null);
   dbNoCol.close(); dbCol.close();
 
+  // ---------- Fase 4 API persistence: save/read + validasi + isolasi tenant (2026-10-28) ----------
+  // DB percobaan mereplikasi skema+gate getOwnedProject (projects JOIN brands ON brand_id,
+  // filter projects.id=? AND brands.user_id=?) utk membuktikan: tenant lain TIDAK bisa
+  // tulis/baca manifest proyek orang. writeSceneManifestColumn hanya dipanggil SETELAH gate lolos.
+  const apiDb = new Database(":memory:");
+  apiDb.exec(`CREATE TABLE brands (id TEXT PRIMARY KEY, user_id TEXT);
+              CREATE TABLE projects (id TEXT PRIMARY KEY, brand_id TEXT, scene_manifest TEXT);`);
+  apiDb.prepare("INSERT INTO brands (id,user_id) VALUES ('brandA','userA'),('brandB','userB')").run();
+  apiDb.prepare("INSERT INTO projects (id,brand_id,scene_manifest) VALUES ('projA','brandA',NULL),('projB','brandB',NULL)").run();
+  // Gate = SQL yg SAMA dgn getOwnedProject (session.ts).
+  const owns = (userId: string, projectId: string): boolean =>
+    !!apiDb.prepare("SELECT p.id FROM projects p JOIN brands b ON p.brand_id=b.id WHERE p.id=? AND b.user_id=?").get(projectId, userId);
+  // Simulasi handler PATCH: gate -> validasi -> tulis. Return status.
+  const patchManifest = (userId: string, projectId: string, input: unknown): number => {
+    if (!owns(userId, projectId)) return 404;                    // isolasi tenant
+    if (input !== null) {
+      const res = sm.validateSceneManifest(input);
+      if (!res.ok) return 400;                                   // invalid -> tak ditulis
+      store.writeSceneManifestColumn(apiDb, projectId, JSON.stringify(res.value));
+      return 200;
+    }
+    store.writeSceneManifestColumn(apiDb, projectId, null);       // null = reset
+    return 200;
+  };
+
+  ok("API: owner (userA) simpan manifest ke projA -> 200", patchManifest("userA", "projA", validManifest) === 200);
+  ok("API: read-back projA = manifest tersimpan (roundtrip)", (() => {
+    const back = sm.resolveSceneManifest(store.readSceneManifestColumn(apiDb, "projA"));
+    return back !== null && back.scenes.length === 3 && back.orientation === "portrait";
+  })());
+  ok("API: tenant lain (userB) simpan ke projA -> 404 (isolasi tenant)", patchManifest("userB", "projA", validManifest) === 404);
+  ok("API: projA TIDAK berubah oleh percobaan userB (masih manifest userA)", (() => {
+    const back = sm.resolveSceneManifest(store.readSceneManifestColumn(apiDb, "projA"));
+    return back !== null && back.scenes.length === 3;
+  })());
+  ok("API: userA baca projB -> 404 (tak bisa intip tenant lain)", !owns("userA", "projB"));
+  ok("API: manifest invalid -> 400 & data lama utuh", (() => {
+    const before = store.readSceneManifestColumn(apiDb, "projA");
+    const status = patchManifest("userA", "projA", { version: 1, orientation: "portrait", scenes: [] }); // scenes kosong = invalid
+    const after = store.readSceneManifestColumn(apiDb, "projA");
+    return status === 400 && before === after;
+  })());
+  ok("API: null -> reset ke flow lama (resolve null)", patchManifest("userA", "projA", null) === 200 && store.readSceneManifestColumn(apiDb, "projA") === null && sm.resolveSceneManifest(store.readSceneManifestColumn(apiDb, "projA")) === null);
+  // End-to-end logis: save -> read -> resolve -> compile -> render inputs lengkap (renderable).
+  ok("API: e2e save->read->resolve->compile render inputs lengkap", (() => {
+    patchManifest("userA", "projA", validManifest);
+    const back = sm.resolveSceneManifest(store.readSceneManifestColumn(apiDb, "projA"));
+    if (!back) return false;
+    const ci = sm.compileManifestToRenderInputs(back);
+    return ci.segments.length === 2 && ci.brollClips.length === 1 && ci.transitions.length === 2 && ci.orientation === "portrait";
+  })());
+  apiDb.close();
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

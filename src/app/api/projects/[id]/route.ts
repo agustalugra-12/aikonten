@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
+import { db, sqlite } from "@/db";
 import { mediaAssets, publishLogs, projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { runPrePublishQC } from "@/lib/ai/prePublishQC";
 import { getUserId, getOwnedProject } from "@/lib/session";
+import { validateSceneManifest } from "@/lib/render/sceneManifest";
+import { readSceneManifestColumn, writeSceneManifestColumn } from "@/lib/render/sceneManifestStore";
 
 // Edit teks di Studio preview (2026-10-05, Fase A - permintaan Agus) - owner ubah
 // judul(script)/caption/hashtag tanpa re-generate. Hanya field TEKS; aset tak disentuh.
@@ -26,13 +28,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         : [];
     update.generatedHashtags = JSON.stringify(arr);
   }
-  if (Object.keys(update).length === 0) {
+  // Scene Manifest (2026-10-28, Fase 4 persistence) - OPSIONAL. null = reset (-> flow render
+  // lama). Object = divalidasi KETAT dulu; invalid -> 400 TANPA menyentuh data tersimpan (tak
+  // merusak manifest/proyek). Disimpan via jalur DEFENSIF terpisah (kolom scene_manifest sengaja
+  // tak di objek tabel Drizzle - lihat sceneManifestStore). Kepemilikan sudah dicek di atas.
+  let manifestJson: string | null = null;
+  let manifestTouched = false;
+  if ("sceneManifest" in body) {
+    if (body.sceneManifest === null) {
+      manifestTouched = true;
+    } else {
+      const res = validateSceneManifest(body.sceneManifest);
+      if (!res.ok) {
+        return NextResponse.json({ error: `sceneManifest tidak valid: ${res.error}` }, { status: 400 });
+      }
+      manifestJson = JSON.stringify(res.value);
+      manifestTouched = true;
+    }
+  }
+
+  if (Object.keys(update).length === 0 && !manifestTouched) {
     return NextResponse.json({ error: "Tidak ada field untuk diubah" }, { status: 400 });
   }
   update.updatedAt = new Date();
   await db.update(projects).set(update).where(eq(projects.id, id));
+  if (manifestTouched) writeSceneManifestColumn(sqlite, id, manifestJson);
   const [updated] = await db.select().from(projects).where(eq(projects.id, id));
-  return NextResponse.json(updated);
+  return NextResponse.json({ ...updated, sceneManifest: readSceneManifestColumn(sqlite, id) });
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -43,7 +65,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
   }
   const assets = await db.select().from(mediaAssets).where(eq(mediaAssets.projectId, id));
-  return NextResponse.json({ ...project, assets });
+  // sceneManifest (Fase 4) via pembaca defensif - kolom tak di objek tabel Drizzle, jadi tak
+  // ikut di `project`. null = belum ada / proyek lama (editor pakai default).
+  return NextResponse.json({ ...project, assets, sceneManifest: readSceneManifestColumn(sqlite, id) });
 }
 
 // Tolak/hapus draft (2026-08-04, permintaan Agus - dipakai DraftReview.tsx kalau

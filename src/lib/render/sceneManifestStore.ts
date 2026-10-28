@@ -22,3 +22,13 @@ export function readSceneManifestColumn(database: Database.Database, projectId: 
     return null;
   }
 }
+
+// Tulis kolom scene_manifest (Fase 4 persistence, 2026-10-28). `json` = string JSON manifest
+// yg SUDAH divalidasi pemanggil (API route) atau null (reset -> flow render lama). SENGAJA
+// TIDAK try/catch: beda dgn baca (null-fallback aman), gagal TULIS = potensi kehilangan data,
+// jadi error "no such column"/DB dibiarkan melempar (loud 500) ketimbang diam-diam hilang.
+// Pemanggil WAJIB sudah cek kepemilikan proyek (getOwnedProject) sebelum ini - WHERE id=?
+// menyentuh tepat 1 baris milik tenant itu, isolasi tenant terjaga.
+export function writeSceneManifestColumn(database: Database.Database, projectId: string, json: string | null): void {
+  database.prepare("UPDATE projects SET scene_manifest = ? WHERE id = ?").run(json, projectId);
+}
