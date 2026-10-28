@@ -1,4 +1,4 @@
-import { db } from "@/db";
+import { db, sqlite } from "@/db";
 import { projects, mediaAssets, brands, socialAccounts, footageBank, contentTypes, users } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { transcribeFootage, transcribeAudioBuffer, type TranscriptSegment } from "@/lib/ai/transcribe";
@@ -22,6 +22,8 @@ import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit } from "@/lib/render/brandKit";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { brandTransitionType } from "@/lib/render/transitions";
+import { resolveSceneManifest, compileManifestToRenderInputs } from "@/lib/render/sceneManifest";
+import { readSceneManifestColumn } from "@/lib/render/sceneManifestStore";
 import { detectBeats } from "@/lib/ai/beatDetect";
 import { extractStatOverlays } from "@/lib/ai/statExtractor";
 import { extractLowerThird } from "@/lib/ai/lowerThirdExtractor";
@@ -1198,6 +1200,19 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         ? directorDecision.transitions.map(() => forcedTransition)
         : directorDecision.transitions;
 
+      // Scene Manifest (2026-10-28, Fase 4 wiring) - kalau proyek punya manifest VALID tersimpan
+      // (editor Fase 5 nanti yg menulisnya), dia jadi SUMBER scene: footage/urutan/motion/transisi/
+      // orientasi menimpa keputusan AI Director. Absen/invalid/kolom-belum-ada -> null -> flow LAMA
+      // persis (AI Director tetap fallback sesuai desain). Manifest TIDAK menyentuh voiceover/
+      // wordTimings/subtitle/design Brand Kit (itu tetap runtime di bawah) -> sinkronisasi audio &
+      // subtitle TAK bergeser (klip hanya lapisan visual di bawah timeline suara). maxDuration &
+      // orientasi Shorts (60dtk/portrait) TETAP menang sbg pengaman terakhir (lihat opts di bawah).
+      const sceneManifest = resolveSceneManifest(readSceneManifestColumn(sqlite, id));
+      const manifestInputs = sceneManifest ? compileManifestToRenderInputs(sceneManifest) : null;
+      if (manifestInputs) {
+        console.log(`[sceneManifest] proyek ${id} pakai manifest: ${manifestInputs.segments.length} segmen + ${manifestInputs.brollClips.length} broll`);
+      }
+
       return renderFinalVideo({
         projectId: id,
         brandId: project.brandId,
@@ -1224,16 +1239,19 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         lowerThirdAccentColor: brandKit?.lowerThirdAccentColor,
         // CTA warna box (Fase 3) - dari ctaColor brand; undefined = merah YouTube lama.
         ctaButtonColor: brandKit?.ctaButtonColor,
-        segments: selected,
+        // Cast: manifest segments = {sourceUrl,start,end} saja; renderFinalVideo HANYA baca 3
+        // field itu (ffmpeg.ts ~L370: map ke {url,start,end}), field ScoredSegment lain diabaikan
+        // -> cast aman, tak ada data dipalsukan. Absen -> selected (flow lama).
+        segments: (manifestInputs?.segments as typeof selected | undefined) ?? selected,
         srtContent: srtForRender,
         wordTimings: wordTimingsForRender,
-        brollClips,
+        brollClips: manifestInputs?.brollClips ?? brollClips,
         // AI Dubbing - GANTI TOTAL suara asli (lihat memory proyek, keputusan eksplisit
         // Agus). Audio-nya SUDAH digenerate di atas (perlu ada LEBIH DULU drpd subtitle
         // presisi dibangun) - di sini tinggal diteruskan, bukan generate baru lagi.
         voiceoverAudioBuffer: voiceoverBuffer,
-        motions: directorDecision.motions,
-        transitions: finalTransitions,
+        motions: manifestInputs?.motions ?? directorDecision.motions,
+        transitions: manifestInputs?.transitions ?? finalTransitions,
         musicUrl,
         musicBeatTimestamps: musicBeats.beatTimestamps,
         stickerClipIndex: directorDecision.stickerClipIndex,
@@ -1249,11 +1267,11 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         // kebutuhan YT") - setting per-brand, default "portrait" kalau belum di-set.
         // YT Shorts (2026-08-10) SELALU portrait, override setting brand - lihat
         // isYoutubeShorts di atas.
-        orientation: isYoutubeShorts ? "portrait" : brand?.videoOrientation,
+        orientation: isYoutubeShorts ? "portrait" : (manifestInputs?.orientation ?? brand?.videoOrientation),
         // Batas keras 60dtk (2026-08-10, permintaan Agus - "jangan buat short diatas 1
         // menit ini aturannya") - jaring pengaman TERAKHIR di render (bukan gantikan
         // durationConfig.target=60 di atas yg cuma target lunak saat pemilihan klip).
-        maxDurationSeconds: isYoutubeShorts ? 60 : undefined,
+        maxDurationSeconds: isYoutubeShorts ? 60 : manifestInputs?.maxDurationSeconds,
         // Overlay Engine (2026-08-10, PRD "AI Content Editing Engine") - progress bar
         // ikut Style Preset (2026-08-10, DIREVISI dari hardcode true - lihat
         // stylePreset.ts, preset documentary/minimal mematikannya). CTA dinamis per

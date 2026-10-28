@@ -274,6 +274,46 @@ async function run() {
   const rc = sm.compileManifestToRenderInputs(built);
   ok("roundtrip build->compile konsisten", rc.segments.length === 2 && rc.brollClips.length === 1 && rc.motions.join() === "zoom-in,static,pan-right" && rc.transitions.length === 2);
 
+  // ---------- Fase 4 WIRING + persistence (2026-10-28) ----------
+  // Reorder scene -> compile ikut urutan baru (bukti editor bisa mengubah urutan visual).
+  const reordered = { ...validManifest, scenes: [validManifest.scenes[1], validManifest.scenes[0], validManifest.scenes[2]] };
+  const rr = sm.validateSceneManifest(reordered);
+  if (!rr.ok) throw new Error("reordered seharusnya valid");
+  const rrc = sm.compileManifestToRenderInputs(rr.value);
+  ok("reorder scene: segment urutan ikut manifest", rrc.segments[0].sourceUrl === "https://x/b.mp4" && rrc.segments[1].sourceUrl === "https://x/a.mp4");
+  ok("reorder scene: motion ikut urutan baru", rrc.motions[0] === "pan-left" && rrc.motions[1] === "zoom-in");
+
+  // Pembaca DEFENSIF kolom (batas adapter aman). DB in-memory, TANPA boot pipeline.
+  const store = await import("../src/lib/render/sceneManifestStore.ts");
+  const Database = (await import("better-sqlite3")).default;
+
+  // (a) Kolom BELUM ada (= DB prod belum migrasi) -> null, TAK throw -> flow render lama.
+  const dbNoCol = new Database(":memory:");
+  dbNoCol.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, brand_id TEXT)");
+  dbNoCol.prepare("INSERT INTO projects (id, brand_id) VALUES (?, ?)").run("p1", "b1");
+  ok("defensif: kolom scene_manifest belum ada -> null (aman, tak crash)", store.readSceneManifestColumn(dbNoCol, "p1") === null);
+
+  // (b) Kolom ADA. NULL baris = proyek lama -> null -> flow lama. JSON valid -> dikembalikan.
+  const dbCol = new Database(":memory:");
+  dbCol.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, brand_id TEXT, scene_manifest TEXT)");
+  const ins = dbCol.prepare("INSERT INTO projects (id, brand_id, scene_manifest) VALUES (?, ?, ?)");
+  ins.run("old", "bA", null);                                   // proyek lama: NULL
+  ins.run("valid", "bA", JSON.stringify(validManifest));        // tenant A
+  ins.run("broken", "bA", "{bukan json");                       // manifest korup
+  ins.run("other", "bB", JSON.stringify({ ...validManifest, orientation: "landscape" })); // tenant B
+  ok("persistence: proyek lama (NULL) -> null (fallback flow lama)", store.readSceneManifestColumn(dbCol, "old") === null);
+  ok("persistence: baca-balik manifest valid = JSON tersimpan", store.readSceneManifestColumn(dbCol, "valid") === JSON.stringify(validManifest));
+  ok("persistence: manifest korup tersimpan -> resolve null (tak rusak proyek)", sm.resolveSceneManifest(store.readSceneManifestColumn(dbCol, "broken")) === null);
+  ok("persistence: roundtrip simpan->baca->resolve->compile", (() => {
+    const back = sm.resolveSceneManifest(store.readSceneManifestColumn(dbCol, "valid"));
+    return back !== null && sm.compileManifestToRenderInputs(back).segments.length === 2;
+  })());
+  // Isolasi tenant: query scoped WHERE id=? -> manifest tenant B TIDAK bocor ke id tenant A.
+  const aBack = sm.resolveSceneManifest(store.readSceneManifestColumn(dbCol, "valid"));
+  ok("isolasi tenant: id A -> manifest A (orientation portrait), bukan B", aBack !== null && aBack.orientation === "portrait");
+  ok("isolasi tenant: id tak dikenal -> null", store.readSceneManifestColumn(dbCol, "tidak-ada") === null);
+  dbNoCol.close(); dbCol.close();
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
