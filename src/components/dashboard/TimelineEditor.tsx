@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { seedManifestFromProject, type SeedSource } from "@/lib/scene/seedManifest";
-import { addScene, removeScene, moveScene, setSceneFootage, brollFootageFromBank } from "@/lib/scene/manifestReducer";
+import { addScene, removeScene, moveScene, setSceneFootage, brollFootageFromBank, setSegmentTrim, setBrollDuration } from "@/lib/scene/manifestReducer";
 import {
   estimateManifestDurationSeconds,
   validateSceneManifest,
@@ -141,6 +141,7 @@ function EditorView({ projectId, brandId, initial, source }: { projectId: string
   }
 
   const scenes = manifest.scenes;
+  const selectedScene = scenes.find((s) => s.id === selectedId) ?? null;
 
   return (
     <div className="space-y-3">
@@ -200,6 +201,23 @@ function EditorView({ projectId, brandId, initial, source }: { projectId: string
         </div>
       )}
 
+      {selectedScene && (
+        <SceneInspector
+          key={`${selectedScene.id}:${selectedScene.footage.kind}`}
+          scene={selectedScene}
+          onTrim={(s, e) => {
+            const r = setSegmentTrim(manifest, selectedScene.id, s, e);
+            if (r.ok) { apply(r.manifest); return null; }
+            return r.error;
+          }}
+          onDuration={(d) => {
+            const r = setBrollDuration(manifest, selectedScene.id, d);
+            if (r.ok) { apply(r.manifest); return null; }
+            return r.error;
+          }}
+        />
+      )}
+
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <Button variant="outline" size="sm" onClick={() => setPicker({ mode: "add" })}>+ Tambah Scene</Button>
         <div className="flex items-center gap-2">
@@ -214,6 +232,63 @@ function EditorView({ projectId, brandId, initial, source }: { projectId: string
         Gaya visual (subtitle, judul, animasi, background) diatur dari <span className="font-medium">Brand Kit</span>, bukan di sini.
         Trim klip serta pengaturan motion & transisi menyusul di tahap berikutnya. Menyimpan tidak me-render ulang — perubahan berlaku saat render berikutnya.
       </p>
+    </div>
+  );
+}
+
+// Inspector properti klip (Fase 5C). Di-key per (sceneId:kind) di induk -> remount & reset input
+// saat ganti scene atau kind footage berubah. Input lokal (string) agar bisa mengetik nilai
+// antara yg belum valid tanpa memasukkannya ke manifest; commit memanggil onTrim/onDuration yg
+// balikkan pesan error (null = sukses & manifest sudah diperbarui induk).
+function SceneInspector({
+  scene,
+  onTrim,
+  onDuration,
+}: {
+  scene: Scene;
+  onTrim: (start: number, end: number) => string | null;
+  onDuration: (durationSeconds: number) => string | null;
+}) {
+  const footage = scene.footage;
+  const [startStr, setStartStr] = useState(footage.kind === "segment" ? String(footage.start) : "");
+  const [endStr, setEndStr] = useState(footage.kind === "segment" ? String(footage.end) : "");
+  const [durStr, setDurStr] = useState(footage.kind === "broll" ? String(footage.durationSeconds) : "");
+  const [err, setErr] = useState<string | null>(null);
+
+  if (footage.kind === "segment") {
+    const commit = (ns: string, ne: string) => setErr(onTrim(parseFloat(ns), parseFloat(ne)));
+    const dur = Math.max(0, (parseFloat(endStr) || 0) - (parseFloat(startStr) || 0));
+    return (
+      <div className="border rounded-md p-2 space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground">Trim segment (detik):</span>
+          <label className="text-xs flex items-center gap-1">start
+            <input type="number" min={0} step={0.1} value={startStr}
+              onChange={(e) => { setStartStr(e.target.value); commit(e.target.value, endStr); }}
+              className="w-20 border rounded px-1.5 py-1 text-xs" />
+          </label>
+          <label className="text-xs flex items-center gap-1">end
+            <input type="number" min={0} step={0.1} value={endStr}
+              onChange={(e) => { setEndStr(e.target.value); commit(startStr, e.target.value); }}
+              className="w-20 border rounded px-1.5 py-1 text-xs" />
+          </label>
+          <span className="text-xs text-muted-foreground">durasi {dur.toFixed(1)}s</span>
+        </div>
+        {err && <p className="text-xs text-destructive">{err}</p>}
+      </div>
+    );
+  }
+
+  const commitDur = (nd: string) => setErr(onDuration(parseFloat(nd)));
+  return (
+    <div className="border rounded-md p-2 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-muted-foreground">Durasi b-roll (detik):</span>
+        <input type="number" min={0.1} step={0.1} value={durStr}
+          onChange={(e) => { setDurStr(e.target.value); commitDur(e.target.value); }}
+          className="w-24 border rounded px-1.5 py-1 text-xs" />
+      </div>
+      {err && <p className="text-xs text-destructive">{err}</p>}
     </div>
   );
 }

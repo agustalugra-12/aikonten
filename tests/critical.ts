@@ -427,6 +427,31 @@ async function run() {
   const swapped = red.setSceneFootage(withMotion, withMotion.scenes[0].id, red.brollFootageFromBank("https://x/new.mp4", 6));
   ok("reducer setSceneFootage: footage diganti, motion dipertahankan, valid", swapped.scenes[0].footage.kind === "broll" && swapped.scenes[0].motion === "zoom-in" && validAfter(swapped));
 
+  // ---------- Fase 5C: Clip Properties (trim/durasi) ----------
+  ok("5C setSegmentTrim valid -> start/end + manifest valid", (() => {
+    const r = red.setSegmentTrim(base, base.scenes[0].id, 1, 2.5);
+    if (!r.ok) return false;
+    const f = r.manifest.scenes[0].footage;
+    return f.kind === "segment" && f.start === 1 && f.end === 2.5 && sm.validateSceneManifest(r.manifest).ok;
+  })());
+  ok("5C setSegmentTrim end<=start -> error", !red.setSegmentTrim(base, base.scenes[0].id, 2, 2).ok);
+  ok("5C setSegmentTrim start negatif -> error", !red.setSegmentTrim(base, base.scenes[0].id, -1, 2).ok);
+  ok("5C setSegmentTrim NaN -> error", !red.setSegmentTrim(base, base.scenes[0].id, Number.NaN, 2).ok);
+  ok("5C setSegmentTrim pertahankan motion", (() => {
+    const wm = { ...base, scenes: base.scenes.map((s, i) => (i === 0 ? { ...s, motion: "pan-left" as const } : s)) };
+    const r = red.setSegmentTrim(wm, wm.scenes[0].id, 0, 2);
+    return r.ok && r.manifest.scenes[0].motion === "pan-left";
+  })());
+  ok("5C setBrollDuration valid -> durationSeconds", (() => {
+    const r = red.setBrollDuration(added, "new-1", 8);
+    if (!r.ok) return false;
+    const sc = r.manifest.scenes.find((s) => s.id === "new-1");
+    return !!sc && sc.footage.kind === "broll" && sc.footage.durationSeconds === 8;
+  })());
+  ok("5C setBrollDuration <=0 -> error", !red.setBrollDuration(added, "new-1", 0).ok);
+  ok("5C setSegmentTrim pada broll -> error (kind salah)", !red.setSegmentTrim(added, "new-1", 0, 1).ok);
+  ok("5C setBrollDuration pada segment -> error (kind salah)", !red.setBrollDuration(base, base.scenes[0].id, 3).ok);
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

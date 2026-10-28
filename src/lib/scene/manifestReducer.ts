@@ -53,3 +53,30 @@ export function brollFootageFromBank(fileUrl: string, durationSeconds?: number |
   const dur = typeof durationSeconds === "number" && Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 5;
   return { kind: "broll", videoUrl: fileUrl, durationSeconds: dur };
 }
+
+// --- Fase 5C: Clip Properties (trim segment / durasi broll) ---
+// Hasil operasi tervalidasi: {ok:false,error} supaya UI tampilkan pesan inline TANPA memasukkan
+// nilai invalid ke manifest (manifest selalu lolos validateSceneManifest).
+export type EditResult = { ok: true; manifest: SceneManifest } | { ok: false; error: string };
+
+// Trim segment: set start/end. Sumber (sourceUrl) & motion/transisi scene dipertahankan.
+export function setSegmentTrim(manifest: SceneManifest, sceneId: string, start: number, end: number): EditResult {
+  const scene = manifest.scenes.find((s) => s.id === sceneId);
+  if (!scene) return { ok: false, error: "Scene tidak ditemukan." };
+  if (scene.footage.kind !== "segment") return { ok: false, error: "Scene ini bukan klip segment." };
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return { ok: false, error: "Start/end harus berupa angka." };
+  if (start < 0) return { ok: false, error: "Start tidak boleh negatif." };
+  if (end <= start) return { ok: false, error: "End harus lebih besar dari start." };
+  const footage: SceneFootage = { kind: "segment", sourceUrl: scene.footage.sourceUrl, start, end };
+  return { ok: true, manifest: setSceneFootage(manifest, sceneId, footage) };
+}
+
+// Durasi broll: set durationSeconds (> 0). videoUrl & motion/transisi dipertahankan.
+export function setBrollDuration(manifest: SceneManifest, sceneId: string, durationSeconds: number): EditResult {
+  const scene = manifest.scenes.find((s) => s.id === sceneId);
+  if (!scene) return { ok: false, error: "Scene tidak ditemukan." };
+  if (scene.footage.kind !== "broll") return { ok: false, error: "Scene ini bukan klip b-roll." };
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return { ok: false, error: "Durasi harus lebih dari 0." };
+  const footage: SceneFootage = { kind: "broll", videoUrl: scene.footage.videoUrl, durationSeconds };
+  return { ok: true, manifest: setSceneFootage(manifest, sceneId, footage) };
+}
