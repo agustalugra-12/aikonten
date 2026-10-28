@@ -398,6 +398,35 @@ async function run() {
   // (4) Tak ada manifest & tak ada clip valid -> empty (editor tampilkan state kosong).
   ok("seed: manifest null + clipSelection kosong/invalid -> empty", seedMod.seedManifestFromProject({ sceneManifest: null, clipSelection: null, orientation: "portrait" }).source === "empty" && seedMod.seedManifestFromProject({ sceneManifest: null, clipSelection: "{bukan array}", orientation: "portrait" }).manifest === null);
 
+  // ---------- Fase 5B: manifestReducer (2026-10-28) ----------
+  const red = await import("../src/lib/scene/manifestReducer.ts");
+  const base = sm.buildManifestFromRenderInputs({
+    segments: [{ sourceUrl: "https://x/a.mp4", start: 0, end: 3 }, { sourceUrl: "https://x/b.mp4", start: 0, end: 2 }],
+    orientation: "portrait",
+    overlays: { titleText: "Hook" },
+  });
+  const validAfter = (m: unknown) => sm.validateSceneManifest(m).ok;
+  // addScene
+  const added = red.addScene(base, red.brollFootageFromBank("https://x/c.mp4", 4), "new-1");
+  ok("reducer addScene: +1 scene di akhir, valid, overlays dipertahankan", added.scenes.length === 3 && added.scenes[2].id === "new-1" && added.overlays?.titleText === "Hook" && validAfter(added));
+  ok("reducer addScene: immutable (base tak berubah)", base.scenes.length === 2);
+  // brollFootageFromBank fallback
+  ok("reducer brollFootageFromBank: durasi null -> fallback 5s", (() => { const f = red.brollFootageFromBank("u", null); return f.kind === "broll" && f.durationSeconds === 5; })());
+  ok("reducer brollFootageFromBank: durasi valid dipakai", (() => { const f = red.brollFootageFromBank("u", 7); return f.kind === "broll" && f.durationSeconds === 7; })());
+  // removeScene
+  const removed = red.removeScene(base, base.scenes[0].id);
+  ok("reducer removeScene: hapus 1, valid", removed.scenes.length === 1 && removed.scenes[0].id === base.scenes[1].id && validAfter(removed));
+  ok("reducer removeScene: NO-OP kalau sisa 1 scene (tak pernah kosong)", red.removeScene(removed, removed.scenes[0].id).scenes.length === 1);
+  ok("reducer removeScene: id tak ada -> no-op", red.removeScene(base, "xxx").scenes.length === 2);
+  // moveScene
+  const moved = red.moveScene(base, base.scenes[1].id, "up");
+  ok("reducer moveScene up: tukar urutan, valid", moved.scenes[0].id === base.scenes[1].id && moved.scenes[1].id === base.scenes[0].id && validAfter(moved));
+  ok("reducer moveScene: di ujung -> no-op", red.moveScene(base, base.scenes[0].id, "up").scenes[0].id === base.scenes[0].id && red.moveScene(base, base.scenes[1].id, "down").scenes[1].id === base.scenes[1].id);
+  // setSceneFootage (pertahankan motion)
+  const withMotion = { ...base, scenes: base.scenes.map((s, i) => (i === 0 ? { ...s, motion: "zoom-in" as const } : s)) };
+  const swapped = red.setSceneFootage(withMotion, withMotion.scenes[0].id, red.brollFootageFromBank("https://x/new.mp4", 6));
+  ok("reducer setSceneFootage: footage diganti, motion dipertahankan, valid", swapped.scenes[0].footage.kind === "broll" && swapped.scenes[0].motion === "zoom-in" && validAfter(swapped));
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
