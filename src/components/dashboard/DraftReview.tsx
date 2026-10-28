@@ -348,7 +348,7 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
           <DialogHeader>
             <DialogTitle>Timeline Editor</DialogTitle>
           </DialogHeader>
-          <TimelineEditor projectId={project.id} brandId={project.brandId} onClose={() => setTimelineOpen(false)} />
+          <TimelineEditor projectId={project.id} brandId={project.brandId} onClose={() => setTimelineOpen(false)} onChange={onChange} />
         </DialogContent>
       </Dialog>
     </div>

@@ -35,9 +35,9 @@ type BankItem = { id: string; mediaType: string; fileUrl: string; posterUrl?: st
 type LoadState =
   | { phase: "loading" }
   | { phase: "error"; message: string }
-  | { phase: "ready"; manifest: SceneManifest | null; source: SeedSource };
+  | { phase: "ready"; manifest: SceneManifest | null; source: SeedSource; serverManifest: string | null };
 
-export function TimelineEditor({ projectId, brandId, onClose }: { projectId: string; brandId: string; onClose: () => void }) {
+export function TimelineEditor({ projectId, brandId, onClose, onChange }: { projectId: string; brandId: string; onClose: () => void; onChange?: () => void }) {
   const [state, setState] = useState<LoadState>({ phase: "loading" });
 
   useEffect(() => {
@@ -59,7 +59,7 @@ export function TimelineEditor({ projectId, brandId, onClose }: { projectId: str
           /* default portrait */
         }
         const { manifest, source } = seedManifestFromProject({ sceneManifest: proj.sceneManifest, clipSelection: proj.clipSelection, orientation });
-        if (!cancelled) setState({ phase: "ready", manifest, source });
+        if (!cancelled) setState({ phase: "ready", manifest, source, serverManifest: proj.sceneManifest ?? null });
       } catch (err) {
         if (!cancelled) setState({ phase: "error", message: err instanceof Error ? err.message : "Terjadi kesalahan." });
       }
@@ -81,20 +81,25 @@ export function TimelineEditor({ projectId, brandId, onClose }: { projectId: str
         Belum ada data scene untuk proyek ini. Timeline hanya tersedia untuk video dengan footage.
       </p>
     );
-  return <EditorView projectId={projectId} brandId={brandId} initial={state.manifest} source={state.source} />;
+  return <EditorView projectId={projectId} brandId={brandId} initial={state.manifest} source={state.source} serverManifest={state.serverManifest} onClose={onClose} onChange={onChange} />;
 }
 
-function EditorView({ projectId, brandId, initial, source }: { projectId: string; brandId: string; initial: SceneManifest; source: SeedSource }) {
+function EditorView({ projectId, brandId, initial, source, serverManifest, onClose, onChange }: { projectId: string; brandId: string; initial: SceneManifest; source: SeedSource; serverManifest: string | null; onClose: () => void; onChange?: () => void }) {
   const [manifest, setManifest] = useState<SceneManifest>(initial);
   const [baseline, setBaseline] = useState<string>(() => JSON.stringify(initial));
+  // Keadaan DB yg kita ketahui (null = proyek lama belum punya manifest). Dipakai deteksi konflik.
+  const [serverStr, setServerStr] = useState<string | null>(serverManifest);
   const [selectedId, setSelectedId] = useState<string | null>(initial.scenes[0]?.id ?? null);
   const [saving, setSaving] = useState(false);
+  const [rendering, setRendering] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  // Picker Footage Bank: null = tertutup; {mode} = terbuka (tambah scene baru / ganti footage scene).
+  const [conflict, setConflict] = useState(false);
   const [picker, setPicker] = useState<{ mode: "add" } | { mode: "replace"; sceneId: string } | null>(null);
 
-  const dirty = JSON.stringify(manifest) !== baseline;
+  const manifestStr = JSON.stringify(manifest);
+  const dirty = manifestStr !== baseline;
   const totalDuration = estimateManifestDurationSeconds(manifest);
+  const busy = saving || rendering;
 
   function apply(next: SceneManifest) {
     setManifest(next);
@@ -113,16 +118,26 @@ function EditorView({ projectId, brandId, initial, source }: { projectId: string
     setPicker(null);
   }
 
-  async function handleSave() {
-    // Validasi client (cermin) dulu utk feedback instan; server tetap otoritas (400).
-    const res = validateSceneManifest(manifest);
-    if (!res.ok) {
-      setSaveError(`Timeline belum valid: ${res.error}`);
-      return;
-    }
+  // Simpan inti (dipakai tombol Simpan, autosave, & sebelum Render). Return true kalau tersimpan
+  // atau memang tak ada perubahan. Validasi client dulu (server tetap otoritas 400). Deteksi
+  // konflik BEST-EFFORT tanpa ubah server: GET manifest terkini; kalau beda dari keadaan DB yg
+  // kita tahu (serverStr) -> ada yg mengubah di tempat lain -> batalkan & minta muat ulang.
+  async function save(): Promise<boolean> {
+    if (JSON.stringify(manifest) === baseline) return true;
+    const v = validateSceneManifest(manifest);
+    if (!v.ok) { setSaveError(`Timeline belum valid: ${v.error}`); return false; }
     setSaving(true);
     setSaveError(null);
     try {
+      try {
+        const g = await fetch(`/api/projects/${projectId}`);
+        if (g.ok) {
+          const gj = (await g.json()) as { sceneManifest?: string | null };
+          if ((gj.sceneManifest ?? null) !== serverStr) { setConflict(true); return false; }
+        }
+      } catch {
+        /* cek konflik opsional - kalau gagal, jangan blokir penyimpanan */
+      }
       const r = await fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -131,16 +146,64 @@ function EditorView({ projectId, brandId, initial, source }: { projectId: string
       if (!r.ok) {
         const e = (await r.json().catch(() => ({}))) as { error?: string };
         setSaveError(e.error || (r.status === 404 ? "Proyek tidak ditemukan." : `Gagal menyimpan (${r.status}).`));
-        return;
+        return false;
       }
-      setBaseline(JSON.stringify(manifest));
-      toast.success("Timeline tersimpan. Perubahan berlaku saat render berikutnya.");
+      const savedStr = JSON.stringify(manifest);
+      setBaseline(savedStr);
+      setServerStr(savedStr);
+      return true;
     } catch {
       setSaveError("Gagal menyimpan - masalah jaringan.");
+      return false;
     } finally {
       setSaving(false);
     }
   }
+
+  async function handleSave() {
+    if (await save()) toast.success("Timeline tersimpan. Perubahan berlaku saat render berikutnya.");
+  }
+
+  // Render ulang: simpan dulu kalau ada perubahan, konfirmasi (berbayar kredit), lalu POST /process
+  // (pipeline existing -> baca manifest tersimpan via wiring Fase 4). Tak duplikasi logika render.
+  async function handleRender() {
+    if (dirty && !(await save())) return;
+    if (!confirm("Render ulang video dengan timeline ini? Proses ini memakai kredit generate.")) return;
+    setRendering(true);
+    setSaveError(null);
+    try {
+      const r = await fetch(`/api/projects/${projectId}/process`, { method: "POST" });
+      if (!r.ok) {
+        const e = (await r.json().catch(() => ({}))) as { error?: string };
+        setSaveError(e.error || `Gagal memulai render (${r.status}).`);
+        return;
+      }
+      toast.success("Render dimulai. Hasil akan muncul di draft setelah selesai.");
+      onChange?.();
+      onClose();
+    } catch {
+      setSaveError("Gagal memulai render - masalah jaringan.");
+    } finally {
+      setRendering(false);
+    }
+  }
+
+  // Autosave: 2.5 dtk setelah perubahan berhenti (hanya kalau dirty, tak sibuk, tak konflik).
+  // Pakai timer (bukan setState sinkron di body effect). Manifest selalu valid (reducer menjaga).
+  useEffect(() => {
+    if (!dirty || busy || conflict) return;
+    const t = setTimeout(() => { void save(); }, 2500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifestStr, dirty, busy, conflict]);
+
+  // Guard kehilangan perubahan: peringatkan kalau keluar/refresh saat masih ada perubahan belum tersimpan.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
 
   const scenes = manifest.scenes;
   const selectedScene = scenes.find((s) => s.id === selectedId) ?? null;
@@ -223,11 +286,18 @@ function EditorView({ projectId, brandId, initial, source }: { projectId: string
         />
       )}
 
+      {conflict && (
+        <div className="rounded-md border border-amber-500 bg-amber-50 p-2 text-xs text-amber-700 flex items-center justify-between gap-2">
+          <span>Timeline ini diubah di tempat lain. Tutup lalu buka lagi untuk memuat versi terbaru (perubahanmu belum tersimpan).</span>
+          <Button variant="outline" size="sm" onClick={onClose}>Tutup</Button>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <Button variant="outline" size="sm" onClick={() => setPicker({ mode: "add" })}>+ Tambah Scene</Button>
+        <Button variant="outline" size="sm" onClick={() => setPicker({ mode: "add" })} disabled={busy}>+ Tambah Scene</Button>
         <div className="flex items-center gap-2">
           {saveError && <span className="text-xs text-destructive max-w-xs truncate" title={saveError}>{saveError}</span>}
-          <Button size="sm" onClick={handleSave} disabled={saving || !dirty}>{saving ? "Menyimpan..." : "Simpan"}</Button>
+          <Button variant="outline" size="sm" onClick={handleSave} disabled={busy || !dirty}>{saving ? "Menyimpan..." : "Simpan"}</Button>
+          <Button size="sm" onClick={handleRender} disabled={busy}>{rendering ? "Merender..." : "Render ulang"}</Button>
         </div>
       </div>
 
