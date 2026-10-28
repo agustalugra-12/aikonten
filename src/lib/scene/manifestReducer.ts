@@ -5,6 +5,8 @@
 // Hasil tiap operasi dirancang tetap lolos validateSceneManifest (dipanggil lagi sbg otoritas
 // sebelum save). Tak impor DB/ffmpeg -> aman client.
 import type { Scene, SceneFootage, SceneManifest } from "@/lib/render/sceneManifest";
+import { ALL_MOTION_TYPES, type MotionType } from "@/lib/render/cameraMotion";
+import { isTransitionType, type TransitionType } from "@/lib/render/transitions";
 
 function withScenes(manifest: SceneManifest, scenes: Scene[]): SceneManifest {
   return { ...manifest, scenes };
@@ -79,4 +81,38 @@ export function setBrollDuration(manifest: SceneManifest, sceneId: string, durat
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return { ok: false, error: "Durasi harus lebih dari 0." };
   const footage: SceneFootage = { kind: "broll", videoUrl: scene.footage.videoUrl, durationSeconds };
   return { ok: true, manifest: setSceneFootage(manifest, sceneId, footage) };
+}
+
+// --- Fase 5D: Motion & Transitions ---
+// Set motion satu scene. undefined = hapus (-> default "static" saat compile). NO-OP kalau scene
+// tak ada atau motion di luar ALL_MOTION_TYPES (dropdown hanya tawarkan nilai valid; guard ekstra).
+export function setSceneMotion(manifest: SceneManifest, sceneId: string, motion: MotionType | undefined): SceneManifest {
+  const exists = manifest.scenes.some((s) => s.id === sceneId);
+  if (!exists) return manifest;
+  if (motion !== undefined && !ALL_MOTION_TYPES.includes(motion)) return manifest;
+  const scenes = manifest.scenes.map((s) => {
+    if (s.id !== sceneId) return s;
+    const next: Scene = { ...s };
+    if (motion === undefined) delete next.motion;
+    else next.motion = motion;
+    return next;
+  });
+  return withScenes(manifest, scenes);
+}
+
+// Set transisi SESUDAH satu scene. undefined = hapus (-> default "fade" saat compile). Diabaikan
+// renderer utk scene terakhir (tetap disimpan tak masalah). NO-OP kalau scene tak ada atau nilai
+// bukan TransitionType valid (termasuk dissolve/wipeleft via isTransitionType).
+export function setSceneTransition(manifest: SceneManifest, sceneId: string, transition: TransitionType | undefined): SceneManifest {
+  const exists = manifest.scenes.some((s) => s.id === sceneId);
+  if (!exists) return manifest;
+  if (transition !== undefined && !isTransitionType(transition)) return manifest;
+  const scenes = manifest.scenes.map((s) => {
+    if (s.id !== sceneId) return s;
+    const next: Scene = { ...s };
+    if (transition === undefined) delete next.transitionAfter;
+    else next.transitionAfter = transition;
+    return next;
+  });
+  return withScenes(manifest, scenes);
 }

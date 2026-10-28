@@ -49,7 +49,10 @@ export const ALL_TRANSITION_TYPES: TransitionType[] = [
 // Daftar LENGKAP semua TransitionType sah (termasuk dissolve/wipeleft Fase 3D yg SENGAJA
 // tidak masuk ALL_TRANSITION_TYPES utk rotasi fallback). Dipakai utk VALIDASI (mis. Scene
 // Manifest Fase 4) - beda tujuan dari ALL_TRANSITION_TYPES (pool rotasi Director).
-const ALL_TRANSITION_TYPES_COMPLETE: TransitionType[] = [...ALL_TRANSITION_TYPES, "dissolve", "wipeleft"];
+// (2026-10-28, Fase 5D) di-export supaya dropdown editor timeline menampilkan SEMUA transisi
+// valid (termasuk dissolve/wipeleft), konsisten dgn gerbang isTransitionType/validateSceneManifest.
+// TIDAK dipakai utk rotasi fallback Director (itu tetap ALL_TRANSITION_TYPES) -> video lama aman.
+export const ALL_TRANSITION_TYPES_COMPLETE: TransitionType[] = [...ALL_TRANSITION_TYPES, "dissolve", "wipeleft"];
 export function isTransitionType(v: unknown): v is TransitionType {
   return typeof v === "string" && (ALL_TRANSITION_TYPES_COMPLETE as string[]).includes(v);
 }

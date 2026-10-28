@@ -6,12 +6,12 @@
 // NULL) di-seed in-memory & baru menulis DB saat user klik Simpan -> perubahan BERLAKU SAAT RENDER
 // BERIKUTNYA (render tak dipicu di sini). Gaya visual tetap dari Brand Kit. Hemat RAM: tanpa
 // banyak <video>, pakai bilah durasi.
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { seedManifestFromProject, type SeedSource } from "@/lib/scene/seedManifest";
-import { addScene, removeScene, moveScene, setSceneFootage, brollFootageFromBank, setSegmentTrim, setBrollDuration } from "@/lib/scene/manifestReducer";
+import { addScene, removeScene, moveScene, setSceneFootage, brollFootageFromBank, setSegmentTrim, setBrollDuration, setSceneMotion, setSceneTransition } from "@/lib/scene/manifestReducer";
 import {
   estimateManifestDurationSeconds,
   validateSceneManifest,
@@ -19,6 +19,8 @@ import {
   type SceneManifest,
   type SceneOrientation,
 } from "@/lib/render/sceneManifest";
+import { ALL_MOTION_TYPES, type MotionType } from "@/lib/render/cameraMotion";
+import { ALL_TRANSITION_TYPES_COMPLETE, type TransitionType } from "@/lib/render/transitions";
 
 const ORIENTATIONS: readonly SceneOrientation[] = ["portrait", "landscape", "square"];
 function isOrientation(v: unknown): v is SceneOrientation {
@@ -205,6 +207,7 @@ function EditorView({ projectId, brandId, initial, source }: { projectId: string
         <SceneInspector
           key={`${selectedScene.id}:${selectedScene.footage.kind}`}
           scene={selectedScene}
+          isLast={scenes[scenes.length - 1]?.id === selectedScene.id}
           onTrim={(s, e) => {
             const r = setSegmentTrim(manifest, selectedScene.id, s, e);
             if (r.ok) { apply(r.manifest); return null; }
@@ -215,6 +218,8 @@ function EditorView({ projectId, brandId, initial, source }: { projectId: string
             if (r.ok) { apply(r.manifest); return null; }
             return r.error;
           }}
+          onMotion={(mt) => apply(setSceneMotion(manifest, selectedScene.id, mt))}
+          onTransition={(tt) => apply(setSceneTransition(manifest, selectedScene.id, tt))}
         />
       )}
 
@@ -242,12 +247,18 @@ function EditorView({ projectId, brandId, initial, source }: { projectId: string
 // balikkan pesan error (null = sukses & manifest sudah diperbarui induk).
 function SceneInspector({
   scene,
+  isLast,
   onTrim,
   onDuration,
+  onMotion,
+  onTransition,
 }: {
   scene: Scene;
+  isLast: boolean;
   onTrim: (start: number, end: number) => string | null;
   onDuration: (durationSeconds: number) => string | null;
+  onMotion: (motion: MotionType) => void;
+  onTransition: (transition: TransitionType | undefined) => void;
 }) {
   const footage = scene.footage;
   const [startStr, setStartStr] = useState(footage.kind === "segment" ? String(footage.start) : "");
@@ -255,40 +266,57 @@ function SceneInspector({
   const [durStr, setDurStr] = useState(footage.kind === "broll" ? String(footage.durationSeconds) : "");
   const [err, setErr] = useState<string | null>(null);
 
+  let footageFields: ReactNode;
   if (footage.kind === "segment") {
     const commit = (ns: string, ne: string) => setErr(onTrim(parseFloat(ns), parseFloat(ne)));
     const dur = Math.max(0, (parseFloat(endStr) || 0) - (parseFloat(startStr) || 0));
-    return (
-      <div className="border rounded-md p-2 space-y-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-muted-foreground">Trim segment (detik):</span>
-          <label className="text-xs flex items-center gap-1">start
-            <input type="number" min={0} step={0.1} value={startStr}
-              onChange={(e) => { setStartStr(e.target.value); commit(e.target.value, endStr); }}
-              className="w-20 border rounded px-1.5 py-1 text-xs" />
-          </label>
-          <label className="text-xs flex items-center gap-1">end
-            <input type="number" min={0} step={0.1} value={endStr}
-              onChange={(e) => { setEndStr(e.target.value); commit(startStr, e.target.value); }}
-              className="w-20 border rounded px-1.5 py-1 text-xs" />
-          </label>
-          <span className="text-xs text-muted-foreground">durasi {dur.toFixed(1)}s</span>
-        </div>
-        {err && <p className="text-xs text-destructive">{err}</p>}
+    footageFields = (
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-muted-foreground">Trim segment (detik):</span>
+        <label className="text-xs flex items-center gap-1">start
+          <input type="number" min={0} step={0.1} value={startStr}
+            onChange={(e) => { setStartStr(e.target.value); commit(e.target.value, endStr); }}
+            className="w-20 border rounded px-1.5 py-1 text-xs" />
+        </label>
+        <label className="text-xs flex items-center gap-1">end
+          <input type="number" min={0} step={0.1} value={endStr}
+            onChange={(e) => { setEndStr(e.target.value); commit(startStr, e.target.value); }}
+            className="w-20 border rounded px-1.5 py-1 text-xs" />
+        </label>
+        <span className="text-xs text-muted-foreground">durasi {dur.toFixed(1)}s</span>
       </div>
     );
-  }
-
-  const commitDur = (nd: string) => setErr(onDuration(parseFloat(nd)));
-  return (
-    <div className="border rounded-md p-2 space-y-2">
+  } else {
+    const commitDur = (nd: string) => setErr(onDuration(parseFloat(nd)));
+    footageFields = (
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-muted-foreground">Durasi b-roll (detik):</span>
         <input type="number" min={0.1} step={0.1} value={durStr}
           onChange={(e) => { setDurStr(e.target.value); commitDur(e.target.value); }}
           className="w-24 border rounded px-1.5 py-1 text-xs" />
       </div>
+    );
+  }
+
+  return (
+    <div className="border rounded-md p-2 space-y-2">
+      {footageFields}
       {err && <p className="text-xs text-destructive">{err}</p>}
+      <div className="flex items-center gap-3 flex-wrap border-t pt-2">
+        <label className="text-xs flex items-center gap-1">Motion
+          <select value={scene.motion ?? "static"} onChange={(e) => onMotion(e.target.value as MotionType)} className="border rounded px-1.5 py-1 text-xs">
+            {ALL_MOTION_TYPES.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </label>
+        {!isLast && (
+          <label className="text-xs flex items-center gap-1">Transisi sesudah
+            <select value={scene.transitionAfter ?? ""} onChange={(e) => onTransition(e.target.value === "" ? undefined : (e.target.value as TransitionType))} className="border rounded px-1.5 py-1 text-xs">
+              <option value="">default (fade)</option>
+              {ALL_TRANSITION_TYPES_COMPLETE.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
     </div>
   );
 }

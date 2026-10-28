@@ -452,6 +452,29 @@ async function run() {
   ok("5C setSegmentTrim pada broll -> error (kind salah)", !red.setSegmentTrim(added, "new-1", 0, 1).ok);
   ok("5C setBrollDuration pada segment -> error (kind salah)", !red.setBrollDuration(base, base.scenes[0].id, 3).ok);
 
+  // ---------- Fase 5D: Motion & Transitions ----------
+  const sid = base.scenes[0].id;
+  ok("5D setSceneMotion valid -> set + manifest valid + footage utuh", (() => {
+    const m = red.setSceneMotion(base, sid, "zoom-in");
+    return m.scenes[0].motion === "zoom-in" && m.scenes[0].footage.kind === "segment" && sm.validateSceneManifest(m).ok;
+  })());
+  ok("5D setSceneMotion static eksplisit valid", red.setSceneMotion(base, sid, "static").scenes[0].motion === "static");
+  ok("5D setSceneMotion undefined -> hapus (default static)", (() => {
+    const withM = red.setSceneMotion(base, sid, "pan-left");
+    return red.setSceneMotion(withM, sid, undefined).scenes[0].motion === undefined;
+  })());
+  ok("5D setSceneMotion invalid -> no-op", red.setSceneMotion(base, sid, "teleport" as unknown as import("../src/lib/render/cameraMotion.ts").MotionType).scenes[0].motion === base.scenes[0].motion);
+  ok("5D setSceneMotion id tak ada -> no-op", red.setSceneMotion(base, "xxx", "zoom-in").scenes[0].motion === base.scenes[0].motion);
+  ok("5D setSceneTransition dissolve (valid lengkap) -> set + manifest valid", (() => {
+    const m = red.setSceneTransition(base, sid, "dissolve");
+    return m.scenes[0].transitionAfter === "dissolve" && sm.validateSceneManifest(m).ok;
+  })());
+  ok("5D setSceneTransition undefined -> hapus (default fade)", (() => {
+    const withT = red.setSceneTransition(base, sid, "dissolve");
+    return red.setSceneTransition(withT, sid, undefined).scenes[0].transitionAfter === undefined;
+  })());
+  ok("5D setSceneTransition invalid -> no-op", red.setSceneTransition(base, sid, "warpspeed" as unknown as import("../src/lib/render/transitions.ts").TransitionType).scenes[0].transitionAfter === base.scenes[0].transitionAfter);
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
