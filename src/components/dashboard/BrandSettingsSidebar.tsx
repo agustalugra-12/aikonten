@@ -189,10 +189,6 @@ export function BrandSettingsSidebar({
   const bkHeadingWeights = FONT_OPTIONS.find((f) => f.id === bk.headingFont)?.weights ?? ["regular"];
   const setBkField = (k: string, v: unknown) => setBk((p) => ({ ...p, [k]: v }));
 
-  const [manualIdeaList, setManualIdeaList] = useState<
-    { id: string; idea: string; source: string; used: boolean; createdAt: string }[] | null
-  >(null);
-  const [uploadingIdeas, setUploadingIdeas] = useState(false);
 
   // Sinkron ulang form saat dialog dibuka - brand bisa berubah (ganti brand aktif) atau
   // data terbaru masuk sejak terakhir dibuka. Dipindah ke event handler (bukan effect)
@@ -215,10 +211,6 @@ export function BrandSettingsSidebar({
     setFootageSource(brand?.footageSource ?? "internal");
     setPublishMode(brand?.publishMode ?? "draft");
     setAutoPublishTimes(parseAutoPublishTimes(brand?.autoPublishTimes));
-    fetch(`/api/brands/${brandId}/manual-ideas`)
-      .then((r) => r.json())
-      .then((d) => setManualIdeaList(d.ideas || []))
-      .catch(() => setManualIdeaList([]));
   }
 
   async function patchBrand(body: Record<string, unknown>): Promise<boolean> {
@@ -391,41 +383,11 @@ export function BrandSettingsSidebar({
     }
   }
 
-  async function handleUploadIdeas(files: FileList | null) {
-    const file = files?.[0];
-    if (!file) return;
-    setUploadingIdeas(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch(`/api/brands/${brandId}/manual-ideas`, { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal upload ide");
-      toast.success(`${data.count} ide berhasil ditambahkan ke Bank Ide`);
-      const listRes = await fetch(`/api/brands/${brandId}/manual-ideas`);
-      setManualIdeaList((await listRes.json()).ideas || []);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal upload ide");
-    } finally {
-      setUploadingIdeas(false);
-    }
-  }
-
-  async function handleDeleteIdea(ideaId: string) {
-    await fetch(`/api/brands/${brandId}/manual-ideas`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ideaId }),
-    });
-    setManualIdeaList((prev) => prev?.filter((i) => i.id !== ideaId) ?? null);
-  }
-
   const inner = (
         <Tabs defaultValue="logo">
           <TabsList className="w-full">
             <TabsTrigger value="logo">Logo</TabsTrigger>
             <TabsTrigger value="knowledge">Knowledge Base</TabsTrigger>
-            <TabsTrigger value="ideabank">Bank Ide</TabsTrigger>
             <TabsTrigger value="automation">Automation</TabsTrigger>
             <TabsTrigger value="brandkit">Brand Kit</TabsTrigger>
           </TabsList>
@@ -581,39 +543,6 @@ export function BrandSettingsSidebar({
             <Button size="sm" onClick={handleSaveKnowledge} disabled={savingKnowledge}>
               {savingKnowledge ? "Menyimpan..." : "Simpan Knowledge Base"}
             </Button>
-          </TabsContent>
-
-          <TabsContent value="ideabank" className="space-y-4 pt-3">
-            <p className="text-sm text-muted-foreground">
-              Upload ide konten sendiri (.xlsx, .xls, atau .pdf - 1 ide per baris). Ide di sini dipakai LEBIH DULU
-              tiap rencana konten harian dibuat, AI cuma isi sisa slot yang belum terpenuhi.
-            </p>
-            <Input type="file" accept=".xlsx,.xls,.pdf" onChange={(e) => handleUploadIdeas(e.target.files)} disabled={uploadingIdeas} />
-            {uploadingIdeas && <p className="text-xs text-muted-foreground">Mengunggah &amp; membaca ide...</p>}
-
-            {manualIdeaList === null ? (
-              <p className="text-xs text-muted-foreground">Memuat...</p>
-            ) : manualIdeaList.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Belum ada ide manual - upload file di atas.</p>
-            ) : (
-              <ul className="space-y-1.5 max-h-60 overflow-y-auto">
-                {manualIdeaList.map((i) => (
-                  <li key={i.id} className="flex items-start gap-2 text-xs rounded-md border p-2">
-                    <span className="flex-1">
-                      {i.idea}
-                      <span className="block text-muted-foreground mt-0.5">
-                        {i.source} {i.used ? "· sudah dipakai" : "· belum dipakai"}
-                      </span>
-                    </span>
-                    {!i.used && (
-                      <Button variant="ghost" size="sm" className="h-6 px-2 shrink-0" onClick={() => handleDeleteIdea(i.id)}>
-                        Hapus
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
           </TabsContent>
 
           <TabsContent value="automation" className="space-y-4 pt-3">
