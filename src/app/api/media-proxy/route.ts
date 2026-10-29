@@ -61,7 +61,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const upstream = await fetch(url);
+  // Teruskan header Range dari browser (2026-10-29, laporan Agus "preview lambat") - tanpa ini
+  // proxy selalu balas 200 penuh -> <video> tak bisa seek & buffering dari awal terus (preview
+  // patah/lambat). R2 & Cloudinary dukung Range; teruskan supaya respons jadi 206 progresif.
+  const range = req.headers.get("range");
+  const upstream = await fetch(url, range ? { headers: { Range: range } } : undefined);
   if (!upstream.ok || !upstream.body) {
     return NextResponse.json({ error: `Gagal ambil media: ${upstream.status}` }, { status: 502 });
   }
@@ -69,7 +73,13 @@ export async function GET(req: NextRequest) {
   const headers: Record<string, string> = {
     "Content-Type": upstream.headers.get("content-type") || "application/octet-stream",
     "Cache-Control": "public, max-age=86400",
+    "Accept-Ranges": "bytes",
   };
+  // Teruskan Content-Length & Content-Range (206) supaya browser tahu ukuran & bisa seek presisi.
+  const contentLength = upstream.headers.get("content-length");
+  if (contentLength) headers["Content-Length"] = contentLength;
+  const contentRange = upstream.headers.get("content-range");
+  if (contentRange) headers["Content-Range"] = contentRange;
 
   // Download poster/foto (2026-09-06, permintaan Agus - "buat fitur download konten
   // foto") - `?download=1` opsional (default TETAP preview inline apa adanya, tidak
@@ -86,5 +96,6 @@ export async function GET(req: NextRequest) {
     headers["Content-Disposition"] = `attachment; filename="${filename.replace(/"/g, "")}"`;
   }
 
-  return new NextResponse(upstream.body, { headers });
+  // status: teruskan 206 (Partial Content) saat Range, atau 200 biasa - penting utk seek <video>.
+  return new NextResponse(upstream.body, { status: upstream.status, headers });
 }
