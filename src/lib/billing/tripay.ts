@@ -39,6 +39,35 @@ export function transactionSignature(merchantRef: string, amount: number): strin
   return crypto.createHmac("sha256", TRIPAY_PRIVATE_KEY).update(TRIPAY_MERCHANT_CODE + merchantRef + String(amount)).digest("hex");
 }
 
+// Channel pembayaran utk picker UI (2026-10-29). Dinormalisasi ke bentuk SAMA dgn Duitku
+// ({paymentMethod,paymentName,paymentImage,totalFee}) supaya UI checkout (kredit/pilih-paket)
+// tak perlu diubah. totalFee = biaya yg ditanggung pelanggan utk `amount` ini.
+export type PaymentChannel = { paymentMethod: string; paymentName: string; paymentImage: string; totalFee: string };
+
+export async function getPaymentChannels(amount: number): Promise<PaymentChannel[]> {
+  if (!tripayCreateReady()) {
+    throw new Error("Tripay belum dikonfigurasi (kredensial kosong)");
+  }
+  const res = await fetch(`${BASE_URL}/merchant/payment-channel`, {
+    headers: { Authorization: `Bearer ${TRIPAY_API_KEY}` },
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    success?: boolean; message?: string;
+    data?: Array<{ code?: string; name?: string; icon_url?: string; active?: boolean; fee_customer?: { flat?: number; percent?: number } }>;
+  };
+  if (!res.ok || !data.success || !Array.isArray(data.data)) {
+    throw new Error(`Tripay payment-channel gagal: ${res.status} ${data.message ?? JSON.stringify(data).slice(0, 150)}`);
+  }
+  return data.data
+    .filter((c) => c.active && typeof c.code === "string" && typeof c.name === "string")
+    .map((c) => {
+      const flat = c.fee_customer?.flat ?? 0;
+      const percent = c.fee_customer?.percent ?? 0;
+      const fee = Math.round(flat + (percent / 100) * amount);
+      return { paymentMethod: c.code as string, paymentName: c.name as string, paymentImage: c.icon_url ?? "", totalFee: String(fee) };
+    });
+}
+
 export type TripayTxResult = { paymentUrl: string; reference: string; merchantOrderId: string };
 
 // Buat transaksi (closed payment). Melempar Error kalau kredensial kosong / Tripay menolak -

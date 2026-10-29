@@ -521,6 +521,10 @@ async function run() {
     catch { return true; }
   })());
 
+  ok("tripay: getPaymentChannels MELEMPAR saat belum dikonfigurasi (gating)", await (async () => {
+    try { await tp.getPaymentChannels(100000); return false; } catch { return true; }
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
