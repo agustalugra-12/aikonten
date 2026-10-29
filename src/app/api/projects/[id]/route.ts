@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, sqlite } from "@/db";
-import { mediaAssets, publishLogs, projects } from "@/db/schema";
+import { mediaAssets, publishLogs, projects, llmUsageLog } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { runPrePublishQC } from "@/lib/ai/prePublishQC";
 import { getUserId, getOwnedProject } from "@/lib/session";
@@ -81,6 +81,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
   await db.delete(publishLogs).where(eq(publishLogs.projectId, id));
   await db.delete(mediaAssets).where(eq(mediaAssets.projectId, id));
+  // llm_usage_log punya FK project_id (nullable) - LEPAS tautan (set NULL), JANGAN hapus:
+  // baris ini catatan biaya/audit AI yg tetap perlu disimpan walau project dihapus. Tanpa ini
+  // DELETE gagal "FOREIGN KEY constraint" utk project yg sempat memanggil model AI (2026-10-29).
+  await db.update(llmUsageLog).set({ projectId: null }).where(eq(llmUsageLog.projectId, id));
   await db.delete(projects).where(eq(projects.id, id));
   return NextResponse.json({ ok: true });
 }
