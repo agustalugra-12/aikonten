@@ -1,23 +1,82 @@
 import crypto from "crypto";
 
-// Klien Tripay - saat ini HANYA verifikasi callback (2026-10-23). Tripay = gateway alternatif
-// (selain Duitku). Callback-nya: HMAC-SHA256 dari RAW JSON body mentah pakai PRIVATE KEY
-// merchant sbg secret, dikirim di header X-Callback-Signature (lihat tripay.co.id/developer).
-// Kredensial dari .env (jangan hardcode). createTransaction belum dibangun (webhook-only
-// sesuai permintaan) - begitu dipakai, set merchant_ref = billingLog.id (pola sama Duitku).
+// Klien Tripay (gateway, alternatif/pengganti Duitku). Kredensial dari .env (jangan hardcode).
+// - verifyTripayCallback: validasi webhook (HMAC-SHA256 RAW body pakai PRIVATE KEY). Hanya butuh
+//   private key.
+// - createTransaction (2026-10-29): buat "closed transaction" -> checkout_url utk redirect
+//   pelanggan + reference (disimpan ke billingLog.gatewayRef). merchant_ref = billingLog.id
+//   (pola SAMA Duitku; webhooks/tripay lookup by id). Butuh merchant_code + api_key + private_key.
+// Signature closed-transaction (docs tripay.co.id): HMAC-SHA256(merchant_code + merchant_ref +
+// amount, private_key) hex. callback_url diatur di dashboard Tripay (bukan di body).
 const TRIPAY_PRIVATE_KEY = process.env.TRIPAY_PRIVATE_KEY ?? "";
+const TRIPAY_API_KEY = process.env.TRIPAY_API_KEY ?? "";
+const TRIPAY_MERCHANT_CODE = process.env.TRIPAY_MERCHANT_CODE ?? "";
+const TRIPAY_MODE = process.env.TRIPAY_MODE ?? "sandbox";
 
+const BASE_URL = TRIPAY_MODE === "production" ? "https://tripay.co.id/api" : "https://tripay.co.id/api-sandbox";
+
+// Callback verify cukup private key (perilaku lama, dipakai webhooks/tripay).
 export function tripayConfigured(): boolean {
   return TRIPAY_PRIVATE_KEY.length > 0;
 }
 
-// Verifikasi signature callback. PENGAMAN UTAMA: signature dihitung dari body MENTAH (bukan
-// hasil re-serialize JSON - beda spasi = beda hash), pakai private key rahasia kita. Hanya
-// callback dgn signature cocok yang boleh memicu aktivasi paket/kredit.
+// createTransaction butuh ketiga kredensial.
+export function tripayCreateReady(): boolean {
+  return TRIPAY_PRIVATE_KEY.length > 0 && TRIPAY_API_KEY.length > 0 && TRIPAY_MERCHANT_CODE.length > 0;
+}
+
+// Verifikasi signature callback (body MENTAH, jangan re-serialize) - pengaman utama anti aktivasi palsu.
 export function verifyTripayCallback(rawBody: string, signature: string): boolean {
   if (!tripayConfigured()) return false;
   const expected = crypto.createHmac("sha256", TRIPAY_PRIVATE_KEY).update(rawBody).digest("hex");
   const a = Buffer.from(expected);
   const b = Buffer.from(signature || "");
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Signature WAJIB saat create: HMAC-SHA256(merchant_code + merchant_ref + amount, private_key).
+export function transactionSignature(merchantRef: string, amount: number): string {
+  return crypto.createHmac("sha256", TRIPAY_PRIVATE_KEY).update(TRIPAY_MERCHANT_CODE + merchantRef + String(amount)).digest("hex");
+}
+
+export type TripayTxResult = { paymentUrl: string; reference: string; merchantOrderId: string };
+
+// Buat transaksi (closed payment). Melempar Error kalau kredensial kosong / Tripay menolak -
+// pemanggil balas 502 & biarkan billingLog tetap pending. `method` = kode channel Tripay (mis.
+// "QRIS", "BRIVA"); default "QRIS" (universal) kalau UI belum mengirim channel Tripay.
+export async function createTransaction(opts: {
+  merchantOrderId: string;
+  paymentAmount: number;
+  productDetails: string;
+  email: string;
+  method?: string;
+  customerName?: string;
+  returnUrl: string;
+  expiryPeriodMinutes?: number;
+}): Promise<TripayTxResult> {
+  if (!tripayCreateReady()) {
+    throw new Error("Tripay belum dikonfigurasi (TRIPAY_MERCHANT_CODE/TRIPAY_API_KEY/TRIPAY_PRIVATE_KEY kosong)");
+  }
+  const amount = Math.round(opts.paymentAmount);
+  const body = {
+    method: opts.method && opts.method.length > 0 ? opts.method : "QRIS",
+    merchant_ref: opts.merchantOrderId,
+    amount,
+    customer_name: opts.customerName ?? opts.email,
+    customer_email: opts.email,
+    order_items: [{ name: opts.productDetails, price: amount, quantity: 1 }],
+    return_url: opts.returnUrl,
+    expired_time: Math.floor(Date.now() / 1000) + (opts.expiryPeriodMinutes ?? 60) * 60,
+    signature: transactionSignature(opts.merchantOrderId, amount),
+  };
+  const res = await fetch(`${BASE_URL}/transaction/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${TRIPAY_API_KEY}` },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { success?: boolean; message?: string; data?: { reference?: string; checkout_url?: string } };
+  if (!res.ok || !data.success || !data.data?.checkout_url) {
+    throw new Error(`Tripay create gagal: ${res.status} ${data.message ?? JSON.stringify(data).slice(0, 200)}`);
+  }
+  return { paymentUrl: data.data.checkout_url, reference: data.data.reference ?? "", merchantOrderId: opts.merchantOrderId };
 }

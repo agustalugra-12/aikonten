@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { getUserId } from "@/lib/session";
 import { newId } from "@/lib/ids";
 import { createTransaction, duitkuConfigured } from "@/lib/billing/duitku";
+import { createTransaction as createTripayTransaction, tripayCreateReady } from "@/lib/billing/tripay";
 import { notifOrderPending } from "@/lib/billing/notify";
 
 // Pilih paket + checkout (2026-09-08 Fase 1; 2026-09-30 T3: sambung Duitku). Membuat
@@ -46,6 +47,28 @@ export async function POST(req: NextRequest) {
     gatewayRef: null,
     createdAt: new Date(),
   });
+
+  if (process.env.PAYMENT_PROVIDER === "tripay" && tripayCreateReady()) {
+    try {
+      const tx = await createTripayTransaction({
+        merchantOrderId: id,
+        paymentAmount: plan.hargaBulananIdr,
+        productDetails: `Paket ${plan.nama} - AI Konten`,
+        email: user.email,
+        method: typeof paymentMethod === "string" ? paymentMethod : undefined,
+        customerName: user.namaBisnis ?? user.email,
+        returnUrl: `${APP_BASE_URL}/pilih-paket/sukses?bill=${id}`,
+      });
+      await db.update(billingLog).set({ gatewayRef: tx.reference }).where(eq(billingLog.id, id));
+      return NextResponse.json(
+        { ok: true, billingLogId: id, paymentUrl: tx.paymentUrl, jumlahBayarIdr: plan.hargaBulananIdr },
+        { status: 201 },
+      );
+    } catch (err) {
+      console.error("[select-plan] gagal buat transaksi Tripay:", err);
+      return NextResponse.json({ error: "Gagal membuat transaksi pembayaran. Coba lagi sebentar." }, { status: 502 });
+    }
+  }
 
   if (duitkuConfigured()) {
     if (typeof paymentMethod !== "string" || !paymentMethod) {

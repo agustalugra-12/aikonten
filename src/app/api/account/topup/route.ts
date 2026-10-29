@@ -6,6 +6,7 @@ import { getUserId } from "@/lib/session";
 import { newId } from "@/lib/ids";
 import { getTopupPack } from "@/lib/billing/topupPacks";
 import { createTransaction, duitkuConfigured } from "@/lib/billing/duitku";
+import { createTransaction as createTripayTransaction, tripayCreateReady } from "@/lib/billing/tripay";
 import { notifOrderPending } from "@/lib/billing/notify";
 
 // Checkout top-up kredit (2026-09-30, T5). Mirip select-plan tapi: hasil sukses = tambah
@@ -43,6 +44,27 @@ export async function POST(req: NextRequest) {
     gatewayRef: null,
     createdAt: new Date(),
   });
+
+  // Gateway Tripay (2026-10-29) - aktif kalau PAYMENT_PROVIDER=tripay & kredensial lengkap.
+  // method (channel) dari UI kalau ada; default QRIS di klien tripay. callback via dashboard Tripay.
+  if (process.env.PAYMENT_PROVIDER === "tripay" && tripayCreateReady()) {
+    try {
+      const tx = await createTripayTransaction({
+        merchantOrderId: id,
+        paymentAmount: pack.hargaIdr,
+        productDetails: `Top-up ${pack.nama} - AI Konten`,
+        email: user.email,
+        method: typeof paymentMethod === "string" ? paymentMethod : undefined,
+        customerName: user.namaBisnis ?? user.email,
+        returnUrl: `${APP_BASE_URL}/kredit?topup=selesai`,
+      });
+      await db.update(billingLog).set({ gatewayRef: tx.reference }).where(eq(billingLog.id, id));
+      return NextResponse.json({ ok: true, paymentUrl: tx.paymentUrl }, { status: 201 });
+    } catch (err) {
+      console.error("[topup] gagal buat transaksi Tripay:", err);
+      return NextResponse.json({ error: "Gagal membuat transaksi. Coba lagi." }, { status: 502 });
+    }
+  }
 
   if (duitkuConfigured()) {
     if (typeof paymentMethod !== "string" || !paymentMethod) {

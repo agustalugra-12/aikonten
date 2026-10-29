@@ -506,6 +506,21 @@ async function run() {
     return r?.priceOverlayEnabled === false;
   })());
 
+  // ---------- Tripay createTransaction gating/signature (2026-10-29) ----------
+  // Env kosong di test -> gating HARUS menolak (anti transaksi tanpa kredensial).
+  const tp = await import("../src/lib/billing/tripay.ts");
+  ok("tripay: tripayCreateReady() false saat kredensial kosong (gating)", tp.tripayCreateReady() === false);
+  ok("tripay: transactionSignature deterministik + 64 hex", (() => {
+    const a = tp.transactionSignature("bill_1", 150000);
+    const b = tp.transactionSignature("bill_1", 150000);
+    return a === b && /^[0-9a-f]{64}$/.test(a);
+  })());
+  ok("tripay: signature beda utk ref/amount beda", tp.transactionSignature("bill_1", 150000) !== tp.transactionSignature("bill_2", 150000) && tp.transactionSignature("bill_1", 150000) !== tp.transactionSignature("bill_1", 160000));
+  ok("tripay: createTransaction MELEMPAR saat belum dikonfigurasi (tak buat tx diam2)", await (async () => {
+    try { await tp.createTransaction({ merchantOrderId: "x", paymentAmount: 1000, productDetails: "t", email: "a@b.c", returnUrl: "https://x/r" }); return false; }
+    catch { return true; }
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
