@@ -40,10 +40,12 @@ function statusBadge(status: string): string {
 }
 
 const cell = "w-full bg-transparent text-[12px] text-[#151c27] placeholder:text-[#c6c6cd] rounded px-1.5 py-1 hover:bg-[#f0f3ff] focus:bg-white focus:ring-1 focus:ring-[#c6c6cd] outline-none";
+const PAGE_SIZE = 30;
 
 export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () => void }) {
   const [rows, setRows] = useState<PlanRow[] | null>(null);
   const [size, setSize] = useState(60);
+  const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [genId, setGenId] = useState<string | null>(null);
@@ -61,6 +63,9 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
     }
   }, [brandId]);
   useEffect(() => {
+    // load() async -> setRows terjadi setelah await (bukan sinkron di body effect); rule ini
+    // heuristik & keliru menandainya. Load-on-mount memang perlu di sini.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 
@@ -280,29 +285,36 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
           <p className="text-[13px] text-[#555f6d]">Belum ada rencana. Pilih jumlah konten lalu klik <b>Buat Kerangka Rencana</b> — tanggal otomatis mengikuti jadwal harian brand.</p>
         </div>
       ) : (
+        <>
         <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] overflow-x-auto">
-          <table className="w-full min-w-[1140px] border-collapse">
+          <table className="w-full min-w-[1680px] border-collapse">
             <thead>
               <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-[#555f6d] border-b border-[#e7eefe]">
+                <th className="px-3 py-2.5 w-[44px]">No</th>
                 <th className="px-3 py-2.5 w-[120px]">Tanggal</th>
                 <th className="px-3 py-2.5 w-[110px]">Tipe</th>
                 <th className="px-3 py-2.5 w-[104px]">Orientasi</th>
                 <th className="px-3 py-2.5 w-[96px]">Durasi</th>
                 <th className="px-3 py-2.5 w-[120px]">Pillar</th>
-                <th className="px-3 py-2.5 w-[200px]">Hook / Topik</th>
-                <th className="px-3 py-2.5 w-[220px]">Skrip</th>
-                <th className="px-3 py-2.5 w-[260px]">Caption</th>
-                <th className="px-3 py-2.5 w-[160px]">Hashtag</th>
+                <th className="px-3 py-2.5 w-[280px]">Hook / Topik</th>
+                <th className="px-3 py-2.5 w-[360px]">Skrip</th>
+                <th className="px-3 py-2.5 w-[480px]">Caption</th>
+                <th className="px-3 py-2.5 w-[240px]">Hashtag</th>
                 <th className="px-3 py-2.5 w-[96px]">Status</th>
                 <th className="px-3 py-2.5 w-[84px]">Mode</th>
                 <th className="px-3 py-2.5 w-[170px]">Aksi</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {(() => {
+                const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+                const safePage = Math.min(page, totalPages - 1);
+                return rows.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE).map((r, _i) => {
+                const no = safePage * PAGE_SIZE + _i + 1;
                 const locked = r.status !== "direncanakan";
                 return (
                   <tr key={r.id} className="border-b border-[#f0f3ff] align-top">
+                    <td className="px-2 py-1.5 text-[11px] tabular-nums text-[#555f6d]">{no}</td>
                     <td className="px-2 py-1.5">
                       <input type="date" value={r.date} disabled={locked} onChange={(e) => setLocal(r.id, "date", e.target.value)} onBlur={(e) => commit(r.id, "date", e.target.value)} className={cell + " tabular-nums"} />
                     </td>
@@ -348,10 +360,10 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
                       <textarea rows={2} value={r.hook || ""} placeholder="hook / topik konten" disabled={locked} onChange={(e) => setLocal(r.id, "hook", e.target.value)} onBlur={(e) => commit(r.id, "hook", e.target.value)} className={cell + " resize-y"} />
                     </td>
                     <td className="px-2 py-1.5">
-                      <textarea rows={2} value={r.scriptBrief || ""} placeholder="skrip / brief (dipakai sbg dasar generate; kalau kosong pakai hook)" disabled={locked} onChange={(e) => setLocal(r.id, "scriptBrief", e.target.value)} onBlur={(e) => commit(r.id, "scriptBrief", e.target.value)} className={cell + " resize-y"} />
+                      <textarea rows={3} value={r.scriptBrief || ""} placeholder="skrip / brief (dipakai sbg dasar generate; kalau kosong pakai hook)" disabled={locked} onChange={(e) => setLocal(r.id, "scriptBrief", e.target.value)} onBlur={(e) => commit(r.id, "scriptBrief", e.target.value)} className={cell + " resize-y"} />
                     </td>
                     <td className="px-2 py-1.5">
-                      <textarea rows={2} value={r.draftCaption || ""} placeholder="draft caption" disabled={locked} onChange={(e) => setLocal(r.id, "draftCaption", e.target.value)} onBlur={(e) => commit(r.id, "draftCaption", e.target.value)} className={cell + " resize-y"} />
+                      <textarea rows={4} value={r.draftCaption || ""} placeholder="draft caption" disabled={locked} onChange={(e) => setLocal(r.id, "draftCaption", e.target.value)} onBlur={(e) => commit(r.id, "draftCaption", e.target.value)} className={cell + " resize-y"} />
                     </td>
                     <td className="px-2 py-1.5">
                       <textarea rows={2} value={r.draftHashtags || ""} placeholder="#tag1 #tag2" disabled={locked} onChange={(e) => setLocal(r.id, "draftHashtags", e.target.value)} onBlur={(e) => commit(r.id, "draftHashtags", e.target.value)} className={cell + " resize-y"} />
@@ -413,10 +425,25 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
                     </td>
                   </tr>
                 );
-              })}
+                });
+              })()}
             </tbody>
           </table>
         </div>
+        {rows.length > PAGE_SIZE && (() => {
+          const totalPages = Math.ceil(rows.length / PAGE_SIZE);
+          const safePage = Math.min(page, totalPages - 1);
+          return (
+            <div className="flex items-center justify-center gap-1 pt-3 flex-wrap">
+              <button type="button" disabled={safePage === 0} onClick={() => setPage(safePage - 1)} className="px-2.5 py-1 rounded text-[12px] bg-white ring-1 ring-[#e7eefe] disabled:opacity-40">‹ Sebelumnya</button>
+              {Array.from({ length: totalPages }, (_, i) => i).map((i) => (
+                <button key={i} type="button" onClick={() => setPage(i)} className={"px-2.5 py-1 rounded text-[12px] font-semibold " + (i === safePage ? "bg-black text-white" : "bg-white ring-1 ring-[#e7eefe] text-[#151c27] hover:ring-[#c6c6cd]")}>{i + 1}</button>
+              ))}
+              <button type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage(safePage + 1)} className="px-2.5 py-1 rounded text-[12px] bg-white ring-1 ring-[#e7eefe] disabled:opacity-40">Berikutnya ›</button>
+            </div>
+          );
+        })()}
+        </>
       )}
       <p className="text-[11px] text-[#555f6d]">
         {rows && rows.length > 0 ? `${rows.length} baris rencana. ` : ""}
