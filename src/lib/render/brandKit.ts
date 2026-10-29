@@ -81,6 +81,12 @@ export type BrandKit = {
     secondaryColor?: string; // #RRGGBB
     intensity?: number; // 0-100
   };
+  // Price Overlay (2026-10-29) - kartu harga beranimasi (reuse renderer statOverlay). DEFAULT-OFF.
+  // Harga dideteksi otomatis dari skrip (regex Rp...), bukan input manual. label opsional.
+  priceOverlay?: {
+    enabled?: boolean;
+    label?: string; // default "Mulai dari"
+  };
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -230,6 +236,20 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
     }
     out.backgroundAnimation = ob;
   }
+  if ("priceOverlay" in o && o.priceOverlay !== undefined && o.priceOverlay !== null) {
+    if (typeof o.priceOverlay !== "object" || Array.isArray(o.priceOverlay)) return { ok: false, error: "priceOverlay harus object" };
+    const p = o.priceOverlay as Record<string, unknown>;
+    const op: NonNullable<BrandKit["priceOverlay"]> = {};
+    if ("enabled" in p && p.enabled !== undefined) {
+      if (typeof p.enabled !== "boolean") return { ok: false, error: "priceOverlay.enabled harus boolean" };
+      op.enabled = p.enabled;
+    }
+    if ("label" in p && p.label !== undefined) {
+      if (typeof p.label !== "string" || p.label.length > 24) return { ok: false, error: "priceOverlay.label harus string <=24 char" };
+      op.label = p.label;
+    }
+    out.priceOverlay = op;
+  }
   return { ok: true, value: out };
 }
 
@@ -258,6 +278,9 @@ export type ResolvedBrandKit = {
   // Background Animation (Fase 3F). bgEnabled=false => tak dirender (default-off).
   bgEnabled: boolean;
   bgDesign: BgDesign;
+  // Price Overlay (2026-10-29). priceOverlayEnabled=false => tak dirender (default-off).
+  priceOverlayEnabled: boolean;
+  priceOverlayLabel?: string;
 };
 
 // Dipakai renderer (processProject). json = kolom brands.brandKit mentah. null/kosong/
@@ -334,5 +357,7 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
       intensity: typeof bk.backgroundAnimation?.intensity === "number" ? bk.backgroundAnimation.intensity : DEFAULT_BG_DESIGN.intensity,
       durationSeconds: typeof bk.backgroundAnimation?.durationSeconds === "number" ? bk.backgroundAnimation.durationSeconds : DEFAULT_BG_DESIGN.durationSeconds,
     },
+    priceOverlayEnabled: bk.priceOverlay?.enabled === true,
+    priceOverlayLabel: bk.priceOverlay?.label,
   };
 }

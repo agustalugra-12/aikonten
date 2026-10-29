@@ -20,6 +20,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit } from "@/lib/render/brandKit";
+import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { brandTransitionType } from "@/lib/render/transitions";
 import { resolveSceneManifest, compileManifestToRenderInputs } from "@/lib/render/sceneManifest";
@@ -1136,6 +1137,17 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       clipIndex: Math.min(clipCount - 1, Math.max(0, Math.floor(s.positionFraction * clipCount))),
       iconCategory: s.iconCategory,
     }));
+    // Price Overlay (2026-10-29, permintaan Agus "animasi harga bukan auto-sub") - kartu harga
+    // beranimasi (reuse renderer statOverlay), LEPAS dari gate documentary: opt-in per brand via
+    // Brand Kit priceOverlay.enabled. Harga dideteksi dari narasi (regex, NOL biaya GPT); kalau
+    // tak ketemu, tak ada kartu (aman). Ditaruh di klip awal (clipIndex 0) biar harga langsung terlihat.
+    const priceKit = resolveBrandKit(brand?.brandKit);
+    if (priceKit?.priceOverlayEnabled) {
+      const price = extractPrice(narrationText);
+      if (price) {
+        statOverlays.unshift({ label: priceKit.priceOverlayLabel || "Mulai dari", value: price, clipIndex: 0, iconCategory: "default" });
+      }
+    }
     // Lower Third (2026-08-10, "Overlay System PRD" Category A) - SAMA gating dgn stat
     // card (cuma preset "documentary"), panggilan GPT terpisah kecil (nama+tagline
     // subjek, bukan angka - beda tujuan dari statExtractor).

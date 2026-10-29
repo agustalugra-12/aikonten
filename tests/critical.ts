@@ -486,6 +486,26 @@ async function run() {
     return ra.ok && rb.ok && JSON.stringify(ra.value) === JSON.stringify(rb.value);
   })());
 
+  // ---------- Price Overlay / animasi harga (2026-10-29) ----------
+  const po = await import("../src/lib/render/priceOverlay.ts");
+  ok("price: 'Rp150.000/malam' -> Rp150.000", po.extractPrice("Intip Pelangi mulai Rp150.000/malam sudah sarapan") === "Rp150.000");
+  ok("price: 'Rp 150.000' (spasi) -> Rp150.000", po.extractPrice("harga Rp 150.000 saja") === "Rp150.000");
+  ok("price: 'Rp150rb' -> Rp150rb", po.extractPrice("cuma Rp150rb") === "Rp150rb");
+  ok("price: tanpa harga -> null", po.extractPrice("penginapan nyaman di Bedugul") === null);
+  ok("price: teks kosong/null -> null", po.extractPrice(null) === null && po.extractPrice("") === null);
+  const bk = await import("../src/lib/render/brandKit.ts");
+  ok("brandKit priceOverlay valid diterima", bk.validateBrandKit({ priceOverlay: { enabled: true, label: "Mulai dari" } }).ok === true);
+  ok("brandKit priceOverlay.enabled non-bool ditolak", bk.validateBrandKit({ priceOverlay: { enabled: "ya" } }).ok === false);
+  ok("brandKit priceOverlay.label kepanjangan ditolak", bk.validateBrandKit({ priceOverlay: { label: "x".repeat(25) } }).ok === false);
+  ok("resolveBrandKit priceOverlay enabled -> flag + label", (() => {
+    const r = bk.resolveBrandKit(JSON.stringify({ priceOverlay: { enabled: true, label: "Mulai dari" } }));
+    return r?.priceOverlayEnabled === true && r?.priceOverlayLabel === "Mulai dari";
+  })());
+  ok("resolveBrandKit tanpa priceOverlay -> disabled (default-off)", (() => {
+    const r = bk.resolveBrandKit(JSON.stringify({}));
+    return r?.priceOverlayEnabled === false;
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
