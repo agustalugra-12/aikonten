@@ -21,7 +21,7 @@ type DashboardStats = {
 };
 
 const PLATFORM_LABEL: Record<string, string> = { instagram: "Instagram", facebook: "Facebook", youtube: "YouTube", tiktok: "TikTok" };
-const DAY_ID = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+type TimeSeries = { days: number; daily: { date: string; views: number; likes: number }[]; byPlatform: { platform: string; views: number; likes: number }[]; totals: { views: number; likes: number }; prev: { views: number; likes: number } };
 const DONUT_SHADES = ["#000000", "#555f6d", "#a0a0aa", "#c6c6cd", "#dce2f3"];
 
 function metricVal(row: AnalyticsRow, name: string): number | null {
@@ -47,6 +47,7 @@ export function Analytics({ brandId }: { brandId: string }) {
   const [tab, setTab] = useState<"mingguan" | "bulanan">("mingguan");
   const { data: rows } = useFetchedData<AnalyticsRow[]>(() => fetch(`/api/brands/${brandId}/analytics`).then((r) => r.json()), [brandId]);
   const { data: stats } = useFetchedData<DashboardStats | null>(() => fetch(`/api/brands/${brandId}/dashboard-stats`).then((r) => r.json()), [brandId]);
+  const { data: ts } = useFetchedData<TimeSeries | null>(() => fetch(`/api/brands/${brandId}/analytics/timeseries`).then((r) => r.json()), [brandId]);
 
   const agg = useMemo(() => {
     const avail = (rows || []).filter((r) => r.available && r.metrics);
@@ -61,7 +62,9 @@ export function Analytics({ brandId }: { brandId: string }) {
     };
   }, [rows]);
 
-  const chart = (stats?.dailyActivity || []).map((d) => ({ label: DAY_ID[new Date(d.date).getDay()], count: d.count }));
+  const viewsChart = (ts?.daily || []).map((d) => ({ label: d.date.slice(5), count: d.views }));
+  const likesChart = (ts?.daily || []).map((d) => ({ label: d.date.slice(5), count: d.likes }));
+  const vDelta = ts && ts.prev.views > 0 ? Math.round(((ts.totals.views - ts.prev.views) / ts.prev.views) * 100) : null;
 
   return (
     <div className="space-y-5">
@@ -81,12 +84,39 @@ export function Analytics({ brandId }: { brandId: string }) {
       {/* Chart + donut */}
       <div className="grid md:grid-cols-2 gap-4">
         <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4">
-          <p className="font-heading text-sm font-semibold text-[#151c27] mb-3">Aktivitas Publish (7 Hari)</p>
-          {stats && chart.length > 0 ? <AreaChart data={chart} /> : <p className="h-40 flex items-center justify-center text-[13px] text-[#555f6d]">Memuat...</p>}
+          <div className="flex items-center justify-between mb-3">
+            <p className="font-heading text-sm font-semibold text-[#151c27]">Tren Views ({ts?.days ?? 30} Hari)</p>
+            {ts && <span className="text-[12px] font-mono text-[#555f6d] tabular-nums">{fmtNum(ts.totals.views)} total{vDelta != null ? ` · ${vDelta >= 0 ? "+" : ""}${vDelta}%` : ""}</span>}
+          </div>
+          {ts && viewsChart.length > 0 ? <AreaChart data={viewsChart} /> : <p className="h-40 flex items-center justify-center text-[13px] text-[#555f6d]">{ts ? "Belum ada data views." : "Memuat..."}</p>}
         </div>
         <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4">
           <p className="font-heading text-sm font-semibold text-[#151c27] mb-3">Distribusi Platform (30 Hari)</p>
           {stats && stats.platformDistribution.length > 0 ? <Donut data={stats.platformDistribution} /> : <p className="h-40 flex items-center justify-center text-[13px] text-[#555f6d]">{stats ? "Belum ada publish." : "Memuat..."}</p>}
+        </div>
+      </div>
+
+      {/* Tren Likes + Views per platform (v1, data historis tabel analytics) */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="font-heading text-sm font-semibold text-[#151c27]">Tren Likes ({ts?.days ?? 30} Hari)</p>
+            {ts && <span className="text-[12px] font-mono text-[#555f6d] tabular-nums">{fmtNum(ts.totals.likes)} total</span>}
+          </div>
+          {ts && likesChart.length > 0 ? <AreaChart data={likesChart} /> : <p className="h-40 flex items-center justify-center text-[13px] text-[#555f6d]">{ts ? "Belum ada data likes." : "Memuat..."}</p>}
+        </div>
+        <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4">
+          <p className="font-heading text-sm font-semibold text-[#151c27] mb-3">Views per Platform ({ts?.days ?? 30} Hari)</p>
+          {ts && ts.byPlatform.length > 0 ? (
+            <div className="space-y-2.5">
+              {(() => { const mx = Math.max(1, ...ts.byPlatform.map((p) => p.views)); return ts.byPlatform.map((p) => (
+                <div key={p.platform} className="space-y-1">
+                  <div className="flex justify-between text-[12px]"><span className="capitalize text-[#151c27]">{PLATFORM_LABEL[p.platform] || p.platform}</span><span className="font-mono text-[#555f6d] tabular-nums">{fmtNum(p.views)} views · {fmtNum(p.likes)} likes</span></div>
+                  <div className="h-2 rounded-full bg-[#e7eefe] overflow-hidden"><div className="h-full rounded-full bg-black" style={{ width: `${Math.round((p.views / mx) * 100)}%` }} /></div>
+                </div>
+              )); })()}
+            </div>
+          ) : <p className="h-40 flex items-center justify-center text-[13px] text-[#555f6d]">{ts ? "Belum ada data." : "Memuat..."}</p>}
         </div>
       </div>
 
@@ -178,6 +208,7 @@ function Donut({ data }: { data: { platform: string; count: number }[] }) {
   const total = Math.max(1, data.reduce((s, d) => s + d.count, 0));
   const R = 40, C = 2 * Math.PI * R;
   let acc = 0;
+  // eslint-disable-next-line react-hooks/immutability -- acc akumulator offset donut (lokal, saat render; aman)
   const segs = data.map((d, i) => { const len = (d.count / total) * C; const s = { len, off: -acc, shade: DONUT_SHADES[i % DONUT_SHADES.length], platform: d.platform, count: d.count }; acc += len; return s; });
   return (
     <div className="flex items-center justify-center gap-6 h-40">
