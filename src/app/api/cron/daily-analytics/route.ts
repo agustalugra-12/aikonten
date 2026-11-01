@@ -50,6 +50,11 @@ export async function POST(req: NextRequest) {
       );
       const views = metrics.find((m) => m.type === "views")?.value ?? null;
       const reactions = metrics.find((m) => m.type === "reactions")?.value ?? null;
+      // Analytics v2 (2026-11-01) - simpan juga reach/shares/engagementRate harian (sebelumnya
+      // hanya live dari Buffer, tak ada tren). followers belum (tak ada query Buffer terverifikasi).
+      const reach = metrics.find((m) => m.type === "reach")?.value ?? null;
+      const shares = metrics.find((m) => m.type === "shares")?.value ?? null;
+      const engagementRate = metrics.find((m) => m.type === "engagementRate")?.value ?? null;
 
       const existing = await db
         .select({ id: analytics.id })
@@ -60,7 +65,7 @@ export async function POST(req: NextRequest) {
       if (existing.length > 0) {
         await db
           .update(analytics)
-          .set({ views: views !== null ? Math.round(views) : null, likes: reactions !== null ? Math.round(reactions) : null })
+          .set({ views: views !== null ? Math.round(views) : null, likes: reactions !== null ? Math.round(reactions) : null, reach: reach !== null ? Math.round(reach) : null, shares: shares !== null ? Math.round(shares) : null, engagementRate })
           .where(eq(analytics.id, existing[0].id));
       } else {
         await db.insert(analytics).values({
@@ -69,6 +74,9 @@ export async function POST(req: NextRequest) {
           followers: null,
           views: views !== null ? Math.round(views) : null,
           likes: reactions !== null ? Math.round(reactions) : null,
+          reach: reach !== null ? Math.round(reach) : null,
+          shares: shares !== null ? Math.round(shares) : null,
+          engagementRate,
           dateRecorded,
           createdAt: new Date(),
         });

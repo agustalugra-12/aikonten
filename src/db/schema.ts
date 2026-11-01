@@ -564,6 +564,12 @@ export const analytics = sqliteTable("analytics", {
   followers: integer("followers"),
   views: integer("views"),
   likes: integer("likes"),
+  // Analytics v2 (2026-11-01) - metrik tambahan disimpan harian (sebelumnya cuma views/likes;
+  // reach/shares/engagementRate dulu hanya live dari Buffer, tak ada tren historis). Nullable
+  // (baris lama = NULL; terisi mulai cron berikutnya -> tren terbentuk seiring hari).
+  reach: integer("reach"),
+  shares: integer("shares"),
+  engagementRate: real("engagement_rate"),
   dateRecorded: text("date_recorded").notNull(), // YYYY-MM-DD
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
