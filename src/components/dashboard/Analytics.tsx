@@ -206,26 +206,33 @@ function PerfCard({ title, groups }: { title: string; groups: PerfGroup[] }) {
 }
 
 function AreaChart({ data }: { data: { label: string; count: number }[] }) {
+  const [hover, setHover] = useState<number | null>(null);
   const W = 700, H = 180, pad = 16;
   const max = Math.max(1, ...data.map((d) => d.count));
   const n = data.length;
   const pts = data.map((d, i) => ({ x: n === 1 ? W / 2 : (i / (n - 1)) * W, y: H - pad - (d.count / max) * (H - pad * 2) }));
   const line = smoothPath(pts);
-  const last = data[data.length - 1]?.count ?? 0;
+  const slot = n > 1 ? W / (n - 1) : W;
   return (
     <div>
-      <div className="flex justify-between text-[11px] font-mono text-[#555f6d] mb-1 tabular-nums">
-        <span>puncak {fmtNum(max)}</span>
-        <span>terakhir {fmtNum(last)}</span>
+      <div className="relative" onMouseLeave={() => setHover(null)}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-40" preserveAspectRatio="none">
+          <defs><linearGradient id="anaGrad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#000" stopOpacity="0.14" /><stop offset="100%" stopColor="#000" stopOpacity="0" /></linearGradient></defs>
+          {[0.25, 0.5, 0.75, 1].map((f, i) => <line key={i} x1="0" x2={W} y1={H * f} y2={H * f} stroke="#dce2f3" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />)}
+          {line && <path d={`${line} L ${W},${H} L 0,${H} Z`} fill="url(#anaGrad)" />}
+          {line && <path d={line} fill="none" stroke="#000" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
+          {hover != null && pts[hover] && <line x1={pts[hover].x} x2={pts[hover].x} y1="0" y2={H} stroke="#c6c6cd" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
+          {pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={hover === i ? 5.5 : 3} fill={hover === i ? "#000" : "#fff"} stroke="#000" strokeWidth="2" vectorEffect="non-scaling-stroke" />)}
+          {/* area hit transparan per titik -> hover munculkan tooltip angka (bukan deret label statis) */}
+          {pts.map((p, i) => <rect key={"h" + i} x={p.x - slot / 2} y={0} width={slot} height={H} fill="transparent" onMouseEnter={() => setHover(i)} />)}
+        </svg>
+        {hover != null && pts[hover] && (
+          <div className="absolute z-10 pointer-events-none -translate-x-1/2 -translate-y-[130%] bg-black text-white text-[11px] font-mono rounded px-2 py-1 whitespace-nowrap tabular-nums shadow-lg" style={{ left: `${n > 1 ? (hover / (n - 1)) * 100 : 50}%`, top: `${(pts[hover].y / H) * 100}%` }}>
+            {data[hover].label} · {fmtNum(data[hover].count)}
+          </div>
+        )}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-40" preserveAspectRatio="none">
-        <defs><linearGradient id="anaGrad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#000" stopOpacity="0.14" /><stop offset="100%" stopColor="#000" stopOpacity="0" /></linearGradient></defs>
-        {[0.25, 0.5, 0.75, 1].map((f, i) => <line key={i} x1="0" x2={W} y1={H * f} y2={H * f} stroke="#dce2f3" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />)}
-        {line && <path d={`${line} L ${W},${H} L 0,${H} Z`} fill="url(#anaGrad)" />}
-        {line && <path d={line} fill="none" stroke="#000" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
-        {pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="#fff" stroke="#000" strokeWidth="2" vectorEffect="non-scaling-stroke" />)}
-      </svg>
-      <div className="flex justify-between mt-2 font-mono text-[11px] text-[#555f6d]">{data.map((d, i) => <span key={i}>{d.label}</span>)}</div>
+      <div className="flex justify-between mt-2 font-mono text-[10px] text-[#555f6d]"><span>{data[0]?.label ?? ""}</span><span>{data[data.length - 1]?.label ?? ""}</span></div>
     </div>
   );
 }
