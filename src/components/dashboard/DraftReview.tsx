@@ -77,6 +77,33 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleValue, setScheduleValue] = useState("");
   const [scheduleMin] = useState(() => new Date(Date.now() + 60000).toISOString().slice(0, 16));
+  // Edit caption & hashtag (2026-11-02, permintaan Agus - "di draf review user bisa edit
+  // caption dan hastagnya"). PATCH /api/projects/[id] (route sudah terima generatedCaption
+  // + generatedHashtags; string hashtag dipecah otomatis). Pola sama BuatKonten Fase A.
+  const [editing, setEditing] = useState(false);
+  const [edCaption, setEdCaption] = useState("");
+  const [edHashtags, setEdHashtags] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  function startEdit() {
+    setEdCaption(project.generatedCaption ?? "");
+    const tags = project.generatedHashtags ? (JSON.parse(project.generatedHashtags) as string[]) : [];
+    setEdHashtags(tags.map((h) => `#${h}`).join(" "));
+    setEditing(true);
+  }
+  async function handleSaveEdit() {
+    setSavingEdit(true);
+    const res = await fetch(`/api/projects/${project.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ generatedCaption: edCaption, generatedHashtags: edHashtags }),
+    });
+    setSavingEdit(false);
+    if (!res.ok) { toast.error("Gagal simpan teks"); return; }
+    toast.success("Caption & hashtag disimpan");
+    setEditing(false);
+    onChange();
+  }
   // Content Brief (2026-08-26, PRD §12, Task Plan 6) - fetch LAZY (cuma saat expand),
   // murni assembly read-only (lihat contentBrief.ts), tidak ada biaya AI tapi tetap
   // tidak perlu selalu di-fetch tiap draft dimuat kalau tidak dilihat.
@@ -259,9 +286,23 @@ function DraftCard({ project, accounts, onChange }: { project: Project; accounts
       )}
 
       <div className="space-y-1">
-        <p className="text-sm whitespace-pre-wrap">{project.generatedCaption}</p>
-        {hashtags.length > 0 && (
-          <p className="text-sm text-muted-foreground">{hashtags.map((h) => `#${h}`).join(" ")}</p>
+        {editing ? (
+          <div className="space-y-2">
+            <textarea value={edCaption} onChange={(e) => setEdCaption(e.target.value)} rows={5} placeholder="Caption" className="w-full rounded-md border px-3 py-2 text-sm resize-y" />
+            <input value={edHashtags} onChange={(e) => setEdHashtags(e.target.value)} placeholder="#tag1 #tag2" className="w-full rounded-md border px-3 py-2 text-sm" />
+            <div className="flex gap-2">
+              <Button size="sm" onClick={handleSaveEdit} disabled={savingEdit}>{savingEdit ? "Menyimpan..." : "Simpan teks"}</Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={savingEdit}>Batal</Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm whitespace-pre-wrap">{project.generatedCaption}</p>
+            {hashtags.length > 0 && (
+              <p className="text-sm text-muted-foreground">{hashtags.map((h) => `#${h}`).join(" ")}</p>
+            )}
+            <Button variant="ghost" size="sm" className="text-xs h-6 px-2" onClick={startEdit}>✏️ Edit caption &amp; hashtag</Button>
+          </>
         )}
       </div>
 

@@ -148,6 +148,12 @@ export const brands = sqliteTable("brands", {
   // pemanggil (bukan NOT NULL default di sini) - brand yang sudah ada (row lama) otomatis
   // tetap dapat perilaku SAMA PERSIS spt sebelumnya tanpa perlu migrasi data manual.
   knowledgeSite: text("knowledge_site"),
+  // Pause automation / cron (2026-11-02, permintaan Agus - "fitur mematikan atau
+  // menghidupkan cron... generate ide konten dan konten dihentikan total"). true = cron
+  // daily-ideas / auto-generate / auto-publish SKIP brand ini. Buat konten MANUAL tetap
+  // jalan. Dicek saat cron berikutnya jalan (ide harian ~03:00 WITA) -> praktis "berlaku
+  // besok" saat dinyalakan lagi. Default false (perilaku lama, otomasi aktif).
+  automationPaused: integer("automation_paused", { mode: "boolean" }).notNull().default(false),
   // Draft vs Auto-Publish (2026-08-06, permintaan Agus - "aku juga ada fitur pilihan
   // draft atau langsung publis, jika langsung publis maka hasil generate vidio dan
   // poster langsung di kirim..., hasil generate akan diam di draft sampai jam yang di

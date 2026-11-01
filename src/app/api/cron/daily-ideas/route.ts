@@ -18,6 +18,10 @@ export async function POST(req: NextRequest) {
   const results: Array<{ brandId: string; name: string; ok: boolean; count?: number; error?: string }> = [];
 
   for (const brand of allBrands) {
+    if (brand.automationPaused) {
+      results.push({ brandId: brand.id, name: brand.name, ok: true, count: 0, error: "automation dimatikan" });
+      continue;
+    }
     try {
       const ideas = await getOrGenerateDailyIdeas(brand.id);
       results.push({ brandId: brand.id, name: brand.name, ok: true, count: ideas.length });

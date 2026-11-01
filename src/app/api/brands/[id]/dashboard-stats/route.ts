@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { projects, publishLogs, socialAccounts, llmUsageLog } from "@/db/schema";
+import { projects, publishLogs, socialAccounts, llmUsageLog, users } from "@/db/schema";
 import { eq, and, gte, lt, inArray } from "drizzle-orm";
 import { getUserId, getOwnedBrand } from "@/lib/session";
 
@@ -90,6 +90,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .where(and(eq(llmUsageLog.brandId, brandId), gte(llmUsageLog.ts, startOfMonth)));
   const costThisMonth = costRows.reduce((sum, r) => sum + (r.costUsd || 0), 0);
 
+  // Saldo kredit + unlimited (2026-11-02, T6) - tenant EKSTERNAL (unlimited=false) lihat
+  // "Kredit Tersisa" di dashboard, bukan "Biaya AI" (itu metrik internal Agus). userId =
+  // pemilik brand (sudah diverifikasi getOwnedBrand di atas).
+  const [owner] = await db.select({ saldoKredit: users.saldoKredit, unlimited: users.unlimited }).from(users).where(eq(users.id, userId));
+
   const deltaPercent =
     publishedLastWeek.length > 0
       ? Math.round(((publishedThisWeek.length - publishedLastWeek.length) / publishedLastWeek.length) * 100)
@@ -102,6 +107,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     publishedThisWeekDeltaPercent: deltaPercent,
     draftCount: draftCount.length,
     costThisMonth,
+    saldoKredit: owner?.saldoKredit ?? 0,
+    unlimited: !!owner?.unlimited,
     streak,
     dailyActivity,
     platformDistribution: Object.entries(platformCounts).map(([platform, count]) => ({ platform, count })),

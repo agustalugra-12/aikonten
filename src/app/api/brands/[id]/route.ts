@@ -33,6 +33,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     update.logoUrl = body.logoUrl;
   }
 
+  // Pause automation / cron (2026-11-02) - true = cron skip brand ini (generate ide & konten berhenti).
+  if ("automationPaused" in body) {
+    if (typeof body.automationPaused !== "boolean") {
+      return NextResponse.json({ error: "automationPaused harus boolean" }, { status: 400 });
+    }
+    update.automationPaused = body.automationPaused;
+  }
+
   // Volume harian 3 tipe (2026-08-05, revisi Agus - awalnya total WAJIB 10 [2 tipe],
   // sekarang total BEBAS sejumlah yg di-set ("4 foto, 4 vidio, 4 curasel artinya 12
   // konten") - validasi cuma masing2 integer >= 0 & totalnya >= 1 (bukan 0 semua).
@@ -120,12 +128,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     update.manualKnowledge = body.manualKnowledge;
   }
 
-  // Knowledge Base per-brand (2026-08-05, permintaan Agus) - "pelangi"/"harmoni" saja yg
-  // valid (satu2nya situs yg didukung endpoint content-facts web-pelangi, lihat
-  // pelangiKnowledge.ts), null = belum di-set (fallback ke "pelangi" di kode pemanggil).
+  // Knowledge Base per-brand (2026-08-05, permintaan Agus) - "pelangi"/"harmoni" = situs
+  // content-facts web-pelangi (pelangiKnowledge.ts); "agustap_studio" = flag brand internal
+  // Agustap (buka tab Inspirasi di AiStudio, lihat AGUSTAP_KNOWLEDGE_SITE); null = belum
+  // di-set (fallback "pelangi" di kode pemanggil).
+  // (2026-11-02) BUG FIX "KB tidak tersimpan": "agustap_studio" DULU tidak ada di whitelist
+  // ini, padahal nilai sah tersimpan utk brand agustap. handleSaveKnowledge (BrandSettingsSidebar)
+  // ikut mengirim knowledgeSite di PATCH yg sama dgn manualKnowledge -> 400 bikin SELURUH simpan
+  // KB gagal (termasuk teks manual). Lengkapi whitelist = akar, bukan gejala.
   if ("knowledgeSite" in body) {
-    if (body.knowledgeSite !== null && body.knowledgeSite !== "pelangi" && body.knowledgeSite !== "harmoni") {
-      return NextResponse.json({ error: "knowledgeSite harus 'pelangi', 'harmoni', atau null" }, { status: 400 });
+    if (!["pelangi", "harmoni", "agustap_studio", null].includes(body.knowledgeSite)) {
+      return NextResponse.json({ error: "knowledgeSite harus 'pelangi', 'harmoni', 'agustap_studio', atau null" }, { status: 400 });
     }
     update.knowledgeSite = body.knowledgeSite;
   }

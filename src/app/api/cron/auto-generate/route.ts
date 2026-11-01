@@ -45,6 +45,11 @@ export async function POST(req: NextRequest) {
   const results: Array<{ brandId: string; name: string; generated: number; failed: number; skipped?: string }> = [];
 
   for (const brand of allBrands) {
+    // Automation dimatikan (2026-11-02) - skip generate ide & konten utk brand ini.
+    if (brand.automationPaused) {
+      results.push({ brandId: brand.id, name: brand.name, generated: 0, failed: 0, skipped: "automation dimatikan" });
+      continue;
+    }
     // Lock per-brand (2026-08-14, temuan #1 Lampiran D ENGINEERING_SAFETY.md / audit
     // kontenpilot §4/§6) - TIDAK ADA proteksi sebelumnya thd route ini dipanggil
     // BARENGAN (manual curl/systemctl start sementara run terjadwal masih jalan - lihat

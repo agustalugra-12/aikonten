@@ -222,7 +222,16 @@ export function ProjectList({
                   {/* Konten */}
                   <td className="py-2.5 px-4">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-[#e7eefe] flex items-center justify-center shrink-0 shadow-sm">
+                      {/* Thumbnail bisa diklik -> pratinjau penuh di tab baru (2026-11-02, T6
+                          "user bisa preview kontennya sebelum di upload"). Tanpa previewUrl =
+                          <a> tanpa href (bukan link, tetap render ikon). */}
+                      <a
+                        href={p.previewUrl ? proxiedUrl(p.previewUrl) : undefined}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={p.previewUrl ? "Lihat pratinjau penuh" : undefined}
+                        className={"relative w-14 h-14 rounded-lg overflow-hidden bg-[#e7eefe] flex items-center justify-center shrink-0 shadow-sm" + (p.previewUrl ? " cursor-pointer hover:ring-2 hover:ring-black/20" : "")}
+                      >
                         {p.previewType === "video" ? (
                           <video src={proxiedUrl(p.previewUrl!)} preload="metadata" muted className="w-full h-full object-cover" />
                         ) : p.previewType === "image" ? (
@@ -236,7 +245,7 @@ export function ProjectList({
                             {formatDuration(p.durationSeconds)}
                           </span>
                         )}
-                      </div>
+                      </a>
                       <div className="min-w-0">
                         <span className="font-mono text-[11px] text-[#555f6d]">#{shortId}</span>
                         <p className="text-[13px] font-medium text-[#151c27] truncate max-w-md mt-0.5">

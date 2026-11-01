@@ -12,6 +12,8 @@ type DashboardStats = {
   publishedThisWeekDeltaPercent: number;
   draftCount: number;
   costThisMonth: number;
+  saldoKredit: number;
+  unlimited: boolean;
   streak: number;
   dailyActivity: { date: string; count: number }[];
   platformDistribution: { platform: string; count: number }[];
@@ -99,6 +101,7 @@ function PlatformDonut({ data }: { data: { platform: string; count: number }[] }
   const segs = data.map((d, i) => {
     const len = (d.count / total) * C;
     const seg = { len, offset: -acc, shade: DONUT_SHADES[i % DONUT_SHADES.length], platform: d.platform, count: d.count };
+    // eslint-disable-next-line react-hooks/immutability -- akumulator lokal utk hitung offset donut (bukan state)
     acc += len;
     return seg;
   });
@@ -179,7 +182,12 @@ export function DashboardOverview({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={Send} label="Dipublikasikan" value={stats ? String(stats.publishedThisWeek) : "…"} trend={stats ? stats.publishedThisWeekDeltaPercent : null} sub="vs minggu lalu" />
         <StatCard icon={FileClock} label="Draft Menunggu" value={stats ? String(stats.draftCount) : "…"} sub="siap direview" />
-        <StatCard icon={Wallet} label="Biaya AI Bulan Ini" value={stats ? formatUsd(stats.costThisMonth) : "…"} sub="OpenAI + Gemini" />
+        {/* Tenant eksternal (bukan unlimited) lihat Kredit Tersisa; internal lihat Biaya AI (2026-11-02, T6). */}
+        {stats && !stats.unlimited ? (
+          <StatCard icon={Wallet} label="Kredit Tersisa" value={String(stats.saldoKredit)} sub="konten tersisa bulan ini" />
+        ) : (
+          <StatCard icon={Wallet} label="Biaya AI Bulan Ini" value={stats ? formatUsd(stats.costThisMonth) : "…"} sub="OpenAI + Gemini" />
+        )}
         <StatCard icon={Flame} label="Hari Beruntun" value={stats ? String(stats.streak) : "…"} sub="publish tiap hari" />
       </div>
 

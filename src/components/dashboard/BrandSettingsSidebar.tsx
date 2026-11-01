@@ -181,6 +181,7 @@ export function BrandSettingsSidebar({
   const [footageSource, setFootageSource] = useState(brand?.footageSource ?? "internal");
   const [publishMode, setPublishMode] = useState(brand?.publishMode ?? "draft");
   const [autoPublishTimes, setAutoPublishTimes] = useState<string[]>(parseAutoPublishTimes(brand?.autoPublishTimes));
+  const [automationPaused, setAutomationPaused] = useState(brand?.automationPaused ?? false);
   const [savingAutomation, setSavingAutomation] = useState(false);
   // Brand Kit / Font Studio (2026-10-25, Phase 2) - 1 object state (pola sama identity).
   const [bk, setBk] = useState<Record<string, unknown> & { _enabled: boolean }>(parseBrandKit(brand?.brandKit));
@@ -211,6 +212,7 @@ export function BrandSettingsSidebar({
     setFootageSource(brand?.footageSource ?? "internal");
     setPublishMode(brand?.publishMode ?? "draft");
     setAutoPublishTimes(parseAutoPublishTimes(brand?.autoPublishTimes));
+    setAutomationPaused(brand?.automationPaused ?? false);
   }
 
   async function patchBrand(body: Record<string, unknown>): Promise<boolean> {
@@ -339,6 +341,7 @@ export function BrandSettingsSidebar({
       footageSource,
       publishMode,
       autoPublishTimes: publishMode === "auto" ? autoPublishTimes : null,
+      automationPaused,
     });
     setSavingAutomation(false);
     if (ok) {
@@ -546,6 +549,29 @@ export function BrandSettingsSidebar({
           </TabsContent>
 
           <TabsContent value="automation" className="space-y-4 pt-3">
+            {/* Toggle automasi on/off (2026-11-02, permintaan Agus). OFF = cron berhenti
+                generate ide & konten utk brand ini; ON lagi berlaku di batch berikutnya (besok). */}
+            <div className={"flex items-start justify-between gap-3 rounded-md border p-3 " + (automationPaused ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50")}>
+              <div className="space-y-0.5">
+                <Label className="text-xs font-semibold">
+                  {automationPaused ? "⏸️ Automasi DIMATIKAN" : "▶️ Automasi AKTIF"}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {automationPaused
+                    ? "Cron tidak membuat ide/konten otomatis. Buat konten manual tetap bisa. Nyalakan lagi untuk lanjut otomatis (berlaku batch berikutnya / besok)."
+                    : "Ide & konten dibuat otomatis tiap hari sesuai jadwal. Matikan untuk menghentikan semua pembuatan otomatis."}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant={automationPaused ? "default" : "outline"}
+                onClick={() => setAutomationPaused((v) => !v)}
+                className="shrink-0"
+              >
+                {automationPaused ? "Hidupkan" : "Matikan"}
+              </Button>
+            </div>
             <p className="text-xs rounded-md border bg-muted/50 p-2.5">
               🤖 <strong>Semuanya berjalan otomatis setiap hari</strong> - Ide dibuatkan jam 03:00 WITA, lalu KONTENNYA
               (video/foto/carousel) langsung digenerate otomatis jam 03:15 WITA mengikuti volume di bawah, TIDAK perlu

@@ -128,6 +128,12 @@ export async function POST(req: NextRequest) {
   const startOfTodayWita = new Date(`${todayKey}T00:00:00+08:00`);
 
   for (const brand of autoBrands) {
+    // Automation dimatikan (2026-11-02) - skip auto-publish slot baru utk brand ini.
+    // (retry partial & jadwal manual di atas TIDAK terpengaruh - itu penyelesaian kerja lama.)
+    if (brand.automationPaused) {
+      results.push({ brandId: brand.id, name: brand.name, slot: "-", published: 0, skipped: "automation dimatikan" });
+      continue;
+    }
     // (2026-09-30, T2a Fase 2) Gate paket + status saat PUBLISH (bukan cuma saat set mode
     // auto): brand milik akun yg paketnya TIDAK mengizinkan auto-posting, ATAU akunnya
     // sudah "terbatas" (langganan lewat masa tenggang), TIDAK boleh auto-publish walau
