@@ -10,7 +10,9 @@ const PUBLIC_PATHS = ["/login", "/signup", "/api/auth/login", "/api/version", "/
 // tenant, tak perlu verifikasi JWT ulang sendiri-sendiri.
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (PUBLIC_PATHS.some((p) => pathname === p) || pathname.startsWith("/_next")) {
+  // /tts-samples/* = sample suara publik (preview Brand Kit, T4 2026-11-02) - aset non-sensitif,
+  // jangan di-gate sesi (kalau tidak, <audio> kena redirect 307->/login).
+  if (PUBLIC_PATHS.some((p) => pathname === p) || pathname.startsWith("/_next") || pathname.startsWith("/tts-samples/")) {
     return NextResponse.next();
   }
   // /api/auth/* (login/logout/signup + callback OAuth meta/youtube/buffer) - publik atau
