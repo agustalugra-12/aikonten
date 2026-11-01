@@ -449,7 +449,14 @@ export async function renderFinalVideo(opts: {
     // documentary), brand lain TIDAK terpengaruh sama sekali. Subtitle (& audio
     // narasinya, lihat adelay di bawah) digeser mundur supaya lower third dapat momen
     // sendirian dulu sebelum penjelasan+animasi lain masuk.
-    const leadInSeconds = opts.lowerThird ? NARRATION_LEAD_IN_SECONDS : 0;
+    // Hook-intro beat (2026-11-02, T8/Opsi 1 - permintaan Agus "judul beranimasi dari hook,
+    // muncul di awal diberi ruang TANPA tts 2-3 dtk, baru sambung konten"). Kalau ada title
+    // card (titleText=hookText), narasi DITUNDA selama durasi title card -> judul tampil
+    // sendirian dulu (hening), baru narasi+subtitle mulai. Pakai mekanisme lead-in yg SAMA
+    // & proven dgn lower third (geser subtitle/title/kinetic/adelay/durasi + video auto-loop
+    // sudah tertangani). MAX dgn lead-in lower third supaya keduanya bisa aktif bersama.
+    const titleLeadIn = opts.titleText && opts.titleText.trim() ? (opts.titleDurationSeconds ?? 2.5) : 0;
+    const leadInSeconds = Math.max(opts.lowerThird ? NARRATION_LEAD_IN_SECONDS : 0, titleLeadIn);
     // Brand Kit (2026-10-25, Phase 2) - desain subtitle dari brand kalau ADA, else default
     // (tampilan lama). Font di-resolve libass via fontsdir (lihat fontsDir()/stage ass=).
     const subDesign = opts.subtitleDesign ?? DEFAULT_SUBTITLE_DESIGN;
