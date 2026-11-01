@@ -224,7 +224,7 @@ function AreaChart({ data }: { data: { label: string; count: number }[] }) {
           {hover != null && pts[hover] && <line x1={pts[hover].x} x2={pts[hover].x} y1="0" y2={H} stroke="#c6c6cd" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
           {pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={hover === i ? 5.5 : 3} fill={hover === i ? "#000" : "#fff"} stroke="#000" strokeWidth="2" vectorEffect="non-scaling-stroke" />)}
           {/* area hit transparan per titik -> hover munculkan tooltip angka (bukan deret label statis) */}
-          {pts.map((p, i) => <rect key={"h" + i} x={p.x - slot / 2} y={0} width={slot} height={H} fill="transparent" onMouseEnter={() => setHover(i)} />)}
+          {pts.map((p, i) => <rect key={"h" + i} x={p.x - slot / 2} y={0} width={slot} height={H} fill="transparent" className="cursor-pointer" onMouseEnter={() => setHover(i)} onClick={() => setHover((h) => (h === i ? null : i))} />)}
         </svg>
         {hover != null && pts[hover] && (
           <div className="absolute z-10 pointer-events-none -translate-x-1/2 -translate-y-[130%] bg-black text-white text-[11px] font-mono rounded px-2 py-1 whitespace-nowrap tabular-nums shadow-lg" style={{ left: `${n > 1 ? (hover / (n - 1)) * 100 : 50}%`, top: `${(pts[hover].y / H) * 100}%` }}>
