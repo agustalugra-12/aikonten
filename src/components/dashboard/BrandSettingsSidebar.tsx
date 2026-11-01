@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import type { Brand } from "@/types";
+import { TTS_VOICES } from "@/lib/ai/ttsVoices";
 
 // Pilar konten (2026-11-02, T10) - parse brands.contentPillars JSON ke baris editable.
 function parsePillarRows(json: string | null | undefined): { name: string; percent: number }[] {
@@ -104,6 +105,7 @@ const BK_DEFAULT = {
   subtitleColor: "#FFFFFF", highlightColor: "#FFD84D", outlineColor: "#000000", outlineWidth: 4,
   shadow: true, subtitleSize: 64, position: "bottom-center", animation: "PopIn",
   primaryColor: "#FFFFFF", secondaryColor: "#FFD84D", ctaColor: "#CC1F1F",
+  voice: "marin", // suara TTS voiceover (T4) - lihat TTS_VOICES
   // Animated Title (Fase 3) - flat di state, di-nest jadi {title:{...}} saat simpan.
   titleEnabled: false, titlePreset: "FadePop", titlePosition: "middle-center", titleDuration: 2.5,
   // Transitions (Fase 3D) - flat; di-nest jadi {transition:{style}} saat simpan.
@@ -402,6 +404,7 @@ export function BrandSettingsSidebar({
           shadow: Boolean(bk.shadow), subtitleSize: Number(bk.subtitleSize),
           position: bk.position, animation: bk.animation,
           primaryColor: bk.primaryColor, secondaryColor: bk.secondaryColor, ctaColor: bk.ctaColor,
+          voice: bk.voice,
           title: {
             enabled: Boolean(bk.titleEnabled), preset: bk.titlePreset,
             position: bk.titlePosition, durationSeconds: Number(bk.titleDuration),
@@ -876,6 +879,36 @@ export function BrandSettingsSidebar({
             </label>
 
             <div className={bk._enabled ? "space-y-3" : "space-y-3 opacity-50 pointer-events-none"}>
+              {/* Pratinjau font pop-in (T4 2026-11-02) - glyph font subtitle ASLI (webfont dari
+                  /api/fonts/<id>) + warna teks & highlight brand, gaya "pop-in" (kata aktif
+                  membesar/berwarna) spt di video, biar user paham font yg dipakai. */}
+              <style>{`@font-face{font-family:'kpf-${bk.subtitleFont}';src:url('/api/fonts/${bk.subtitleFont}') format('truetype');font-display:swap;}`}</style>
+              <div className="rounded-md border p-3 bg-neutral-900 flex flex-col items-center gap-1">
+                <span className="text-[10px] uppercase tracking-wider text-white/50">Pratinjau subtitle &quot;pop-in&quot;</span>
+                <div className="flex items-baseline gap-1.5" style={{ fontFamily: `'kpf-${bk.subtitleFont}', sans-serif` }}>
+                  <span style={{ color: String(bk.subtitleColor) }} className="text-xl">Promo</span>
+                  <span style={{ color: String(bk.highlightColor) }} className="text-2xl font-bold animate-pulse">SPESIAL</span>
+                  <span style={{ color: String(bk.subtitleColor) }} className="text-xl">hari ini!</span>
+                </div>
+                <span className="text-[10px] text-white/40">Font: {FONT_OPTIONS.find((f) => f.id === bk.subtitleFont)?.label} · teks {String(bk.subtitleColor)} · highlight {String(bk.highlightColor)}</span>
+              </div>
+
+              {/* Pilihan suara voiceover TTS (T4) + preview sample pra-render /tts-samples/<id>.mp3 */}
+              <div className="space-y-1">
+                <Label className="text-xs">🎙️ Suara Voiceover (TTS)</Label>
+                <div className="flex items-center gap-2">
+                  <select className="flex-1 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+                    value={String(bk.voice)} onChange={(e) => setBkField("voice", e.target.value)}>
+                    {TTS_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label} — {v.desc}</option>)}
+                  </select>
+                  <Button type="button" size="sm" variant="outline"
+                    onClick={() => { const a = new Audio(`/tts-samples/${bk.voice}.mp3`); a.play().catch(() => toast.error("Sample suara belum tersedia")); }}>
+                    ▶ Preview
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Suara yang dipakai AI untuk membacakan narasi video brand ini.</p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Font Subtitle</Label>

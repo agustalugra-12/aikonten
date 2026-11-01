@@ -5,6 +5,7 @@ import { writeFile, unlink, mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { runFfmpeg } from "@/lib/render/ffmpegExec";
+import { resolveVoice } from "./ttsVoices";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,10 +26,8 @@ const execFileAsync = promisify(execFile);
 // dibandingkan, sesuaikan konstanta ini, jangan anggap ini pasti presisi).
 const GPT_TTS_MODEL = "gpt-4o-mini-tts";
 const GPT_TTS_PRICE_PER_MINUTE_AUDIO_ESTIMATE = 0.015;
-// "marin" - direkomendasikan resmi OpenAI sbg kualitas terbaik utk model ini (bareng
-// "cedar"), suara netral cocok lintas brand (app ini multi-brand, belum ada pengaturan
-// suara per-brand - PROPORTIONATE cuma 1 default dulu, sama pola dgn KOKORO_VOICE lama).
-const GPT_TTS_VOICE = "marin";
+// Voice per-brand (2026-11-02, T4) - brand pilih suara di Brand Kit (brandKit.voice),
+// diteruskan ke generateVoiceover. Default "marin" via DEFAULT_TTS_VOICE (ttsVoices.ts).
 
 // Endpoint speech OpenAI WAJIB <= 4096 karakter per panggilan (dicek langsung ke
 // docs resmi) - naskah YouTube Editorial (long-form 5-8 menit) bisa ~6000-7000
@@ -69,10 +68,10 @@ function splitIntoTtsChunks(text: string): string[] {
   return chunks;
 }
 
-async function synthesizeChunk(client: ReturnType<typeof getOpenAIClient>, text: string): Promise<Buffer> {
+async function synthesizeChunk(client: ReturnType<typeof getOpenAIClient>, text: string, voice: string): Promise<Buffer> {
   const response = await client.audio.speech.create({
     model: GPT_TTS_MODEL,
-    voice: GPT_TTS_VOICE,
+    voice,
     input: text,
   });
   return Buffer.from(await response.arrayBuffer());
@@ -114,13 +113,16 @@ async function concatMp3Buffers(buffers: Buffer[]): Promise<Buffer> {
 // adanya, hemat 1 panggilan AI. Naskah panjang (YouTube Editorial) otomatis dipecah jadi
 // beberapa panggilan TTS (lihat MAX_CHARS_PER_CALL) lalu disambung - transparan bagi
 // pemanggil, tetap terima 1 teks & balikin 1 buffer audio utuh.
-export async function generateVoiceover(text: string): Promise<Buffer> {
+export async function generateVoiceover(text: string, voice?: string | null): Promise<Buffer> {
   const client = getOpenAIClient();
   const chunks = splitIntoTtsChunks(text);
+  // Voice per-brand (2026-11-02, T4) - resolveVoice fail-soft ke DEFAULT_TTS_VOICE (marin)
+  // kalau null/invalid, jadi brand lama tanpa setting tetap pakai suara default spt sebelumnya.
+  const resolvedVoice = resolveVoice(voice);
 
   const chunkBuffers: Buffer[] = [];
   for (const chunk of chunks) {
-    chunkBuffers.push(await synthesizeChunk(client, chunk));
+    chunkBuffers.push(await synthesizeChunk(client, chunk, resolvedVoice));
   }
   const buffer = await concatMp3Buffers(chunkBuffers);
 

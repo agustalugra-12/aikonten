@@ -10,6 +10,19 @@ import {
   type SubtitleDesign,
   type SubtitleAnimation,
 } from "./subtitleDesign";
+import { isValidVoice } from "@/lib/ai/ttsVoices";
+
+// Voice TTS dari brandKit JSON (T4 2026-11-02) - dipakai processProject -> generateVoiceover.
+// Kembalikan id suara valid atau undefined (generateVoiceover yg default-kan ke marin).
+export function brandKitVoice(json: string | null | undefined): string | undefined {
+  if (!json) return undefined;
+  try {
+    const v = (JSON.parse(json) as { voice?: unknown }).voice;
+    return isValidVoice(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
 import { DEFAULT_TITLE_CARD_DESIGN, type TitleCardDesign } from "./titleCard";
 import {
   isTitleAnimation,
@@ -50,6 +63,7 @@ export type BrandKit = {
   primaryColor?: string; // #RRGGBB - warna brand utama (heading/title, aksen lower third)
   secondaryColor?: string; // #RRGGBB - warna brand sekunder
   ctaColor?: string; // #RRGGBB - warna box CTA/subscribe (Fase 3); undefined = merah YouTube
+  voice?: string; // suara TTS voiceover (lihat ttsVoices.ts); undefined = default (marin) - T4 2026-11-02
   // Animated Title (2026-10-26, Fase 3 Motion Library). Opsional & DEFAULT-OFF: kalau
   // title.enabled tidak true, title card TIDAK dirender (video lama tak berubah). Teksnya
   // dari hookText (processProject.ts). Font/warna judul ikut heading font + primaryColor.
@@ -119,6 +133,11 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
       if (typeof o[key] !== "string" || !HEX.test(o[key] as string)) return { ok: false, error: `${key} harus warna hex #RRGGBB` };
       out[key] = o[key] as string;
     }
+  }
+  // Voice TTS (T4 2026-11-02) - harus id suara kurasi (ttsVoices.ts), bukan string bebas.
+  if ("voice" in o && o.voice !== undefined && o.voice !== null) {
+    if (!isValidVoice(o.voice)) return { ok: false, error: "voice tidak dikenal (harus salah satu suara kurasi)" };
+    out.voice = o.voice;
   }
   if ("outlineWidth" in o && o.outlineWidth !== undefined) {
     const v = Number(o.outlineWidth);

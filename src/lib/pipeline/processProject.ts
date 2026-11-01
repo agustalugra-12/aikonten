@@ -19,7 +19,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
-import { resolveBrandKit } from "@/lib/render/brandKit";
+import { resolveBrandKit, brandKitVoice } from "@/lib/render/brandKit";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { brandTransitionType } from "@/lib/render/transitions";
@@ -1003,7 +1003,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // dibacakan, lihat generateCaptionAndHashtags).
     const narrationText = youtubeMeta ? project.script! : caption;
     const totalDuration = currentTotalDuration();
-    const voiceoverBuffer = await generateVoiceover(narrationText);
+    const voiceoverBuffer = await generateVoiceover(narrationText, brandKitVoice(brand?.brandKit));
     let srt: string;
     // wordTimings (2026-08-10, Subtitle Designer) - dari transkripsi yg SAMA (1
     // panggilan Whisper, tidak ada biaya tambahan) - dipakai renderFinalVideo utk
