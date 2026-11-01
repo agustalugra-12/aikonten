@@ -21,7 +21,7 @@ type DashboardStats = {
 };
 
 const PLATFORM_LABEL: Record<string, string> = { instagram: "Instagram", facebook: "Facebook", youtube: "YouTube", tiktok: "TikTok" };
-type TimeSeries = { days: number; daily: { date: string; views: number; likes: number }[]; byPlatform: { platform: string; views: number; likes: number }[]; totals: { views: number; likes: number }; prev: { views: number; likes: number } };
+type TimeSeries = { days: number; daily: { date: string; views: number; likes: number; reach: number; eng: number | null }[]; byPlatform: { platform: string; views: number; likes: number }[]; hasReach: boolean; hasEng: boolean; totals: { views: number; likes: number; reach: number; eng: number | null }; prev: { views: number; likes: number } };
 type PerfGroup = { key: string; n: number; avgViews: number; avgEng: number | null };
 type ContentPerf = { totalScored: number; byType: PerfGroup[]; byPillar: PerfGroup[]; byHook: PerfGroup[]; topContent: { id: string; type: string; pillar: string | null; hook: string | null; title: string; views: number; eng: number | null }[] };
 const DONUT_SHADES = ["#000000", "#555f6d", "#a0a0aa", "#c6c6cd", "#dce2f3"];
@@ -68,6 +68,8 @@ export function Analytics({ brandId }: { brandId: string }) {
   const viewsChart = (ts?.daily || []).map((d) => ({ label: d.date.slice(5), count: d.views }));
   const likesChart = (ts?.daily || []).map((d) => ({ label: d.date.slice(5), count: d.likes }));
   const vDelta = ts && ts.prev.views > 0 ? Math.round(((ts.totals.views - ts.prev.views) / ts.prev.views) * 100) : null;
+  const reachChart = (ts?.daily || []).map((d) => ({ label: d.date.slice(5), count: d.reach }));
+  const engChart = (ts?.daily || []).map((d) => ({ label: d.date.slice(5), count: d.eng ?? 0 }));
 
   return (
     <div className="space-y-5">
@@ -120,6 +122,24 @@ export function Analytics({ brandId }: { brandId: string }) {
               )); })()}
             </div>
           ) : <p className="h-40 flex items-center justify-center text-[13px] text-[#555f6d]">{ts ? "Belum ada data." : "Memuat..."}</p>}
+        </div>
+      </div>
+
+      {/* Tren Reach + Engagement (v2 - mulai terkumpul 2026-11-01) */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="font-heading text-sm font-semibold text-[#151c27]">Tren Reach ({ts?.days ?? 30} Hari)</p>
+            {ts?.hasReach && <span className="text-[12px] font-mono text-[#555f6d] tabular-nums">{fmtNum(ts.totals.reach)} total</span>}
+          </div>
+          {ts?.hasReach && reachChart.length > 0 ? <AreaChart data={reachChart} /> : <p className="h-40 flex items-center justify-center text-center text-[13px] text-[#555f6d] px-4">{ts ? "Reach mulai dikumpulkan harian sejak 1 Nov — grafik terisi beberapa hari ke depan." : "Memuat..."}</p>}
+        </div>
+        <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="font-heading text-sm font-semibold text-[#151c27]">Tren Engagement ({ts?.days ?? 30} Hari)</p>
+            {ts?.hasEng && ts.totals.eng != null && <span className="text-[12px] font-mono text-[#555f6d] tabular-nums">{ts.totals.eng}% rata-rata</span>}
+          </div>
+          {ts?.hasEng && engChart.length > 0 ? <AreaChart data={engChart} /> : <p className="h-40 flex items-center justify-center text-center text-[13px] text-[#555f6d] px-4">{ts ? "Engagement mulai dikumpulkan harian sejak 1 Nov — grafik terisi beberapa hari ke depan." : "Memuat..."}</p>}
         </div>
       </div>
 
