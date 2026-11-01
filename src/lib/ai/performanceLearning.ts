@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { projects, publishLogs, socialAccounts } from "@/db/schema";
-import { and, eq, isNull, or, lt, isNotNull, desc } from "drizzle-orm";
+import { and, eq, isNull, or, lt, isNotNull, desc, gte } from "drizzle-orm";
 import { getPostMetrics } from "@/lib/publish/bufferAuth";
 import { getYoutubeVideoMetrics } from "@/lib/publish/youtube";
 import { ensureFreshYoutubeAccessToken } from "@/lib/publish/youtubeAuth";
@@ -16,7 +16,13 @@ import { ensureFreshYoutubeAccessToken } from "@/lib/publish/youtubeAuth";
 // punya infra cron) - dipanggil dari getOrGenerateDailyIdeas SEKALI per hari, BUKAN
 // tiap request. Skip project yg baru disync <6 jam lalu (hemat API call, metrik
 // Buffer sendiri jg tidak update real-time).
-const RESYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
+// (2026-11-01) Dilonggarkan 6 jam -> 3 hari + hanya sync post <=35 hari, utk hemat kuota API
+// Buffer (rate limit window 30 HARI bergulir - pernah habis & bikin analitik semua brand stop).
+// Metrik Buffer tak update real-time; post lama dari 30 hari pun insights-nya tak tersedia di
+// Buffer free -> tak ada gunanya terus di-retry (dulu post lama "metrik permanen hilang" kepilih
+// ulang tiap sync & menghabiskan slot + kuota).
+const RESYNC_INTERVAL_MS = 72 * 60 * 60 * 1000;
+const RECENT_WINDOW_MS = 35 * 24 * 60 * 60 * 1000;
 
 export async function syncBrandPerformance(brandId: string): Promise<void> {
   const now = new Date();
@@ -38,11 +44,12 @@ export async function syncBrandPerformance(brandId: string): Promise<void> {
       and(
         eq(projects.brandId, brandId),
         eq(projects.status, "published"),
+        gte(projects.updatedAt, new Date(now.getTime() - RECENT_WINDOW_MS)),
         or(isNull(projects.performanceSyncedAt), lt(projects.performanceSyncedAt, staleThreshold))
       )
     )
     .orderBy(desc(projects.createdAt))
-    .limit(20); // batasi per pemanggilan - hindari 1 sync borongan lambat/kena rate limit
+    .limit(10); // batasi per pemanggilan - hindari borongan lambat/kena rate limit
 
   for (const p of candidateProjects) {
     try {
@@ -51,6 +58,12 @@ export async function syncBrandPerformance(brandId: string): Promise<void> {
       // Best-effort - 1 project gagal sync (mis. Buffer API error sementara) TIDAK
       // BOLEH gagalkan seluruh alur generate ide harian yg memanggil fungsi ini.
       console.error(`[performanceLearning] gagal sync project ${p.id}:`, err);
+      // Kuota Buffer habis (rate limit window 30d) -> HENTIKAN sync, jangan lanjut hammer sisa
+      // project (tiap panggilan makin habisin kuota + spam log). Lanjut lagi saat kuota pulih.
+      if (String(err).includes("RATE_LIMIT_EXCEEDED") || String(err).includes("Too many requests")) {
+        console.warn("[performanceLearning] Buffer rate limit kena - stop sync batch ini.");
+        break;
+      }
     }
   }
 }
