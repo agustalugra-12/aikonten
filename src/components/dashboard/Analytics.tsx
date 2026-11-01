@@ -22,6 +22,8 @@ type DashboardStats = {
 
 const PLATFORM_LABEL: Record<string, string> = { instagram: "Instagram", facebook: "Facebook", youtube: "YouTube", tiktok: "TikTok" };
 type TimeSeries = { days: number; daily: { date: string; views: number; likes: number }[]; byPlatform: { platform: string; views: number; likes: number }[]; totals: { views: number; likes: number }; prev: { views: number; likes: number } };
+type PerfGroup = { key: string; n: number; avgViews: number; avgEng: number | null };
+type ContentPerf = { totalScored: number; byType: PerfGroup[]; byPillar: PerfGroup[]; byHook: PerfGroup[]; topContent: { id: string; type: string; pillar: string | null; hook: string | null; title: string; views: number; eng: number | null }[] };
 const DONUT_SHADES = ["#000000", "#555f6d", "#a0a0aa", "#c6c6cd", "#dce2f3"];
 
 function metricVal(row: AnalyticsRow, name: string): number | null {
@@ -48,6 +50,7 @@ export function Analytics({ brandId }: { brandId: string }) {
   const { data: rows } = useFetchedData<AnalyticsRow[]>(() => fetch(`/api/brands/${brandId}/analytics`).then((r) => r.json()), [brandId]);
   const { data: stats } = useFetchedData<DashboardStats | null>(() => fetch(`/api/brands/${brandId}/dashboard-stats`).then((r) => r.json()), [brandId]);
   const { data: ts } = useFetchedData<TimeSeries | null>(() => fetch(`/api/brands/${brandId}/analytics/timeseries`).then((r) => r.json()), [brandId]);
+  const { data: perf } = useFetchedData<ContentPerf | null>(() => fetch(`/api/brands/${brandId}/analytics/content-performance`).then((r) => r.json()), [brandId]);
 
   const agg = useMemo(() => {
     const avail = (rows || []).filter((r) => r.available && r.metrics);
@@ -155,6 +158,34 @@ export function Analytics({ brandId }: { brandId: string }) {
         )}
       </div>
 
+      {/* Performa Konten per Tipe/Hook/Pilar + Top Content (v3) - dari projects.performanceViews */}
+      {perf && perf.totalScored > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <h2 className="font-heading text-lg font-bold text-[#151c27]">Performa Konten</h2>
+            <span className="text-[12px] text-[#555f6d]">dari {perf.totalScored} konten ber-metrik — mana yang paling perform (rata-rata views)</span>
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            <PerfCard title="Per Tipe Konten" groups={perf.byType} />
+            <PerfCard title="Per Hook" groups={perf.byHook} />
+            <PerfCard title="Per Pilar" groups={perf.byPillar} />
+          </div>
+          <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4">
+            <p className="font-heading text-sm font-semibold text-[#151c27] mb-3">Top Konten (by Views)</p>
+            <div className="space-y-2">
+              {perf.topContent.map((c, i) => (
+                <div key={c.id} className="flex items-center gap-3 text-[13px]">
+                  <span className="font-mono text-[11px] text-[#555f6d] w-5 shrink-0">{i + 1}</span>
+                  <span className="flex-1 truncate text-[#151c27]">{c.title}</span>
+                  <span className="text-[11px] text-[#555f6d] capitalize shrink-0 hidden sm:inline">{c.type}{c.hook ? ` · ${c.hook}` : ""}</span>
+                  <span className="font-mono text-[12px] text-[#151c27] tabular-nums shrink-0">{fmtNum(c.views)}{c.eng != null ? ` · ${c.eng}%` : ""}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Laporan PDF/CSV (reuse existing) */}
       <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3">
@@ -180,6 +211,32 @@ function Panel({ label, value, sub, icon }: { label: string; value: string; sub:
       </div>
       <p className="font-heading text-2xl font-bold tabular-nums mt-2 text-[#151c27] leading-none">{value}</p>
       <p className="text-[11px] text-[#555f6d] mt-1.5">{sub}</p>
+    </div>
+  );
+}
+
+function PerfCard({ title, groups }: { title: string; groups: PerfGroup[] }) {
+  const top = groups.slice(0, 6);
+  const mx = Math.max(1, ...top.map((g) => g.avgViews));
+  return (
+    <div className="rounded-xl bg-white ring-1 ring-[#e7eefe] shadow-sm p-4">
+      <p className="font-heading text-sm font-semibold text-[#151c27] mb-3">{title}</p>
+      {top.length === 0 ? (
+        <p className="text-[13px] text-[#555f6d]">Belum ada data.</p>
+      ) : (
+        <div className="space-y-2.5">
+          {top.map((g) => (
+            <div key={g.key} className="space-y-1">
+              <div className="flex justify-between text-[12px] gap-2">
+                <span className="capitalize text-[#151c27] truncate">{g.key}</span>
+                <span className="font-mono text-[#555f6d] tabular-nums shrink-0">{fmtNum(g.avgViews)} avg{g.avgEng != null ? ` · ${g.avgEng}%` : ""}</span>
+              </div>
+              <div className="h-2 rounded-full bg-[#e7eefe] overflow-hidden"><div className="h-full rounded-full bg-black" style={{ width: `${Math.round((g.avgViews / mx) * 100)}%` }} /></div>
+              <div className="text-[10px] text-[#555f6d]">{g.n} konten</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
