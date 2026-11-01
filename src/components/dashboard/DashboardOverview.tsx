@@ -1,11 +1,58 @@
 "use client";
 
 
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProjectList } from "@/components/dashboard/ProjectList";
-import { Send, FileClock, Wallet, Flame, TrendingUp, TrendingDown } from "lucide-react";
+import { Send, FileClock, Wallet, Flame, TrendingUp, TrendingDown, CheckCircle2, Circle, X } from "lucide-react";
 import { useFetchedData } from "@/lib/useFetchedData";
 import type { Brand, Project, SocialAccount } from "@/types";
+
+// Onboarding checklist (2026-11-02, T11 - permintaan Agus "panduan singkat apa saja yg perlu
+// diisi user baru"). Cek status setup NYATA dari data brand/akun (bukan tutorial statis) +
+// link ke tempat pengisian. Dismissible per-brand (localStorage). Hilang sendiri saat semua ✓.
+function OnboardingChecklist({ brand, accountsCount }: { brand: Brand; accountsCount: number }) {
+  const key = `kp-onboard-dismissed-${brand.id}`;
+  const [dismissed, setDismissed] = useState<boolean>(() => typeof window !== "undefined" && window.localStorage.getItem(key) === "1");
+
+  const items = [
+    { done: !!brand.logoUrl, label: "Unggah logo brand", hint: "Pengaturan Brand → Logo" },
+    { done: !!(brand.manualKnowledge && brand.manualKnowledge.trim()), label: "Isi Knowledge Base", hint: "Pengaturan Brand → Knowledge Base" },
+    { done: !!brand.contentPillars, label: "Atur pilar konten & persennya", hint: "Pengaturan Brand → Pilar Konten" },
+    { done: accountsCount > 0, label: "Sambungkan akun sosial media", hint: "Kanal Sosial" },
+    { done: !!brand.brandKit, label: "Atur Brand Kit (font, warna, suara)", hint: "Pengaturan Brand → Brand Kit" },
+  ];
+  const doneCount = items.filter((i) => i.done).length;
+  if (dismissed || doneCount === items.length) return null;
+
+  return (
+    <Card className="border-dashed">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+        <CardTitle className="font-heading text-sm font-semibold">
+          🚀 Mulai di sini — {doneCount}/{items.length} langkah selesai
+        </CardTitle>
+        <button
+          type="button"
+          onClick={() => { window.localStorage.setItem(key, "1"); setDismissed(true); }}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Tutup panduan"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        <p className="text-xs text-muted-foreground mb-2">Lengkapi ini supaya konten AI makin sesuai brand kamu:</p>
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center gap-2 text-sm">
+            {it.done ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <Circle className="w-4 h-4 text-muted-foreground shrink-0" />}
+            <span className={it.done ? "text-muted-foreground line-through" : "text-foreground"}>{it.label}</span>
+            {!it.done && <span className="text-[11px] text-muted-foreground ml-auto">{it.hint}</span>}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
 
 type DashboardStats = {
   publishedThisWeek: number;
@@ -178,6 +225,8 @@ export function DashboardOverview({
           </p>
         </div>
       </div>
+
+      {brand && <OnboardingChecklist brand={brand} accountsCount={accounts.length} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={Send} label="Dipublikasikan" value={stats ? String(stats.publishedThisWeek) : "…"} trend={stats ? stats.publishedThisWeekDeltaPercent : null} sub="vs minggu lalu" />
