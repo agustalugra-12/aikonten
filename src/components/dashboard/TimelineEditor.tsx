@@ -26,6 +26,14 @@ const ORIENTATIONS: readonly SceneOrientation[] = ["portrait", "landscape", "squ
 function isOrientation(v: unknown): v is SceneOrientation {
   return typeof v === "string" && (ORIENTATIONS as readonly string[]).includes(v);
 }
+// Thumbnail scene (2026-11-02, T7) - footage cuma simpan URL video (sourceUrl/videoUrl),
+// tak ada poster. Ambil frame via <video preload="metadata"> (ringan, bukan load penuh).
+function footageUrl(scene: Scene): string {
+  return scene.footage.kind === "segment" ? scene.footage.sourceUrl : scene.footage.videoUrl;
+}
+function proxied(url: string): string {
+  return `/api/media-proxy?url=${encodeURIComponent(url)}`;
+}
 function sceneDurationSeconds(scene: Scene): number {
   return scene.footage.kind === "segment" ? scene.footage.end - scene.footage.start : scene.footage.durationSeconds;
 }
@@ -242,16 +250,31 @@ function EditorView({ projectId, brandId, initial, source, serverManifest, onClo
                 <button
                   type="button"
                   onClick={() => setSelectedId(scene.id)}
-                  className={"rounded-md border px-2 py-2 flex flex-col justify-between text-left " + (sel ? "border-foreground bg-muted" : "border-border bg-muted/40 hover:border-muted-foreground")}
-                  style={{ width: `${Math.max(64, Math.round(dur * 28))}px` }}
+                  className={"relative rounded-md border overflow-hidden flex flex-col justify-between text-left h-[72px] bg-muted/40 " + (sel ? "border-foreground ring-1 ring-foreground" : "border-border hover:border-muted-foreground")}
+                  style={{ width: `${Math.max(72, Math.round(dur * 28))}px` }}
                   title={`Scene ${i + 1} - ${scene.footage.kind} - ${dur.toFixed(1)}s`}
                 >
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] font-mono text-muted-foreground">#{i + 1}</span>
-                    <Badge variant="outline" className="text-[9px] px-1 py-0 capitalize">{scene.footage.kind}</Badge>
+                  {/* Thumbnail ringan: frame video di 0.5s via preload=metadata (bukan load penuh).
+                      ponytail: metadata-only + dibatasi <=60 scene; kalau berat, ganti lazy IntersectionObserver. */}
+                  {scenes.length <= 60 && (
+                    <video
+                      src={`${proxied(footageUrl(scene))}#t=0.5`}
+                      preload="metadata"
+                      muted
+                      playsInline
+                      className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                    />
+                  )}
+                  <div className="relative z-10 flex flex-col justify-between h-full p-1.5 bg-gradient-to-t from-black/70 via-black/10 to-black/40">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-mono text-white/90 drop-shadow">#{i + 1}</span>
+                      <Badge variant="secondary" className="text-[9px] px-1 py-0 capitalize">{scene.footage.kind}</Badge>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-white font-semibold drop-shadow">{dur.toFixed(1)}s</span>
+                      <span className="block text-[9px] text-white/80 truncate drop-shadow">{scene.motion ?? "static"}</span>
+                    </div>
                   </div>
-                  <span className="text-[10px] text-foreground font-medium">{dur.toFixed(1)}s</span>
-                  <span className="text-[9px] text-muted-foreground truncate">{scene.motion ?? "static"}</span>
                 </button>
                 {i < scenes.length - 1 && (
                   <div className="flex items-center" title={`Transisi: ${scene.transitionAfter ?? "default (fade)"}`}>

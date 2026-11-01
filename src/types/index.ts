@@ -16,6 +16,8 @@ export type Brand = {
   knowledgeSite: string | null;
   publishMode: "draft" | "auto";
   automationPaused: boolean; // true = cron skip brand ini (lihat schema.ts)
+  contentPillars: string | null; // JSON {pillars:string[], targetPercent:{[p]:number}} mentah, parse dulu
+  experimentRatio: string | null; // JSON {proven,variation,experiment} mentah
   autoPublishTimes: string | null; // JSON string[] "HH:MM" mentah dari DB, lihat schema.ts - parse dulu sebelum dipakai
   posterBrandProfile: string | null;
   // Brand Kit tipografi (2026-10-25, Phase 2) - JSON string atau null (lihat brandKit.ts).

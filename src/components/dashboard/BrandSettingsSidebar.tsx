@@ -15,6 +15,18 @@ import {
 import { toast } from "sonner";
 import type { Brand } from "@/types";
 
+// Pilar konten (2026-11-02, T10) - parse brands.contentPillars JSON ke baris editable.
+function parsePillarRows(json: string | null | undefined): { name: string; percent: number }[] {
+  if (!json) return [];
+  try {
+    const o = JSON.parse(json) as { pillars?: string[]; targetPercent?: Record<string, number> };
+    const pillars = Array.isArray(o.pillars) ? o.pillars : [];
+    return pillars.map((p) => ({ name: p, percent: Math.round(o.targetPercent?.[p] ?? 0) }));
+  } catch {
+    return [];
+  }
+}
+
 // Pengaturan Brand terkonsolidasi (2026-08-05, permintaan Agus - "aku mau setiap brand
 // bisa mengisi pengetahuan secara manual, kamu mungkin bisa buat sidebarnya, jadi
 // disana ada logo, pengetahuan, dan... side bar automation") - GANTIKAN BrandLogoDialog
@@ -183,6 +195,9 @@ export function BrandSettingsSidebar({
   const [autoPublishTimes, setAutoPublishTimes] = useState<string[]>(parseAutoPublishTimes(brand?.autoPublishTimes));
   const [automationPaused, setAutomationPaused] = useState(brand?.automationPaused ?? false);
   const [savingAutomation, setSavingAutomation] = useState(false);
+  const [pillarRows, setPillarRows] = useState<{ name: string; percent: number }[]>(() => parsePillarRows(brand?.contentPillars));
+  const [savingPillars, setSavingPillars] = useState(false);
+  const pillarTotal = pillarRows.reduce((s, r) => s + (Number(r.percent) || 0), 0);
   // Brand Kit / Font Studio (2026-10-25, Phase 2) - 1 object state (pola sama identity).
   const [bk, setBk] = useState<Record<string, unknown> & { _enabled: boolean }>(parseBrandKit(brand?.brandKit));
   const [savingBk, setSavingBk] = useState(false);
@@ -213,6 +228,30 @@ export function BrandSettingsSidebar({
     setPublishMode(brand?.publishMode ?? "draft");
     setAutoPublishTimes(parseAutoPublishTimes(brand?.autoPublishTimes));
     setAutomationPaused(brand?.automationPaused ?? false);
+    setPillarRows(parsePillarRows(brand?.contentPillars));
+  }
+
+  async function handleSavePillars() {
+    const rows = pillarRows.map((r) => ({ name: r.name.trim(), percent: Number(r.percent) || 0 })).filter((r) => r.name);
+    setSavingPillars(true);
+    // Kosong = reset ke pilar default (generik/pelangi).
+    if (rows.length === 0) {
+      const ok = await patchBrand({ contentPillars: null });
+      setSavingPillars(false);
+      if (ok) { toast.success("Pilar direset ke default"); onChanged(); }
+      return;
+    }
+    const total = rows.reduce((s, r) => s + r.percent, 0);
+    if (total < 95 || total > 105) {
+      setSavingPillars(false);
+      toast.error(`Total persen pilar harus ~100% (sekarang ${total}%)`);
+      return;
+    }
+    const ok = await patchBrand({
+      contentPillars: { pillars: rows.map((r) => r.name), targetPercent: Object.fromEntries(rows.map((r) => [r.name, r.percent])) },
+    });
+    setSavingPillars(false);
+    if (ok) { toast.success("Pilar konten disimpan - jadi acuan planner"); onChanged(); }
   }
 
   async function patchBrand(body: Record<string, unknown>): Promise<boolean> {
@@ -392,6 +431,7 @@ export function BrandSettingsSidebar({
             <TabsTrigger value="logo">Logo</TabsTrigger>
             <TabsTrigger value="knowledge">Knowledge Base</TabsTrigger>
             <TabsTrigger value="automation">Automation</TabsTrigger>
+            <TabsTrigger value="pilar">Pilar Konten</TabsTrigger>
             <TabsTrigger value="brandkit">Brand Kit</TabsTrigger>
           </TabsList>
 
@@ -767,6 +807,60 @@ export function BrandSettingsSidebar({
 
             <Button size="sm" onClick={handleSaveAutomation} disabled={savingAutomation || automationInvalid || autoPublishInvalid}>
               {savingAutomation ? "Menyimpan..." : "Simpan Automation"}
+            </Button>
+          </TabsContent>
+
+          <TabsContent value="pilar" className="space-y-4 pt-3">
+            {/* T10 (2026-11-02) - pilar konten + target persen jadi acuan planner. Dibaca
+                pillarsForSite/pillarTargetPercentForSite -> AI memvariasikan konten sesuai bobot. */}
+            <p className="text-xs rounded-md border bg-muted/50 p-2.5">
+              🧭 Atur <strong>jenis konten (pilar)</strong> &amp; porsinya. Mis. Edukasi 40%, Promo/Hard-sell 20%,
+              Hiburan 25%, Testimoni 15%. AI jadikan ini acuan saat menyusun rencana konten (biar tidak numpuk 1 jenis).
+              Kosongkan semua untuk pakai pilar default.
+            </p>
+            <div className="space-y-2">
+              {pillarRows.length === 0 && (
+                <p className="text-xs text-muted-foreground">Belum ada pilar. Tambah di bawah, atau biarkan kosong untuk default.</p>
+              )}
+              {pillarRows.map((row, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    placeholder="Nama pilar (mis. Edukasi)"
+                    value={row.name}
+                    onChange={(e) => setPillarRows((prev) => prev.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)))}
+                    className="h-8 text-sm flex-1"
+                  />
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Input
+                      type="number" min={0} max={100}
+                      value={row.percent}
+                      onChange={(e) => setPillarRows((prev) => prev.map((r, j) => (j === i ? { ...r, percent: Number(e.target.value) } : r)))}
+                      className="h-8 text-sm w-20"
+                    />
+                    <span className="text-xs text-muted-foreground">%</span>
+                  </div>
+                  <Button
+                    type="button" size="sm" variant="ghost"
+                    onClick={() => setPillarRows((prev) => prev.filter((_, j) => j !== i))}
+                    aria-label={`Hapus pilar ${row.name}`}
+                  >
+                    ×
+                  </Button>
+                </div>
+              ))}
+              <div className="flex items-center justify-between">
+                <Button type="button" size="sm" variant="outline" onClick={() => setPillarRows((prev) => [...prev, { name: "", percent: 0 }])}>
+                  + Tambah pilar
+                </Button>
+                {pillarRows.length > 0 && (
+                  <span className={"text-xs font-medium " + (pillarTotal >= 95 && pillarTotal <= 105 ? "text-emerald-600" : "text-amber-600")}>
+                    Total: {pillarTotal}% {pillarTotal >= 95 && pillarTotal <= 105 ? "✓" : "(harus ~100%)"}
+                  </span>
+                )}
+              </div>
+            </div>
+            <Button size="sm" onClick={handleSavePillars} disabled={savingPillars}>
+              {savingPillars ? "Menyimpan..." : "Simpan Pilar Konten"}
             </Button>
           </TabsContent>
 

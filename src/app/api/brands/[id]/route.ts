@@ -200,6 +200,46 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Content Pillars + target persen (2026-11-02, T10 - permintaan Agus "settingan jenis
+  // konten berapa persen, pilar edukasi berapa persen hard-selling berapa persen sbg acuan
+  // planner"). JSON {pillars:string[], targetPercent:{[pillar]:number}}. Dibaca planner
+  // (dailyContentPlanner->contentVariety overuse detection). null = reset (pakai pilar generik).
+  if ("contentPillars" in body) {
+    if (body.contentPillars === null) {
+      update.contentPillars = null;
+    } else {
+      const cp = body.contentPillars;
+      const pillars = cp?.pillars;
+      const tp = cp?.targetPercent;
+      if (!Array.isArray(pillars) || !pillars.every((p: unknown) => typeof p === "string" && p.trim()) || typeof tp !== "object" || tp === null) {
+        return NextResponse.json({ error: "contentPillars harus {pillars:string[], targetPercent:{pillar:number}} atau null" }, { status: 400 });
+      }
+      const total = Object.values(tp as Record<string, unknown>).reduce((s: number, v) => s + (typeof v === "number" ? v : 0), 0);
+      if (total < 95 || total > 105) {
+        return NextResponse.json({ error: `Total persen pilar harus ~100% (sekarang ${Math.round(total)}%)` }, { status: 400 });
+      }
+      update.contentPillars = JSON.stringify({ pillars: pillars.map((p: string) => p.trim()), targetPercent: tp });
+    }
+  }
+
+  // Experiment Ratio (2026-11-02, T10) - JSON {proven,variation,experiment} persen, total 100.
+  if ("experimentRatio" in body) {
+    if (body.experimentRatio === null) {
+      update.experimentRatio = null;
+    } else {
+      const er = body.experimentRatio;
+      const vals = [er?.proven, er?.variation, er?.experiment];
+      if (!vals.every((v) => typeof v === "number" && v >= 0)) {
+        return NextResponse.json({ error: "experimentRatio harus {proven,variation,experiment} angka >= 0" }, { status: 400 });
+      }
+      const total = vals.reduce((s: number, v: number) => s + v, 0);
+      if (total < 95 || total > 105) {
+        return NextResponse.json({ error: `Total experimentRatio harus ~100% (sekarang ${Math.round(total)}%)` }, { status: 400 });
+      }
+      update.experimentRatio = JSON.stringify({ proven: er.proven, variation: er.variation, experiment: er.experiment });
+    }
+  }
+
   // Draft vs Auto-Publish (2026-08-06, permintaan Agus - "pilihan draft atau langsung
   // publis"; direvisi hari yg sama - "auto publis mau di publis jam brapa aja
   // menyesuaikan dengan jumlah konten yang ada", autoPublishTime tunggal -> array
