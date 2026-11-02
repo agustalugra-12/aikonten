@@ -22,6 +22,7 @@ import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/render/brandKit";
 import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
 import { renderViaScenes } from "@/lib/render/renderViaScenes";
+import { directFootageOrder } from "@/lib/ai/footageDirector";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { brandTransitionType } from "@/lib/render/transitions";
@@ -747,10 +748,19 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // MEMPERLUAS pool sumber visual (24+44), bukan menggantikan mekanisme yang sudah ada.
     if (!isStockFootage) {
       const bankPhotos = await db
-        .select({ fileUrl: footageBank.fileUrl })
+        .select({ fileUrl: footageBank.fileUrl, tags: footageBank.tags })
         .from(footageBank)
         .where(and(eq(footageBank.brandId, project.brandId), eq(footageBank.mediaType, "image")));
-      const freshPhotos = bankPhotos.filter((p) => !recentlyUsedUrls.has(p.fileUrl));
+      const freshPhotosRaw = bankPhotos.filter((p) => !recentlyUsedUrls.has(p.fileUrl));
+      // P1 AI Director (2026-11-02): urutkan foto pakai TAG VISUAL yg sudah ada - HERO (paling
+      // relevan ke hook, bukan kamar mandi) dikonversi DULU jadi klip PERTAMA (= hook); klip
+      // "avoid" (toilet/wc) didemote ke belakang. Fix "hook toilet" tanpa model vision baru.
+      const photoTags = new Map<string, string[]>(freshPhotosRaw.map((p) => {
+        let t: string[] = [];
+        try { const j = JSON.parse(p.tags); if (Array.isArray(j)) t = j.filter((x): x is string => typeof x === "string"); } catch { /* tag rusak -> kosong */ }
+        return [p.fileUrl, t];
+      }));
+      const freshPhotos = directFootageOrder(freshPhotosRaw, (p) => p.fileUrl, photoTags, hookText || "", project.script || "");
       for (const photo of freshPhotos.slice(0, 2)) {
         try {
           const clip = await imageToVideoClip(photo.fileUrl, project.brandId);
