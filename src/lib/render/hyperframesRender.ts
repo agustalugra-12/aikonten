@@ -64,6 +64,7 @@ export async function renderViaHyperframes(
     audioDurationSeconds,
     words: opts.wordTimings || [],
     cta: opts.cta || "",
+    look: str(bk.look, "clean"), // Fase 3 Look system (brandKit.look)
     stat: opts.statOverlays && opts.statOverlays[0] ? { label: opts.statOverlays[0].label, value: opts.statOverlays[0].value } : null,
     lowerThird: opts.lowerThird ? { title: opts.lowerThird.name, subtitle: opts.lowerThird.tagline, atSeconds: 1.2, durationSeconds: 4 } : null,
   });

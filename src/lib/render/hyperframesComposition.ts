@@ -20,6 +20,7 @@ export type HfCompositionInput = {
   cta?: string;
   stat?: { label?: string; value?: string } | null;
   lowerThird?: { title?: string; subtitle?: string; atSeconds?: number; durationSeconds?: number } | null;
+  look?: string; // Fase 3 Look system: clean|cinematic|warm|cool|vivid|mono (default clean)
 };
 
 const DIM = { portrait: { w: 1080, h: 1920 }, landscape: { w: 1920, h: 1080 }, square: { w: 1080, h: 1080 } };
@@ -60,13 +61,29 @@ export function buildComposition(input: HfCompositionInput): string {
   const {
     orientation = "portrait", brand = {}, hook = "", introSeconds = 3,
     clips = [], audioUrl = null, audioDurationSeconds = 10, words = [], cta = "",
-    stat = null, lowerThird = null,
+    stat = null, lowerThird = null, look = "clean",
   } = input;
 
   const { w, h } = DIM[orientation] || DIM.portrait;
   const bg1 = brand.primary || "#14213D", bg2 = brand.bg2 || "#0c1526", accent = brand.accent || "#FFD84D";
   const ink = brand.ink || "#FFFFFF", ctaColor = brand.cta || "#CC1F1F", font = brand.font || "Poppins", mark = brand.mark || "";
   const total = introSeconds + audioDurationSeconds;
+
+  // Fase 3 (Look system): grade sinematik per brand. CSS filter di footage (.bg) + tint
+  // blend-mode (#grade) + vignette (#vignette). Default "clean" = grade halus universal
+  // (low-risk, tak ada cast warna mencolok). Filter hanya kena .bg (footage); tint+vignette
+  // kena footage & faceless. Brand pilih via brandKit.look.
+  const LOOKS: Record<string, { filter: string; tint?: string; blend?: string; op?: number; vig: number }> = {
+    clean: { filter: "contrast(1.06) saturate(1.10) brightness(1.02)", vig: 0.35 },
+    cinematic: { filter: "contrast(1.12) saturate(1.16)", tint: "linear-gradient(180deg,#1a5f7a 0%,#ff9a3d 100%)", blend: "soft-light", op: 0.28, vig: 0.5 },
+    warm: { filter: "contrast(1.06) saturate(1.12) sepia(0.12) brightness(1.03)", tint: "#ff8a3d", blend: "soft-light", op: 0.18, vig: 0.4 },
+    cool: { filter: "contrast(1.10) saturate(0.96) brightness(0.98)", tint: "#2d6cff", blend: "soft-light", op: 0.20, vig: 0.45 },
+    vivid: { filter: "contrast(1.14) saturate(1.32) brightness(1.02)", vig: 0.3 },
+    mono: { filter: "grayscale(0.65) contrast(1.18) brightness(1.02)", tint: accent, blend: "soft-light", op: 0.12, vig: 0.45 },
+  };
+  const lk = LOOKS[look] || LOOKS.clean;
+  const gradeHtml = lk.tint ? `<div id="grade"></div>` : "";
+  const vignetteHtml = `<div id="vignette"></div>`;
   // Faceless (tanpa footage): HyperFrames gambar background brand beranimasi sendiri (ringan,
   // tak ada decode video) - cocok konten edukasi/quote/tips/fakta. Kalau ada footage -> tile.
   const faceless = !clips || clips.length === 0;
@@ -156,7 +173,9 @@ export function buildComposition(input: HfCompositionInput): string {
 *{margin:0;padding:0;box-sizing:border-box;}
 html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 #root{width:100%;height:100%;position:relative;font-family:var(--font);}
-.bg{position:absolute;left:0;top:0;width:${w}px;height:${h}px;object-fit:cover;}
+.bg{position:absolute;left:0;top:0;width:${w}px;height:${h}px;object-fit:cover;filter:${lk.filter};}
+#grade{position:absolute;inset:0;z-index:250;pointer-events:none;background:${lk.tint || "transparent"};mix-blend-mode:${lk.blend || "normal"};opacity:${lk.op ?? 0};}
+#vignette{position:absolute;inset:0;z-index:310;pointer-events:none;background:radial-gradient(ellipse 78% 72% at 50% 42%,transparent 48%,rgba(0,0,0,${lk.vig}) 100%);}
 #facelessBg{position:absolute;inset:0;z-index:0;background:radial-gradient(120% 90% at 50% 10%,var(--bg1),var(--bg2));}
 .blob{position:absolute;z-index:0;width:${Math.round(w * 0.9)}px;height:${Math.round(w * 0.9)}px;border-radius:50%;filter:blur(90px);}
 #blob1{top:${Math.round(h * 0.04)}px;left:${Math.round(w * 0.08)}px;background:var(--accent);opacity:.26;}
@@ -180,7 +199,9 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 </style></head><body>
 <div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="on">
     ${videoEls}${facelessHtml}
+    ${gradeHtml}
     <div id="scrim"></div>
+    ${vignetteHtml}
     ${audioEl}
     ${capHtml}
     ${lowerThird ? `<div id="lt"><div class="t">${esc(lowerThird.title || "")}</div>${lowerThird.subtitle ? `<div class="s">${esc(lowerThird.subtitle)}</div>` : ""}</div>` : ""}
