@@ -40,7 +40,7 @@ export async function renderViaHyperframes(
   // (generator pakai background brand beranimasi, tanpa footage).
   const clips: HfClip[] = [];
   for (const b of opts.brollClips || []) clips.push({ videoUrl: b.videoUrl, durationSeconds: b.durationSeconds });
-  for (const s of opts.segments || []) clips.push({ videoUrl: s.sourceUrl, durationSeconds: Math.max(0.5, s.end - s.start) });
+  for (const s of opts.segments || []) clips.push({ videoUrl: s.sourceUrl, durationSeconds: Math.max(0.5, s.end - s.start), mediaStart: Math.max(0, s.start) });
 
   // Audio TTS -> R2 URL (base64 dilarang HyperFrames; worker fetch via URL).
   const audioKey = buildAssetKey(opts.brandId, opts.projectId, "hf-voiceover.mp3");

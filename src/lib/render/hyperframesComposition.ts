@@ -5,7 +5,7 @@
 // (id + class=clip). Dirender di worker terpisah (lihat hyperframesClient.ts). Overlay via GSAP.
 
 export type HfWord = { word: string; start: number; end: number };
-export type HfClip = { videoUrl: string; durationSeconds: number };
+export type HfClip = { videoUrl: string; durationSeconds: number; mediaStart?: number };
 export type HfCompositionInput = {
   orientation?: "portrait" | "landscape" | "square";
   brand?: {
@@ -47,16 +47,23 @@ function groupWords(words: HfWord[], maxWords = 4): HfWord[][] {
   if (cur.length) groups.push(cur);
   return groups;
 }
-function tileClips(clips: HfClip[], dur: number, maxTile = 99): Array<{ url: string; start: number; dur: number }> {
-  const out: Array<{ url: string; start: number; dur: number }> = [];
+function tileClips(clips: HfClip[], dur: number, maxTile = 99): Array<{ url: string; start: number; dur: number; mediaStart: number }> {
+  const out: Array<{ url: string; start: number; dur: number; mediaStart: number }> = [];
   let t = 0, i = 0;
+  // Offset terpakai per klip: kalau klip diputar ulang, lanjut dari bagian berikutnya
+  // (bukan frame yg sama), lalu balik ke awal segmen saat habis.
+  const used = new Map<number, number>();
   const safe = clips && clips.length ? clips : [{ videoUrl: "", durationSeconds: 5 }];
   while (t < dur - 0.05 && out.length < 200) {
     const c = safe[i % safe.length];
     // maxTile (Fase 4 pacing): batasi durasi tiap potongan -> cut lebih sering utk pacing cepat.
-    const L = Math.min(maxTile, typeof c.durationSeconds === "number" && c.durationSeconds > 0 ? c.durationSeconds : 5);
-    const d = Math.min(L, dur - t);
-    out.push({ url: c.videoUrl, start: t, dur: d });
+    const full = typeof c.durationSeconds === "number" && c.durationSeconds > 0 ? c.durationSeconds : 5;
+    const idx = i % safe.length;
+    let off = used.get(idx) ?? 0;
+    if (off >= full - 0.5) off = 0;
+    const d = Math.min(maxTile, full - off, dur - t);
+    out.push({ url: c.videoUrl, start: t, dur: d, mediaStart: (c.mediaStart ?? 0) + off });
+    used.set(idx, off + d);
     t += d; i++;
   }
   return out;
@@ -66,7 +73,7 @@ export function buildComposition(input: HfCompositionInput): string {
   const {
     orientation = "portrait", brand = {}, hook = "", introSeconds = 3,
     clips = [], audioUrl = null, musicUrl = null, audioDurationSeconds = 10, words = [], cta = "",
-    stat = null, stats = null, lowerThird = null, look = "clean", pacing = "medium",
+    stat = null, stats = null, lowerThird = null, look = "clean", pacing = "medium", emphasisPhrases = [],
   } = input;
   // Fase 5 (data blocks): render BEBERAPA statOverlays AI (bukan cuma 1), staggered di
   // tengah video, tiap blok pop+punch lalu hilang. Fallback ke `stat` tunggal (back-compat).
@@ -131,12 +138,12 @@ export function buildComposition(input: HfCompositionInput): string {
     const edur = Math.min(v.dur + over, total - estart);
     const zoomIn = i % 2 === 0, dir = i % 2 === 0 ? 1 : -1;
     return {
-      url: v.url, estart, edur, fade: i > 0,
+      url: v.url, estart, edur, fade: i > 0, mediaStart: v.mediaStart,
       s0: zoomIn ? 1.12 : 1.12 + kb, s1: zoomIn ? 1.12 + kb : 1.12,
       x0: dir * 4, x1: -dir * 4, y0: dir * 2.5, y1: -dir * 2.5,
     };
   });
-  const videoEls = clipWins.map((v, i) => `<video id="bg${i}" class="clip bg" muted playsinline data-start="${v.estart.toFixed(3)}" data-duration="${v.edur.toFixed(3)}" data-media-start="0" data-track-index="0" style="z-index:${1 + i}" src="${esc(v.url)}"></video>`).join("\n    ");
+  const videoEls = clipWins.map((v, i) => `<video id="bg${i}" class="clip bg" muted playsinline data-start="${v.estart.toFixed(3)}" data-duration="${v.edur.toFixed(3)}" data-media-start="${v.mediaStart.toFixed(3)}" data-track-index="0" style="z-index:${1 + i}" src="${esc(v.url)}"></video>`).join("\n    ");
   const facelessHtml = faceless ? `<div id="facelessBg"></div>\n    <div class="blob" id="blob1"></div>\n    <div class="blob" id="blob2"></div>` : "";
   const audioEl = audioUrl ? `<audio id="vo" class="clip" data-start="${introSeconds.toFixed(3)}" data-volume="1" data-track-index="80" src="${esc(audioUrl)}"></audio>` : "";
   // Fase 6 musik latar: track Music Bank (mood AI) di track berbeda (81) utk mixing, volume
@@ -194,6 +201,33 @@ export function buildComposition(input: HfCompositionInput): string {
       tlLines.push(`tl.to("#statCard${j}",{opacity:0,scale:.92,duration:.3,ease:"power2.in"},${(st + hold).toFixed(3)});`);
     });
   }
+  // Kinetic callout (Fase A): frasa kunci AI dicocokkan ke word-timings, tampil besar di tengah
+  // saat diucapkan. Maks 3, dilewati kalau bertabrakan dgn kartu stat atau CTA.
+  const normWord = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const spoken = words.map((x) => normWord(x.word));
+  const busy: Array<[number, number]> = statsArr.map((_s, j) => {
+    const slot = (audioDurationSeconds * 0.58) / statsArr.length;
+    const st = introSeconds + audioDurationSeconds * 0.20 + j * slot;
+    return [st, st + Math.min(2.4, Math.max(1.3, slot - 0.4)) + 0.3] as [number, number];
+  });
+  if (cta) busy.push([total - 2.6, total]);
+  const callouts: Array<{ text: string; start: number; end: number }> = [];
+  for (const phrase of emphasisPhrases) {
+    if (callouts.length >= 3) break;
+    const toks = String(phrase || "").split(/\s+/).map(normWord).filter(Boolean);
+    if (!toks.length) continue;
+    const at = spoken.findIndex((_x, k) => toks.every((tk, n) => spoken[k + n] === tk));
+    if (at < 0) continue;
+    const start = introSeconds + words[at].start;
+    const end = Math.max(start + 1.1, introSeconds + words[at + toks.length - 1].end + 0.25);
+    if (busy.some(([a, b]) => start < b && end > a)) continue;
+    busy.push([start, end]);
+    callouts.push({ text: phrase.trim(), start, end });
+  }
+  callouts.forEach((c, j) => {
+    tlLines.push(`tl.fromTo("#callout${j}",{opacity:0,scale:.72,y:26},{opacity:1,scale:1,y:0,duration:.24,ease:"back.out(2.2)"},${c.start.toFixed(3)});`);
+    tlLines.push(`tl.to("#callout${j}",{opacity:0,scale:1.06,duration:.2,ease:"power2.in"},${(c.end - 0.2).toFixed(3)});`);
+  });
   const ctaStart = total - 2.6;
   if (cta) tlLines.push(`tl.fromTo("#cta",{opacity:0,y:28},{opacity:1,y:0,duration:.5,ease:"back.out(1.5)"},${ctaStart.toFixed(3)});`);
   // Camera motion + transisi klip (Fase 2) - lihat clipWins di atas.
@@ -242,6 +276,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 .statCard{position:absolute;left:0;right:0;top:${Math.round(h * 0.30)}px;text-align:center;z-index:540;opacity:0;}
 .statCard .v{display:inline-block;background:var(--accent);color:#14213D;font-weight:800;font-size:${Math.round(w * 0.095)}px;padding:18px 40px;border-radius:18px;box-shadow:0 12px 34px rgba(0,0,0,.4);}
 .statCard .l{display:block;color:var(--ink);font-weight:600;font-size:${Math.round(w * 0.04)}px;margin-top:14px;text-shadow:0 2px 12px rgba(0,0,0,.6);}
+.callout{position:absolute;left:60px;right:60px;top:${Math.round(h * 0.36)}px;text-align:center;z-index:530;opacity:0;color:var(--accent);font-weight:800;font-size:${Math.round(w * 0.13)}px;line-height:1.02;letter-spacing:-.03em;text-transform:uppercase;text-shadow:0 8px 30px rgba(0,0,0,.7);}
 #cta{position:absolute;left:0;right:0;bottom:${Math.round(h * 0.075)}px;text-align:center;z-index:700;opacity:0;}
 #cta span{display:inline-flex;align-items:center;gap:14px;background:var(--cta);color:#fff;font-weight:700;font-size:${Math.round(w * 0.046)}px;padding:26px 46px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.4);}
 </style></head><body>
@@ -255,6 +290,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
     ${capHtml}
     ${lowerThird ? `<div id="lt"><div class="t">${esc(lowerThird.title || "")}</div>${lowerThird.subtitle ? `<div class="s">${esc(lowerThird.subtitle)}</div>` : ""}</div>` : ""}
     ${statsArr.map((s, j) => { const p = statParsed[j]; const v = p ? `${esc(p.prefix)}<span id="num${j}">0</span>${esc(p.suffix)}` : esc(s.value || ""); return `<div class="statCard" id="statCard${j}"><span class="v">${v}</span><span class="l">${esc(s.label || "")}</span></div>`; }).join("")}
+    ${callouts.map((c, j) => `<div class="callout" id="callout${j}">${esc(c.text)}</div>`).join("")}
     <div class="bar" id="bar"></div>
     ${mark ? `<div class="mark" id="mark">${esc(mark)}</div>` : ""}
     <div id="introLayer"><div id="introText">${hookSpans}</div></div>

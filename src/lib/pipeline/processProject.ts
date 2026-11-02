@@ -23,6 +23,7 @@ import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/rend
 import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
 import { renderViaScenes } from "@/lib/render/renderViaScenes";
 import { directFootageOrder } from "@/lib/ai/footageDirector";
+import { editorialPreflight, hasRejectIssue } from "@/lib/ai/editorialQc";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { brandTransitionType } from "@/lib/render/transitions";
@@ -710,6 +711,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // undefined utk klip itu (BENAR, bukan lisensi tidak diketahui - itu footage asli
     // milik brand sendiri, tidak perlu jejak lisensi pihak ketiga).
     let brollClips: DestinationBrollClip[] = [];
+    let heroFootageTags: string[] = []; // P3: tag footage HOOK (klip pertama) utk gerbang QC editorial
     // footageSource "internal" (2026-08-21, permintaan Agus - Harmoni Hills) - lewati
     // SEMUA pencarian Pexels/Pixabay, 100% footage bank brand sendiri.
     const internalOnly = (brand?.footageSource ?? "mixed") === "internal";
@@ -761,6 +763,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         return [p.fileUrl, t];
       }));
       const freshPhotos = directFootageOrder(freshPhotosRaw, (p) => p.fileUrl, photoTags, hookText || "", project.script || "");
+      heroFootageTags = photoTags.get(freshPhotos[0]?.fileUrl) || []; // P3: tag klip hook (hero)
       for (const photo of freshPhotos.slice(0, 2)) {
         try {
           const clip = await imageToVideoClip(photo.fileUrl, project.brandId);
@@ -1360,6 +1363,20 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         ctaText: pickCtaText(id, ctaContext),
       });
     };
+    // P3 gerbang QC editorial (preflight, 2026-11-03) - tangkap cacat SEBELUM render (hook
+    // kamar mandi, caption angka-garbage). P1 director + filter caption sudah MENCEGAH; ini
+    // jaring pengaman - reject hanya fire kalau pencegahan bocor (video bagus takkan ditolak).
+    const edIssues = editorialPreflight({
+      hasFootage: brollClips.length > 0 || selected.length > 0,
+      heroTags: heroFootageTags,
+      captionWords: wordTimings,
+      hookText,
+    });
+    for (const i of edIssues) autoFixLog.push({ step: "editorial_qc", action: `${i.severity}: ${i.code}`, result: i.message });
+    if (hasRejectIssue(edIssues)) {
+      throw new Error("QC editorial gagal: " + edIssues.filter((i) => i.severity === "reject").map((i) => i.message).join("; "));
+    }
+
     let rendered = await renderWithSubtitles(srt, wordTimings);
 
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,
