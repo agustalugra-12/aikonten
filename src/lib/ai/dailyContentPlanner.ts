@@ -228,7 +228,8 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
     manualPool.map((m) => m.idea),
     brand.contentPillars,
     mechanismInsights,
-    connectedPlatforms
+    connectedPlatforms,
+    brand.swotAnalysis
   );
 
   if (manualPool.length > 0) {

@@ -18,6 +18,7 @@ type Footage = {
   posterUrl: string | null;
   description: string;
   tags: string[];
+  categoryId: string | null;
   durationSeconds: number | null;
   createdAt: string;
 };
@@ -87,6 +88,13 @@ function FootageGrid({ brandId }: { brandId: string }) {
     () => fetch(`/api/brands/${brandId}/footage-bank`).then((r) => r.json()),
     [brandId]
   );
+  // Kategori (2026-11-02, T9) - dulu halaman Footage Bank TIDAK menampilkan kategori sama
+  // sekali walau sudah dikategorikan di dialog. Ambil nama kategori utk badge di tiap kartu.
+  const { data: cats } = useFetchedData<{ id: string; name: string }[]>(
+    () => fetch(`/api/brands/${brandId}/footage-categories`).then((r) => (r.ok ? r.json() : [])),
+    [brandId]
+  );
+  const catNameById = new Map((cats ?? []).map((c) => [c.id, c.name]));
   if (!items) return <p className="text-[13px] text-[#555f6d] py-10 text-center">Memuat...</p>;
   if (items.length === 0) return <p className="text-[13px] text-[#555f6d] py-10 text-center">Belum ada footage. Unggah lewat tombol di atas.</p>;
   return (
@@ -117,6 +125,11 @@ function FootageGrid({ brandId }: { brandId: string }) {
               )}
             </div>
             <div className="p-3 flex flex-col flex-1">
+              {it.categoryId && catNameById.get(it.categoryId) && (
+                <span className="self-start mb-1 px-1.5 py-0.5 rounded bg-[#e7eefe] text-[#151c27] text-[10px] font-medium">
+                  {catNameById.get(it.categoryId)}
+                </span>
+              )}
               <p className="text-[13px] font-medium text-[#151c27] line-clamp-2">{it.description || "(tanpa deskripsi)"}</p>
               {it.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">

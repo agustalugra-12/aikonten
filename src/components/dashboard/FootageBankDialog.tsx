@@ -81,7 +81,10 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
       fetch(`/api/brands/${brandId}/footage-categories`),
     ]);
     if (itemsRes.ok) setItems(await itemsRes.json());
+    // (2026-11-02, T9) Jangan telan diam-diam kalau fetch kategori gagal - dulu bikin
+    // SEMUA item berkategori tampil tanpa label + dropdown kosong (gejala "tulisan tidak jelas").
     if (categoriesRes.ok) setCategories(await categoriesRes.json());
+    else toast.error("Gagal memuat daftar kategori - coba buka ulang Bank Footage");
   }
 
   async function handleOpenChange(next: boolean) {
@@ -374,7 +377,7 @@ export function FootageBankDialog({ brandId }: { brandId: string }) {
                       <Badge variant="outline" className="text-xs">{item.mediaType === "video" ? "Video" : "Foto"}</Badge>
                       {item.categoryId && (
                         <Badge variant="secondary" className="text-xs">
-                          {categoryNameById.get(item.categoryId) || "?"}
+                          {categoryNameById.get(item.categoryId) || "Tanpa kategori"}
                         </Badge>
                       )}
                     </div>

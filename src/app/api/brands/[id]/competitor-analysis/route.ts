@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { competitors } from "@/db/schema";
+import { competitors, brands } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getMonthlyReportData } from "@/lib/reports/monthlyReportData";
 import { generateCompetitorIntelligence } from "@/lib/ai/competitorAnalysis";
@@ -22,6 +22,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const comps = await db.select().from(competitors).where(eq(competitors.brandId, brandId));
   const ownPerformance = await getMonthlyReportData(brandId, 30);
   const result = await generateCompetitorIntelligence(brand.name, comps, ownPerformance);
+
+  // Persist (T3-rework 2026-11-02) - simpan Content Gap + SWOT ke brands.swotAnalysis supaya
+  // dipakai daily planner (dailyContentPlanner->suggestScoredContentIdeas) TANPA regenerate
+  // (hemat 1 panggilan API/hari). getOwnedBrand di atas sudah jamin kepemilikan.
+  await db.update(brands).set({ swotAnalysis: JSON.stringify(result) }).where(eq(brands.id, brandId));
 
   return NextResponse.json(result);
 }

@@ -270,6 +270,12 @@ export const brands = sqliteTable("brands", {
   // Animal Story) tidak pernah mengisi kolom ini, sama pola dgn kolom Agustap lain
   // (content_pillars, content_boundaries) - extend tabel existing, bukan tabel baru.
   serviceCatalog: text("service_catalog"),
+  // Competitor Intelligence / SWOT persisted (2026-11-02, T3-rework) - JSON string dari objek
+  // CompetitorIntelligence {contentGap, swot} (competitorAnalysis.ts), ditulis on-demand oleh
+  // POST /api/brands/[id]/competitor-analysis. Dibaca daily planner (suggestScoredContentIdeas)
+  // sbg grounding TANPA regenerate. Nullable - brand yg belum pernah generate = null (planner
+  // lewati blok SWOT, perilaku lama).
+  swotAnalysis: text("swot_analysis"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

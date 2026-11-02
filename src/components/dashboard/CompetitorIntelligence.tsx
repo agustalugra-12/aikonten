@@ -161,7 +161,10 @@ export function CompetitorIntelligence({ brandId }: { brandId: string }) {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>SWOT</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>SWOT</CardTitle>
+              <p className="text-xs text-muted-foreground">Tersimpan otomatis &amp; dipakai AI sebagai dasar perencanaan ide konten harian.</p>
+            </CardHeader>
             <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {SWOT_META.map(({ key, label, variant }) => (
                 <div key={key}>

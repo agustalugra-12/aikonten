@@ -620,13 +620,20 @@ export async function renderFinalVideo(opts: {
     // persis, cuma variasi visualnya).
     let stickerInputIdx: number | null = null;
     let wowInputIdx: number | null = null;
+    // Nama aset Lottie reaksi yg dipakai slot ini (dirotasi, lihat di bawah) - dipakai lagi
+    // saat bangun filter overlay. Default "wow" (jalur lama).
+    let reactionLottieName = "wow";
     const stickerStartSeconds =
       opts.stickerClipIndex != null && opts.stickerClipIndex >= 0 && opts.stickerClipIndex < clipStartOffsets.length
         ? clipStartOffsets[opts.stickerClipIndex]
         : null;
     const useWowReaction = Math.random() < 0.5;
     if (stickerStartSeconds !== null && useWowReaction) {
-      finalArgs.push("-framerate", String(getLottieMeta("wow").fps), "-i", getLottieFramePattern("wow"));
+      // Rotasi reaksi (2026-11-02, T8 Opsi1 "konten tidak boleh monoton"): pilih acak antara
+      // aset Lottie reaksi yg SUDAH ter-bake (wow/curious) drpd selalu "wow". globe/paw
+      // sengaja tidak dipakai (terlalu topikal/khusus brand). Slot & trigger tetap SAMA.
+      reactionLottieName = Math.random() < 0.5 ? "wow" : "curious";
+      finalArgs.push("-framerate", String(getLottieMeta(reactionLottieName).fps), "-i", getLottieFramePattern(reactionLottieName));
       wowInputIdx = nextInputIdx++;
     } else if (stickerStartSeconds !== null) {
       finalArgs.push("-loop", "1", "-i", getStickerAssetPath());
@@ -792,7 +799,7 @@ export async function renderFinalVideo(opts: {
       // emoji api, perlu ruang lebih spy tetap terbaca) tapi tetap 1 slot, tidak nambah
       // area baru.
       const margin = Math.round(TARGET_WIDTH * 0.04);
-      const wowMeta = getLottieMeta("wow");
+      const wowMeta = getLottieMeta(reactionLottieName);
       const wowWidth = Math.round(TARGET_WIDTH * 0.24);
       filterStages.push(
         ...buildLottieOverlayFilterStages(

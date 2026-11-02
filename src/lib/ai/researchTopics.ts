@@ -392,7 +392,10 @@ export async function suggestScoredContentIdeas(
   mechanismInsights: string[] = [],
   // Platform Fit Score (§19) - platform yg BENERAN terhubung brand ini (socialAccounts.platform),
   // kosong = skip seluruh instruksi platformFitScores (brand belum connect apa pun).
-  connectedPlatforms: string[] = []
+  connectedPlatforms: string[] = [],
+  // SWOT/Content-Gap persisted (2026-11-02, T3-rework) - JSON dari brands.swotAnalysis.
+  // null/kosong = brand belum pernah generate analisis kompetitor -> blok dilewati (perilaku lama).
+  swotAnalysis?: string | null
 ): Promise<ScoredIdea[]> {
   const client = getOpenAIClient();
   const count = videoCount + fotoCount + carouselCount;
@@ -461,8 +464,27 @@ export async function suggestScoredContentIdeas(
         "platform tsb (mis. ide format cepat/hook kuat cocok TikTok, ide storytelling visual " +
         "cocok Instagram, ide informatif mendalam cocok YouTube)."
       : "");
+  // SWOT/Content-Gap grounding (2026-11-02, T3-rework) - sinyal kompetitor dari brands.swotAnalysis
+  // (persisted, TIDAK regenerate - hemat 1 panggilan API/hari). Format ringkas, sama semangat
+  // contentPlanSuggestions.ts (jalur suggest manual) - sekarang daily planner otomatis pun pakai.
+  let swotGroundingBlock = "";
+  if (swotAnalysis) {
+    try {
+      const intel = JSON.parse(swotAnalysis);
+      const lines = [
+        intel?.swot?.opportunity?.length ? `Opportunity: ${intel.swot.opportunity.join("; ")}` : null,
+        intel?.swot?.weakness?.length ? `Weakness: ${intel.swot.weakness.join("; ")}` : null,
+        intel?.contentGap?.opportunities?.length ? `Content Gap (belum digarap kompetitor): ${intel.contentGap.opportunities.join("; ")}` : null,
+      ].filter(Boolean);
+      if (lines.length) {
+        swotGroundingBlock =
+          "\n\n# SINYAL KOMPETITOR/SWOT (dasar perencanaan - prioritaskan ide yg memanfaatkan " +
+          "Opportunity & Content Gap ini, dan menambal Weakness):\n" + lines.join("\n");
+      }
+    } catch { /* swotAnalysis bukan JSON valid -> lewati, perilaku lama */ }
+  }
   const scoredUser =
-    `${user}${performanceBlock}${mustIncludeBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
+    `${user}${performanceBlock}${mustIncludeBlock}${swotGroundingBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): ` +
     `{"ideas": [{"idea": "...", "score": 0, "reasoning": "...", "contentType": "video", "contentGenre": "educational"` +
     (connectedPlatforms.length > 0 ? `, "platformFitScores": {${connectedPlatforms.map((p) => `"${p}": 0-100`).join(", ")}}` : "") +
     `}, ...]}`;
