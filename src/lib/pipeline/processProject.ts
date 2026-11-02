@@ -1196,6 +1196,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           lowerThird,
           aiLook: recommendedLook, // Fase 4 AI Director (brandKit.look menang kalau brand set)
           pacing,                  // Fase 4 AI Director
+          musicUrl,                // Fase 6 musik latar (sama dgn jalur ffmpeg)
         });
       }
       // PRD v1.1 §5 Final QC Checklist (2026-08-22) — jaring pengaman TERAKHIR sebelum render.

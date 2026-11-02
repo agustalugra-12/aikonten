@@ -15,6 +15,7 @@ export type HfCompositionInput = {
   introSeconds?: number;
   clips?: HfClip[];
   audioUrl?: string | null;
+  musicUrl?: string | null; // Fase 6 musik latar (dari pickMusicTrack, volume rendah di bawah VO)
   audioDurationSeconds?: number;
   words?: HfWord[];
   cta?: string;
@@ -63,7 +64,7 @@ function tileClips(clips: HfClip[], dur: number, maxTile = 99): Array<{ url: str
 export function buildComposition(input: HfCompositionInput): string {
   const {
     orientation = "portrait", brand = {}, hook = "", introSeconds = 3,
-    clips = [], audioUrl = null, audioDurationSeconds = 10, words = [], cta = "",
+    clips = [], audioUrl = null, musicUrl = null, audioDurationSeconds = 10, words = [], cta = "",
     stat = null, stats = null, lowerThird = null, look = "clean", pacing = "medium",
   } = input;
   // Fase 5 (data blocks): render BEBERAPA statOverlays AI (bukan cuma 1), staggered di
@@ -121,6 +122,9 @@ export function buildComposition(input: HfCompositionInput): string {
   const videoEls = clipWins.map((v, i) => `<video id="bg${i}" class="clip bg" muted playsinline data-start="${v.estart.toFixed(3)}" data-duration="${v.edur.toFixed(3)}" data-media-start="0" data-track-index="0" style="z-index:${1 + i}" src="${esc(v.url)}"></video>`).join("\n    ");
   const facelessHtml = faceless ? `<div id="facelessBg"></div>\n    <div class="blob" id="blob1"></div>\n    <div class="blob" id="blob2"></div>` : "";
   const audioEl = audioUrl ? `<audio id="vo" class="clip" data-start="${introSeconds.toFixed(3)}" data-volume="1" data-track-index="80" src="${esc(audioUrl)}"></audio>` : "";
+  // Fase 6 musik latar: track Music Bank (mood AI) di track berbeda (81) utk mixing, volume
+  // rendah 0.13 di bawah voiceover, mulai dari detik 0 (menemani intro juga).
+  const bgmEl = musicUrl ? `<audio id="bgm" class="clip" data-start="0" data-volume="0.13" data-track-index="81" src="${esc(musicUrl)}"></audio>` : "";
 
   const capHtml = groups.map((g, gi) => {
     const ws = g.map((wd, wi) => `<span class="cw" id="g${gi}w${wi}">${esc(wd.word)}</span>`).join(" ");
@@ -228,6 +232,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
     <div id="scrim"></div>
     ${vignetteHtml}
     ${audioEl}
+    ${bgmEl}
     ${capHtml}
     ${lowerThird ? `<div id="lt"><div class="t">${esc(lowerThird.title || "")}</div>${lowerThird.subtitle ? `<div class="s">${esc(lowerThird.subtitle)}</div>` : ""}</div>` : ""}
     ${statsArr.map((s, j) => `<div class="statCard" id="statCard${j}"><span class="v">${esc(s.value || "")}</span><span class="l">${esc(s.label || "")}</span></div>`).join("")}

@@ -29,6 +29,7 @@ export type HyperframesRenderOpts = {
   lowerThird?: { name: string; tagline: string } | null;   // dari extractLowerThird (documentary)
   aiLook?: string | null;  // Fase 4 AI Director: recommendedLook - dipakai kalau brand belum set brandKit.look
   pacing?: string | null;  // Fase 4 AI Director: fast|medium|calm
+  musicUrl?: string | null; // Fase 6 musik latar (dari pickMusicTrack di processProject)
 };
 
 export async function renderViaHyperframes(
@@ -63,6 +64,7 @@ export async function renderViaHyperframes(
     introSeconds: INTRO_SECONDS,
     clips,
     audioUrl,
+    musicUrl: opts.musicUrl ?? null, // Fase 6 musik latar
     audioDurationSeconds,
     words: opts.wordTimings || [],
     cta: opts.cta || "",
