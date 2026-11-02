@@ -106,7 +106,7 @@ export function buildComposition(input: HfCompositionInput): string {
   const faceless = !clips || clips.length === 0;
   // Fase 4 (AI Director pacing): cadence cut (tileMax) + intensitas zoom Ken Burns (kb).
   const tileMax = pacing === "fast" ? 2.6 : pacing === "calm" ? 6.5 : 4.2;
-  const kb = pacing === "fast" ? 0.20 : pacing === "calm" ? 0.08 : 0.14;
+  const kb = pacing === "fast" ? 0.32 : pacing === "calm" ? 0.16 : 0.24; // zoom Ken Burns diperkuat (2026-11-02, Agus mau motion jelas spt pelangi-pro)
   // Footage jalan SEPANJANG video termasuk di belakang hook intro (2026-11-02, permintaan
   // Agus "hook 3 detik jangan blank") - tile dari 0..total, bukan mulai setelah intro.
   const vids = faceless ? [] : tileClips(clips, total, tileMax);
@@ -131,8 +131,8 @@ export function buildComposition(input: HfCompositionInput): string {
     const zoomIn = i % 2 === 0, dir = i % 2 === 0 ? 1 : -1;
     return {
       url: v.url, estart, edur, fade: i > 0,
-      s0: zoomIn ? 1.10 : 1.10 + kb, s1: zoomIn ? 1.10 + kb : 1.10,
-      x0: dir * 3.5, x1: -dir * 3.5, y0: dir * 2, y1: -dir * 2,
+      s0: zoomIn ? 1.12 : 1.12 + kb, s1: zoomIn ? 1.12 + kb : 1.12,
+      x0: dir * 4, x1: -dir * 4, y0: dir * 2.5, y1: -dir * 2.5,
     };
   });
   const videoEls = clipWins.map((v, i) => `<video id="bg${i}" class="clip bg" muted playsinline data-start="${v.estart.toFixed(3)}" data-duration="${v.edur.toFixed(3)}" data-media-start="0" data-track-index="0" style="z-index:${1 + i}" src="${esc(v.url)}"></video>`).join("\n    ");
