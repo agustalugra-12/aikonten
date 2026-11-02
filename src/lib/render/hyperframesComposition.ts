@@ -19,6 +19,7 @@ export type HfCompositionInput = {
   words?: HfWord[];
   cta?: string;
   stat?: { label?: string; value?: string } | null;
+  stats?: Array<{ label?: string; value?: string }> | null; // Fase 5 data blocks (AI statOverlays, >1)
   lowerThird?: { title?: string; subtitle?: string; atSeconds?: number; durationSeconds?: number } | null;
   look?: string; // Fase 3 Look system: clean|cinematic|warm|cool|vivid|mono (default clean)
   pacing?: string; // Fase 4 AI Director: fast|medium|calm - cadence cut + intensitas Ken Burns
@@ -63,8 +64,12 @@ export function buildComposition(input: HfCompositionInput): string {
   const {
     orientation = "portrait", brand = {}, hook = "", introSeconds = 3,
     clips = [], audioUrl = null, audioDurationSeconds = 10, words = [], cta = "",
-    stat = null, lowerThird = null, look = "clean", pacing = "medium",
+    stat = null, stats = null, lowerThird = null, look = "clean", pacing = "medium",
   } = input;
+  // Fase 5 (data blocks): render BEBERAPA statOverlays AI (bukan cuma 1), staggered di
+  // tengah video, tiap blok pop+punch lalu hilang. Fallback ke `stat` tunggal (back-compat).
+  const statsArr = (stats && stats.length ? stats : stat ? [stat] : [])
+    .filter((s) => s && (s.value || s.label)).slice(0, 3);
 
   const { w, h } = DIM[orientation] || DIM.portrait;
   const bg1 = brand.primary || "#14213D", bg2 = brand.bg2 || "#0c1526", accent = brand.accent || "#FFD84D";
@@ -129,12 +134,16 @@ export function buildComposition(input: HfCompositionInput): string {
   hookWords.forEach((_wd, i) => { tlLines.push(`tl.fromTo("#hw${i}",{opacity:0,filter:"blur(6px)"},{opacity:1,filter:"blur(0px)",duration:.13,ease:"power4.out"},${(0.55 + i * 0.09).toFixed(3)});`); });
   tlLines.push(`tl.to("#introLayer",{opacity:0,filter:"blur(8px)",duration:.3,ease:"power3.in"},${(introSeconds - 0.3).toFixed(3)});`);
   tlLines.push(`tl.set("#introLayer",{visibility:"hidden"},${introSeconds.toFixed(3)});`);
+  // Caption lead (2026-11-02, fix sync TTS<->teks): kata muncul CAP_LEAD dtk lebih awal utk
+  // kompensasi durasi pop-in + persepsi (subtitle idealnya pas/sedikit SEBELUM kata diucapkan,
+  // bukan sesudah). Pop dipercepat .22->.16. Di-clamp >= introSeconds (tak muncul saat intro).
+  const CAP_LEAD = 0.14;
   groups.forEach((g, gi) => {
-    const gStart = introSeconds + g[0].start, gEnd = introSeconds + g[g.length - 1].end + 0.15;
+    const gStart = Math.max(introSeconds, introSeconds + g[0].start - CAP_LEAD), gEnd = introSeconds + g[g.length - 1].end + 0.15;
     g.forEach((wd, wi) => {
-      const t = introSeconds + wd.start, te = introSeconds + wd.end;
-      // Pop-in (scale+y) JELAS + karaoke: kata aktif warna aksen saat diucapkan, balik ink di akhir.
-      tlLines.push(`tl.fromTo("#g${gi}w${wi}",{opacity:0,scale:.5,y:22},{opacity:1,scale:1,y:0,duration:.22,ease:"back.out(2)"},${t.toFixed(3)});`);
+      const t = Math.max(introSeconds, introSeconds + wd.start - CAP_LEAD), te = introSeconds + wd.end;
+      // Pop-in (scale+y) + karaoke: kata aktif warna aksen saat diucapkan, balik ink di akhir.
+      tlLines.push(`tl.fromTo("#g${gi}w${wi}",{opacity:0,scale:.5,y:22},{opacity:1,scale:1,y:0,duration:.16,ease:"back.out(2)"},${t.toFixed(3)});`);
       tlLines.push(`tl.set("#g${gi}w${wi}",{color:"${accent}"},${t.toFixed(3)});`);
       tlLines.push(`tl.set("#g${gi}w${wi}",{color:"${ink}"},${te.toFixed(3)});`);
     });
@@ -146,10 +155,16 @@ export function buildComposition(input: HfCompositionInput): string {
     tlLines.push(`tl.fromTo("#lt",{opacity:0,y:30},{opacity:1,y:0,duration:.4,ease:"power3.out"},${lt.toFixed(3)});`);
     tlLines.push(`tl.to("#lt",{opacity:0,duration:.35,ease:"power2.in"},${(lt + ld).toFixed(3)});`);
   }
-  if (stat) {
-    const st = introSeconds + Math.max(0, audioDurationSeconds * 0.45), sd = 2.6;
-    tlLines.push(`tl.fromTo("#statCard",{opacity:0,scale:.9},{opacity:1,scale:1,duration:.45,ease:"back.out(1.5)"},${st.toFixed(3)});`);
-    tlLines.push(`tl.to("#statCard",{opacity:0,duration:.3,ease:"power2.in"},${(st + sd).toFixed(3)});`);
+  if (statsArr.length) {
+    const n = statsArr.length;
+    const base = introSeconds + audioDurationSeconds * 0.20;   // mulai stlh pembukaan
+    const slot = (audioDurationSeconds * 0.58) / n;             // bagi rata di tengah video
+    const hold = Math.min(2.4, Math.max(1.3, slot - 0.4));
+    statsArr.forEach((_s, j) => {
+      const st = base + j * slot;
+      tlLines.push(`tl.fromTo("#statCard${j}",{opacity:0,scale:.7,y:24},{opacity:1,scale:1,y:0,duration:.42,ease:"back.out(2)"},${st.toFixed(3)});`);
+      tlLines.push(`tl.to("#statCard${j}",{opacity:0,scale:.92,duration:.3,ease:"power2.in"},${(st + hold).toFixed(3)});`);
+    });
   }
   const ctaStart = total - 2.6;
   if (cta) tlLines.push(`tl.fromTo("#cta",{opacity:0,y:28},{opacity:1,y:0,duration:.5,ease:"back.out(1.5)"},${ctaStart.toFixed(3)});`);
@@ -196,9 +211,9 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 #lt{position:absolute;left:64px;right:64px;bottom:${Math.round(h * 0.30)}px;z-index:520;opacity:0;background:rgba(15,16,22,.78);backdrop-filter:blur(18px);border-left:8px solid var(--accent);border-radius:14px;padding:26px 32px;}
 #lt .t{color:var(--ink);font-weight:800;font-size:${Math.round(w * 0.052)}px;letter-spacing:-.01em;}
 #lt .s{color:rgba(255,255,255,.8);font-weight:600;font-size:${Math.round(w * 0.036)}px;margin-top:6px;}
-#statCard{position:absolute;left:0;right:0;top:${Math.round(h * 0.30)}px;text-align:center;z-index:540;opacity:0;}
-#statCard .v{display:inline-block;background:var(--accent);color:#14213D;font-weight:800;font-size:${Math.round(w * 0.095)}px;padding:18px 40px;border-radius:18px;box-shadow:0 12px 34px rgba(0,0,0,.4);}
-#statCard .l{display:block;color:var(--ink);font-weight:600;font-size:${Math.round(w * 0.04)}px;margin-top:14px;text-shadow:0 2px 12px rgba(0,0,0,.6);}
+.statCard{position:absolute;left:0;right:0;top:${Math.round(h * 0.30)}px;text-align:center;z-index:540;opacity:0;}
+.statCard .v{display:inline-block;background:var(--accent);color:#14213D;font-weight:800;font-size:${Math.round(w * 0.095)}px;padding:18px 40px;border-radius:18px;box-shadow:0 12px 34px rgba(0,0,0,.4);}
+.statCard .l{display:block;color:var(--ink);font-weight:600;font-size:${Math.round(w * 0.04)}px;margin-top:14px;text-shadow:0 2px 12px rgba(0,0,0,.6);}
 #cta{position:absolute;left:0;right:0;bottom:${Math.round(h * 0.075)}px;text-align:center;z-index:700;opacity:0;}
 #cta span{display:inline-flex;align-items:center;gap:14px;background:var(--cta);color:#fff;font-weight:700;font-size:${Math.round(w * 0.046)}px;padding:26px 46px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.4);}
 </style></head><body>
@@ -210,7 +225,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
     ${audioEl}
     ${capHtml}
     ${lowerThird ? `<div id="lt"><div class="t">${esc(lowerThird.title || "")}</div>${lowerThird.subtitle ? `<div class="s">${esc(lowerThird.subtitle)}</div>` : ""}</div>` : ""}
-    ${stat ? `<div id="statCard"><span class="v">${esc(stat.value || "")}</span><span class="l">${esc(stat.label || "")}</span></div>` : ""}
+    ${statsArr.map((s, j) => `<div class="statCard" id="statCard${j}"><span class="v">${esc(s.value || "")}</span><span class="l">${esc(s.label || "")}</span></div>`).join("")}
     <div class="bar" id="bar"></div>
     ${mark ? `<div class="mark" id="mark">${esc(mark)}</div>` : ""}
     <div id="introLayer"><div id="introText">${hookSpans}</div></div>

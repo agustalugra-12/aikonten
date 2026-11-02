@@ -70,6 +70,7 @@ export async function renderViaHyperframes(
     // pakai Fase 4 AI Director recommendedLook; terakhir default "clean".
     look: str(bk.look, "") || opts.aiLook || "clean",
     pacing: opts.pacing || "medium", // Fase 4 AI Director
+    stats: (opts.statOverlays || []).map((s) => ({ label: s.label, value: s.value })), // Fase 5 data blocks (semua, staggered)
     stat: opts.statOverlays && opts.statOverlays[0] ? { label: opts.statOverlays[0].label, value: opts.statOverlays[0].value } : null,
     lowerThird: opts.lowerThird ? { title: opts.lowerThird.name, subtitle: opts.lowerThird.tagline, atSeconds: 1.2, durationSeconds: 4 } : null,
   });
