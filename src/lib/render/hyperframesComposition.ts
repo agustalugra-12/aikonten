@@ -21,6 +21,7 @@ export type HfCompositionInput = {
   stat?: { label?: string; value?: string } | null;
   lowerThird?: { title?: string; subtitle?: string; atSeconds?: number; durationSeconds?: number } | null;
   look?: string; // Fase 3 Look system: clean|cinematic|warm|cool|vivid|mono (default clean)
+  pacing?: string; // Fase 4 AI Director: fast|medium|calm - cadence cut + intensitas Ken Burns
 };
 
 const DIM = { portrait: { w: 1080, h: 1920 }, landscape: { w: 1920, h: 1080 }, square: { w: 1080, h: 1080 } };
@@ -43,13 +44,14 @@ function groupWords(words: HfWord[], maxWords = 4): HfWord[][] {
   if (cur.length) groups.push(cur);
   return groups;
 }
-function tileClips(clips: HfClip[], dur: number): Array<{ url: string; start: number; dur: number }> {
+function tileClips(clips: HfClip[], dur: number, maxTile = 99): Array<{ url: string; start: number; dur: number }> {
   const out: Array<{ url: string; start: number; dur: number }> = [];
   let t = 0, i = 0;
   const safe = clips && clips.length ? clips : [{ videoUrl: "", durationSeconds: 5 }];
   while (t < dur - 0.05 && out.length < 200) {
     const c = safe[i % safe.length];
-    const L = typeof c.durationSeconds === "number" && c.durationSeconds > 0 ? c.durationSeconds : 5;
+    // maxTile (Fase 4 pacing): batasi durasi tiap potongan -> cut lebih sering utk pacing cepat.
+    const L = Math.min(maxTile, typeof c.durationSeconds === "number" && c.durationSeconds > 0 ? c.durationSeconds : 5);
     const d = Math.min(L, dur - t);
     out.push({ url: c.videoUrl, start: t, dur: d });
     t += d; i++;
@@ -61,7 +63,7 @@ export function buildComposition(input: HfCompositionInput): string {
   const {
     orientation = "portrait", brand = {}, hook = "", introSeconds = 3,
     clips = [], audioUrl = null, audioDurationSeconds = 10, words = [], cta = "",
-    stat = null, lowerThird = null, look = "clean",
+    stat = null, lowerThird = null, look = "clean", pacing = "medium",
   } = input;
 
   const { w, h } = DIM[orientation] || DIM.portrait;
@@ -87,7 +89,10 @@ export function buildComposition(input: HfCompositionInput): string {
   // Faceless (tanpa footage): HyperFrames gambar background brand beranimasi sendiri (ringan,
   // tak ada decode video) - cocok konten edukasi/quote/tips/fakta. Kalau ada footage -> tile.
   const faceless = !clips || clips.length === 0;
-  const vids = faceless ? [] : tileClips(clips, audioDurationSeconds);
+  // Fase 4 (AI Director pacing): cadence cut (tileMax) + intensitas zoom Ken Burns (kb).
+  const tileMax = pacing === "fast" ? 2.6 : pacing === "calm" ? 6.5 : 4.2;
+  const kb = pacing === "fast" ? 0.20 : pacing === "calm" ? 0.08 : 0.14;
+  const vids = faceless ? [] : tileClips(clips, audioDurationSeconds, tileMax);
   const groups = groupWords(words);
   const capFont = Math.round(w * 0.078), introFont = Math.round(w * 0.115);
 
@@ -104,7 +109,7 @@ export function buildComposition(input: HfCompositionInput): string {
     const zoomIn = i % 2 === 0, dir = i % 2 === 0 ? 1 : -1;
     return {
       url: v.url, estart, edur, fade: i > 0,
-      s0: zoomIn ? 1.14 : 1.28, s1: zoomIn ? 1.28 : 1.14,
+      s0: zoomIn ? 1.10 : 1.10 + kb, s1: zoomIn ? 1.10 + kb : 1.10,
       x0: dir * 3.5, x1: -dir * 3.5, y0: dir * 2, y1: -dir * 2,
     };
   });

@@ -548,6 +548,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       structureTemplate: string, pillar: string | null, angle: ContentAngle | null,
       hookType: string | null, contentType: string | null, targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string,
       visualDirection: string | null, ctaText: string | null, hookText: string | null,
+      recommendedLook: string | null, pacing: string | null,
       finalStructureOverused: boolean, finalHookTypeOverused: boolean;
 
     if (youtubeMeta) {
@@ -583,6 +584,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       visualDirection = null;
       ctaText = null;
       hookText = null;
+      // AI Director (Fase 4) - jalur YouTube Editorial tak panggil generateCaptionAndHashtags.
+      recommendedLook = null;
+      pacing = null;
       finalStructureOverused = false;
       finalHookTypeOverused = false;
   } else {
@@ -663,7 +667,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       if (generated.captionStyle) avoidCaptionStyles = [...avoidCaptionStyles, generated.captionStyle];
 
     } while (true);
-    ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed, visualDirection, ctaText, hookText } = generated);
+    ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed, visualDirection, ctaText, hookText, recommendedLook, pacing } = generated);
     // Retention Intelligence (2026-08-26, PRD §14, Task Plan 7) - recompute thd hasil AKHIR
     // (generated) SETELAH loop regen selesai - `overused` di dalam loop di atas scoped ke
     // tiap percobaan, bukan hasil final (kalau MAX_REGEN_ATTEMPTS habis, hasil akhir bisa
@@ -1190,6 +1194,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           cta: pickCtaText(id, ctaContext),
           statOverlays: statOverlays.map((s) => ({ label: s.label, value: s.value })),
           lowerThird,
+          aiLook: recommendedLook, // Fase 4 AI Director (brandKit.look menang kalau brand set)
+          pacing,                  // Fase 4 AI Director
         });
       }
       // PRD v1.1 §5 Final QC Checklist (2026-08-22) — jaring pengaman TERAKHIR sebelum render.

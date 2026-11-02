@@ -236,6 +236,12 @@ export type GeneratedContent = {
   // carousel tidak punya "watch-time"/hook dlm arti video, tapi tetap diminta krn video
   // JUGA pakai fungsi caption yg sama, foto biarkan null di parsing-nya).
   hookText: string | null;
+  // AI Director (Fase 4, 2026-11-02) - pilihan sutradara dari panggilan LLM yg SAMA:
+  // look grade (clean|cinematic|warm|cool|vivid|mono) & pacing (fast|medium|calm).
+  // Dipakai render HyperFrames: look HANYA kalau brand belum set brandKit.look (pilihan
+  // brand menang); pacing atur cadence cut + intensitas Ken Burns. null = pakai default.
+  recommendedLook: string | null;
+  pacing: string | null;
 };
 
 export type GeneratedImageContent = GeneratedContent & {
@@ -648,6 +654,13 @@ export async function generateCaptionAndHashtags(
     "juga ctaText: kalimat CTA PERSIS yg kamu tulis di akhir caption (echo, bukan tulis " +
     "ulang beda). Sertakan juga hookText: kalimat/baris PERTAMA PERSIS yg kamu tulis sbg " +
     "hook/pembuka caption ini (echo, bukan tulis ulang beda)." +
+    // AI Director (Fase 4, 2026-11-02) - 2 field sutradara visual, panggilan GPT yg SAMA.
+    " Sertakan juga recommendedLook: SATU dari \"clean\",\"cinematic\",\"warm\",\"cool\"," +
+    "\"vivid\",\"mono\" - grade warna paling cocok dgn mood konten (cinematic=teal-orange " +
+    "dramatis, warm=hangat/cozy, cool=biru tenang, vivid=cerah energik, mono=hitam-putih " +
+    "berkelas, clean=netral halus). Sertakan juga pacing: SATU dari \"fast\",\"medium\"," +
+    "\"calm\" - ritme potongan video (fast=energik/cut cepat, calm=tenang/shot panjang, " +
+    "medium=seimbang)." +
     buildClassificationFragment(knowledgeSite, customPillarsJson) +
     hookAvoidInstruction +
     contentTypeAvoidInstruction +
@@ -656,7 +669,7 @@ export async function generateCaptionAndHashtags(
     (avoidHashtags.length > 0
       ? `\n\nIMPORTANT: The following hashtags have been used TOO FREQUENTLY recently and MUST be AVOIDED: ${avoidHashtags.join(", ")}. Generate DIFFERENT, fresh hashtags.`
       : "");
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": ["...", "..."], "thumbnailText": "..." atau null, "visualDirection": "...", "ctaText": "...", "hookText": "...", "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": ["...", "..."], "thumbnailText": "..." atau null, "visualDirection": "...", "ctaText": "...", "hookText": "...", "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null, "recommendedLook": "cinematic|warm|cool|vivid|mono|clean", "pacing": "fast|medium|calm"}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -679,6 +692,8 @@ export async function generateCaptionAndHashtags(
     visualDirection: typeof parsed.visualDirection === "string" ? parsed.visualDirection : null,
     ctaText: typeof parsed.ctaText === "string" ? parsed.ctaText : null,
     hookText: typeof parsed.hookText === "string" ? parsed.hookText : null,
+    recommendedLook: ["clean", "cinematic", "warm", "cool", "vivid", "mono"].includes(parsed.recommendedLook) ? parsed.recommendedLook : null,
+    pacing: ["fast", "medium", "calm"].includes(parsed.pacing) ? parsed.pacing : null,
     structureTemplate: structureTemplate.name,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
@@ -780,6 +795,9 @@ export async function generateCaptionForImages(
     // hookText (2026-08-26, PRD §14) - null di jalur foto/carousel, retensi/watch-time
     // TIDAK relevan utk konten statis, lihat catatan lengkap di tipe GeneratedContent.
     hookText: null,
+    // AI Director (Fase 4) - null di jalur foto/carousel (tak render video HyperFrames).
+    recommendedLook: null,
+    pacing: null,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
     hookType: normalizeHookType(parsed.hookType),

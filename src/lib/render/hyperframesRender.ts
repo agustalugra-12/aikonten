@@ -27,6 +27,8 @@ export type HyperframesRenderOpts = {
   cta?: string;
   statOverlays?: Array<{ label: string; value: string }>; // dari pipeline (stat/harga) - ambil pertama
   lowerThird?: { name: string; tagline: string } | null;   // dari extractLowerThird (documentary)
+  aiLook?: string | null;  // Fase 4 AI Director: recommendedLook - dipakai kalau brand belum set brandKit.look
+  pacing?: string | null;  // Fase 4 AI Director: fast|medium|calm
 };
 
 export async function renderViaHyperframes(
@@ -64,7 +66,10 @@ export async function renderViaHyperframes(
     audioDurationSeconds,
     words: opts.wordTimings || [],
     cta: opts.cta || "",
-    look: str(bk.look, "clean"), // Fase 3 Look system (brandKit.look)
+    // Fase 3 look: brandKit.look MENANG (pilihan brand eksplisit); kalau brand belum set,
+    // pakai Fase 4 AI Director recommendedLook; terakhir default "clean".
+    look: str(bk.look, "") || opts.aiLook || "clean",
+    pacing: opts.pacing || "medium", // Fase 4 AI Director
     stat: opts.statOverlays && opts.statOverlays[0] ? { label: opts.statOverlays[0].label, value: opts.statOverlays[0].value } : null,
     lowerThird: opts.lowerThird ? { title: opts.lowerThird.name, subtitle: opts.lowerThird.tagline, atSeconds: 1.2, durationSeconds: 4 } : null,
   });
