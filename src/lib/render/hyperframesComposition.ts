@@ -107,7 +107,14 @@ export function buildComposition(input: HfCompositionInput): string {
   // Fase 4 (AI Director pacing): cadence cut (tileMax) + intensitas zoom Ken Burns (kb).
   const tileMax = pacing === "fast" ? 2.6 : pacing === "calm" ? 6.5 : 4.2;
   const kb = pacing === "fast" ? 0.20 : pacing === "calm" ? 0.08 : 0.14;
-  const vids = faceless ? [] : tileClips(clips, audioDurationSeconds, tileMax);
+  // Footage jalan SEPANJANG video termasuk di belakang hook intro (2026-11-02, permintaan
+  // Agus "hook 3 detik jangan blank") - tile dari 0..total, bukan mulai setelah intro.
+  const vids = faceless ? [] : tileClips(clips, total, tileMax);
+  // Intro: ada footage -> scrim gelap TEMBUS (footage kelihatan di belakang hook, pro);
+  // faceless -> gradient brand penuh (tak ada footage utk ditampilkan).
+  const introBg = faceless
+    ? "radial-gradient(130% 90% at 50% 0%,var(--bg1),var(--bg2))"
+    : "linear-gradient(180deg,rgba(6,12,24,.46) 0%,rgba(6,12,24,.20) 45%,rgba(6,12,24,.66) 100%)";
   const groups = groupWords(words);
   const capFont = Math.round(w * 0.078), introFont = Math.round(w * 0.115);
 
@@ -119,7 +126,7 @@ export function buildComposition(input: HfCompositionInput): string {
   const XFADE = 0.45;
   const clipWins = vids.map((v, i) => {
     const over = i > 0 ? XFADE : 0;
-    const estart = Math.max(introSeconds, introSeconds + v.start - over);
+    const estart = Math.max(0, v.start - over); // footage dari detik 0 (termasuk intro/hook)
     const edur = Math.min(v.dur + over, total - estart);
     const zoomIn = i % 2 === 0, dir = i % 2 === 0 ? 1 : -1;
     return {
@@ -223,7 +230,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 #scrim{position:absolute;inset:0;z-index:300;background:linear-gradient(180deg,rgba(12,21,38,.22) 0%,rgba(12,21,38,.06) 40%,rgba(12,21,38,.78) 100%);}
 .bar{position:absolute;top:0;left:0;height:12px;width:100%;background:var(--accent);z-index:650;transform-origin:left;}
 .mark{position:absolute;top:70px;left:0;right:0;text-align:center;color:var(--accent);font-weight:800;font-size:${Math.round(w * 0.04)}px;letter-spacing:.05em;z-index:650;opacity:0;text-shadow:0 2px 12px rgba(0,0,0,.5);}
-#introLayer{position:absolute;inset:0;z-index:600;background:radial-gradient(130% 90% at 50% 0%,var(--bg1),var(--bg2));display:flex;align-items:center;justify-content:center;text-align:center;padding:0 80px;}
+#introLayer{position:absolute;inset:0;z-index:600;background:${introBg};display:flex;align-items:center;justify-content:center;text-align:center;padding:0 80px;}
 #introText{color:var(--ink);font-weight:800;font-size:${introFont}px;line-height:1.02;letter-spacing:-.03em;overflow:visible;}
 #introText .hw{display:inline-block;opacity:0;}
 .capgroup{position:absolute;left:0;right:0;bottom:${Math.round(h * 0.17)}px;text-align:center;padding:0 60px;z-index:500;overflow:visible;visibility:hidden;}
