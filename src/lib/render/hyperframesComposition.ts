@@ -143,7 +143,9 @@ export function buildComposition(input: HfCompositionInput): string {
       x0: dir * 4, x1: -dir * 4, y0: dir * 2.5, y1: -dir * 2.5,
     };
   });
-  const videoEls = clipWins.map((v, i) => `<video id="bg${i}" class="clip bg" muted playsinline data-start="${v.estart.toFixed(3)}" data-duration="${v.edur.toFixed(3)}" data-media-start="${v.mediaStart.toFixed(3)}" data-track-index="0" style="z-index:${1 + i}" src="${esc(v.url)}"></video>`).join("\n    ");
+  // P4 variasi transisi (2026-11-03): tiap klip dibungkus wrapper. Transisi masuk (crossfade/
+  // slide/zoom/whip gantian) dianimasikan di WRAPPER; Ken Burns tetap di <video> (tak bentrok).
+  const videoEls = clipWins.map((v, i) => `<div class="clipwrap" id="cw${i}" style="z-index:${1 + i}"><video id="bg${i}" class="clip bg" muted playsinline data-start="${v.estart.toFixed(3)}" data-duration="${v.edur.toFixed(3)}" data-media-start="${v.mediaStart.toFixed(3)}" data-track-index="0" src="${esc(v.url)}"></video></div>`).join("\n    ");
   const facelessHtml = faceless ? `<div id="facelessBg"></div>\n    <div class="blob" id="blob1"></div>\n    <div class="blob" id="blob2"></div>` : "";
   const audioEl = audioUrl ? `<audio id="vo" class="clip" data-start="${introSeconds.toFixed(3)}" data-volume="1" data-track-index="80" src="${esc(audioUrl)}"></audio>` : "";
   // Fase 6 musik latar: track Music Bank (mood AI) di track berbeda (81) utk mixing, volume
@@ -241,7 +243,14 @@ export function buildComposition(input: HfCompositionInput): string {
   // Camera motion + transisi klip (Fase 2) - lihat clipWins di atas.
   if (!faceless) {
     clipWins.forEach((v, i) => {
-      if (v.fade) tlLines.push(`tl.fromTo("#bg${i}",{opacity:0},{opacity:1,duration:${XFADE},ease:"power1.inOut"},${v.estart.toFixed(3)});`);
+      if (v.fade) {
+        const d2 = i % 2 === 0 ? 1 : -1;
+        const trans = i % 4; // 0 crossfade · 1 slide · 2 zoom · 3 whip (gantian -> terasa "diedit")
+        if (trans === 1) tlLines.push(`tl.fromTo("#cw${i}",{xPercent:${d2 * 100}},{xPercent:0,duration:.5,ease:"power3.out"},${v.estart.toFixed(3)});`);
+        else if (trans === 2) tlLines.push(`tl.fromTo("#cw${i}",{scale:1.35,opacity:0},{scale:1,opacity:1,duration:.45,ease:"power3.out"},${v.estart.toFixed(3)});`);
+        else if (trans === 3) tlLines.push(`tl.fromTo("#cw${i}",{xPercent:${d2 * 65},scale:1.12,opacity:.3},{xPercent:0,scale:1,opacity:1,duration:.3,ease:"power4.out"},${v.estart.toFixed(3)});`);
+        else tlLines.push(`tl.fromTo("#cw${i}",{opacity:0},{opacity:1,duration:${XFADE},ease:"power1.inOut"},${v.estart.toFixed(3)});`);
+      }
       tlLines.push(`tl.fromTo("#bg${i}",{scale:${v.s0},xPercent:${v.x0},yPercent:${v.y0}},{scale:${v.s1},xPercent:${v.x1},yPercent:${v.y1},duration:${v.edur.toFixed(3)},ease:"power1.out"},${v.estart.toFixed(3)});`);
     });
   }
@@ -263,6 +272,7 @@ export function buildComposition(input: HfCompositionInput): string {
 *{margin:0;padding:0;box-sizing:border-box;}
 html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 #root{width:100%;height:100%;position:relative;font-family:var(--font);}
+.clipwrap{position:absolute;inset:0;overflow:hidden;will-change:transform,opacity;}
 .bg{position:absolute;left:0;top:0;width:${w}px;height:${h}px;object-fit:cover;filter:${lk.filter};}
 #grade{position:absolute;inset:0;z-index:250;pointer-events:none;background:${lk.tint || "transparent"};mix-blend-mode:${lk.blend || "normal"};opacity:${lk.op ?? 0};}
 #vignette{position:absolute;inset:0;z-index:310;pointer-events:none;background:radial-gradient(ellipse 78% 72% at 50% 42%,transparent 48%,rgba(0,0,0,${lk.vig}) 100%);}
