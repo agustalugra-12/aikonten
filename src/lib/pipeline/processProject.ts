@@ -21,6 +21,7 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/render/brandKit";
 import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
+import { renderViaScenes } from "@/lib/render/renderViaScenes";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { brandTransitionType } from "@/lib/render/transitions";
@@ -548,7 +549,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       structureTemplate: string, pillar: string | null, angle: ContentAngle | null,
       hookType: string | null, contentType: string | null, targetKeyword: string | null, keywordLevel: number | null, knowledgeUsed: string,
       visualDirection: string | null, ctaText: string | null, hookText: string | null,
-      recommendedLook: string | null, pacing: string | null,
+      recommendedLook: string | null, pacing: string | null, emphasisPhrases: string[],
       finalStructureOverused: boolean, finalHookTypeOverused: boolean;
 
     if (youtubeMeta) {
@@ -587,6 +588,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       // AI Director (Fase 4) - jalur YouTube Editorial tak panggil generateCaptionAndHashtags.
       recommendedLook = null;
       pacing = null;
+      emphasisPhrases = [];
       finalStructureOverused = false;
       finalHookTypeOverused = false;
   } else {
@@ -667,7 +669,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       if (generated.captionStyle) avoidCaptionStyles = [...avoidCaptionStyles, generated.captionStyle];
 
     } while (true);
-    ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed, visualDirection, ctaText, hookText, recommendedLook, pacing } = generated);
+    ({ caption, hashtags, brollKeywords, thumbnailText, structureTemplate, pillar, angle, hookType, contentType, targetKeyword, keywordLevel, knowledgeUsed, visualDirection, ctaText, hookText, recommendedLook, pacing, emphasisPhrases } = generated);
     // Retention Intelligence (2026-08-26, PRD §14, Task Plan 7) - recompute thd hasil AKHIR
     // (generated) SETELAH loop regen selesai - `overused` di dalam loop di atas scoped ke
     // tiap percobaan, bukan hasil final (kalau MAX_REGEN_ATTEMPTS habis, hasil akhir bisa
@@ -1179,6 +1181,20 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       // bentuk SAMA dgn renderFinalVideo, jadi downstream (quality check, media_assets) tak berubah.
       // Branch di sini (bukan call-site) supaya retry pun ikut. QC footage ffmpeg di bawah dilewati
       // (tak relevan HyperFrames; faceless memang tanpa footage). Default-off -> brand lain tak terpengaruh.
+      if (brandKitRenderEngine(brand?.brandKit) === "scenes") {
+        // HyperFrames Pro: video multi-scene desain (bold-poster) dari field konten AI. Musik-only.
+        return renderViaScenes({
+          projectId: id,
+          brandId: project.brandId,
+          orientation: (isYoutubeShorts ? "portrait" : (brand?.videoOrientation ?? "portrait")) as "portrait" | "landscape" | "square",
+          brandName: brand?.name,
+          hookText,
+          caption,
+          statOverlays: statOverlays.map((s) => ({ label: s.label, value: s.value })),
+          cta: pickCtaText(id, ctaContext),
+          musicUrl,
+        });
+      }
       if (brandKitRenderEngine(brand?.brandKit) === "hyperframes") {
         return renderViaHyperframes({
           projectId: id,
@@ -1197,6 +1213,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           aiLook: recommendedLook, // Fase 4 AI Director (brandKit.look menang kalau brand set)
           pacing,                  // Fase 4 AI Director
           musicUrl,                // Fase 6 musik latar (sama dgn jalur ffmpeg)
+          emphasisPhrases,         // Fase A HyperFrames Pro - kinetic callouts
         });
       }
       // PRD v1.1 §5 Final QC Checklist (2026-08-22) — jaring pengaman TERAKHIR sebelum render.

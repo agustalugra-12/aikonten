@@ -242,6 +242,9 @@ export type GeneratedContent = {
   // brand menang); pacing atur cadence cut + intensitas Ken Burns. null = pakai default.
   recommendedLook: string | null;
   pacing: string | null;
+  // Kinetic callouts (Fase A HyperFrames Pro, 2026-11-02) - 3-5 frasa KUNCI (1-3 kata) dari
+  // naskah yg layak tampil BESAR di tengah layar (punch) saat diucapkan. Dari call LLM yg SAMA.
+  emphasisPhrases: string[];
 };
 
 export type GeneratedImageContent = GeneratedContent & {
@@ -661,6 +664,11 @@ export async function generateCaptionAndHashtags(
     "berkelas, clean=netral halus). Sertakan juga pacing: SATU dari \"fast\",\"medium\"," +
     "\"calm\" - ritme potongan video (fast=energik/cut cepat, calm=tenang/shot panjang, " +
     "medium=seimbang)." +
+    // Kinetic callouts (Fase A HyperFrames Pro) - frasa kunci utk punch besar di tengah layar.
+    " Sertakan juga emphasisPhrases: array 3-5 frasa SANGAT singkat (1-3 kata) yg diambil " +
+    "PERSIS dari caption/naskah (kata yg sama, biar bisa disinkronkan ke audio) - pilih kata/" +
+    "frasa paling PENTING/menarik yg layak ditampilkan BESAR di tengah layar sbg penekanan " +
+    "(mis. angka, manfaat utama, kata kejutan). Kosongkan [] kalau tidak ada yg menonjol." +
     buildClassificationFragment(knowledgeSite, customPillarsJson) +
     hookAvoidInstruction +
     contentTypeAvoidInstruction +
@@ -669,7 +677,7 @@ export async function generateCaptionAndHashtags(
     (avoidHashtags.length > 0
       ? `\n\nIMPORTANT: The following hashtags have been used TOO FREQUENTLY recently and MUST be AVOIDED: ${avoidHashtags.join(", ")}. Generate DIFFERENT, fresh hashtags.`
       : "");
-  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": ["...", "..."], "thumbnailText": "..." atau null, "visualDirection": "...", "ctaText": "...", "hookText": "...", "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null, "recommendedLook": "cinematic|warm|cool|vivid|mono|clean", "pacing": "fast|medium|calm"}`;
+  const user = `Brand: ${brandName}\n\nSkrip/brief asli:\n${script}\n\nIsi klip yang terpilih (transkrip):\n${selectedClipsText}${grounding.contextBlock}\n\nBalas HARUS JSON valid (tanpa markdown code fence): {"caption": "...", "hashtags": ["...", "..."], "brollKeywords": ["...", "..."], "thumbnailText": "..." atau null, "visualDirection": "...", "ctaText": "...", "hookText": "...", "pillar": "...", "angle": "...", "hookType": "...", "contentType": "ct_*" atau null, "targetKeyword": "..." atau null, "recommendedLook": "cinematic|warm|cool|vivid|mono|clean", "pacing": "fast|medium|calm", "emphasisPhrases": ["frasa1","frasa2"]}`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -694,6 +702,7 @@ export async function generateCaptionAndHashtags(
     hookText: typeof parsed.hookText === "string" ? parsed.hookText : null,
     recommendedLook: ["clean", "cinematic", "warm", "cool", "vivid", "mono"].includes(parsed.recommendedLook) ? parsed.recommendedLook : null,
     pacing: ["fast", "medium", "calm"].includes(parsed.pacing) ? parsed.pacing : null,
+    emphasisPhrases: Array.isArray(parsed.emphasisPhrases) ? parsed.emphasisPhrases.filter((p: unknown) => typeof p === "string" && (p as string).trim()).slice(0, 5) : [],
     structureTemplate: structureTemplate.name,
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
@@ -798,6 +807,7 @@ export async function generateCaptionForImages(
     // AI Director (Fase 4) - null di jalur foto/carousel (tak render video HyperFrames).
     recommendedLook: null,
     pacing: null,
+    emphasisPhrases: [],
     pillar: normalizePillar(parsed.pillar),
     angle: normalizeAngle(parsed.angle),
     hookType: normalizeHookType(parsed.hookType),

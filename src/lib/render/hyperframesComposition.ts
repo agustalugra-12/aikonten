@@ -24,6 +24,7 @@ export type HfCompositionInput = {
   lowerThird?: { title?: string; subtitle?: string; atSeconds?: number; durationSeconds?: number } | null;
   look?: string; // Fase 3 Look system: clean|cinematic|warm|cool|vivid|mono (default clean)
   pacing?: string; // Fase 4 AI Director: fast|medium|calm - cadence cut + intensitas Ken Burns
+  emphasisPhrases?: string[]; // Fase A HyperFrames Pro - frasa kunci utk kinetic callout besar
 };
 
 const DIM = { portrait: { w: 1080, h: 1920 }, landscape: { w: 1920, h: 1080 }, square: { w: 1080, h: 1080 } };

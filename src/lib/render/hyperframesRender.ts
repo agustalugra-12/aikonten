@@ -30,6 +30,7 @@ export type HyperframesRenderOpts = {
   aiLook?: string | null;  // Fase 4 AI Director: recommendedLook - dipakai kalau brand belum set brandKit.look
   pacing?: string | null;  // Fase 4 AI Director: fast|medium|calm
   musicUrl?: string | null; // Fase 6 musik latar (dari pickMusicTrack di processProject)
+  emphasisPhrases?: string[]; // Fase A HyperFrames Pro - kinetic callouts (frasa kunci AI)
 };
 
 export async function renderViaHyperframes(
@@ -72,6 +73,7 @@ export async function renderViaHyperframes(
     // pakai Fase 4 AI Director recommendedLook; terakhir default "clean".
     look: str(bk.look, "") || opts.aiLook || "clean",
     pacing: opts.pacing || "medium", // Fase 4 AI Director
+    emphasisPhrases: opts.emphasisPhrases || [], // Fase A kinetic callouts
     stats: (opts.statOverlays || []).map((s) => ({ label: s.label, value: s.value })), // Fase 5 data blocks (semua, staggered)
     stat: opts.statOverlays && opts.statOverlays[0] ? { label: opts.statOverlays[0].label, value: opts.statOverlays[0].value } : null,
     lowerThird: opts.lowerThird ? { title: opts.lowerThird.name, subtitle: opts.lowerThird.tagline, atSeconds: 1.2, durationSeconds: 4 } : null,

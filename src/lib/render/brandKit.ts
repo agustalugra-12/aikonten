@@ -25,10 +25,11 @@ export function brandKitVoice(json: string | null | undefined): string | undefin
 }
 
 // Mesin render video dari brandKit JSON (Opsi C 2026-11-02). "hyperframes" | "ffmpeg" (default).
-export function brandKitRenderEngine(json: string | null | undefined): "ffmpeg" | "hyperframes" {
+export function brandKitRenderEngine(json: string | null | undefined): "ffmpeg" | "hyperframes" | "scenes" {
   if (!json) return "ffmpeg";
   try {
-    return (JSON.parse(json) as { renderEngine?: unknown }).renderEngine === "hyperframes" ? "hyperframes" : "ffmpeg";
+    const e = (JSON.parse(json) as { renderEngine?: unknown }).renderEngine;
+    return e === "hyperframes" || e === "scenes" ? e : "ffmpeg";
   } catch {
     return "ffmpeg";
   }
@@ -74,7 +75,7 @@ export type BrandKit = {
   secondaryColor?: string; // #RRGGBB - warna brand sekunder
   ctaColor?: string; // #RRGGBB - warna box CTA/subscribe (Fase 3); undefined = merah YouTube
   voice?: string; // suara TTS voiceover (lihat ttsVoices.ts); undefined = default (marin) - T4 2026-11-02
-  renderEngine?: "ffmpeg" | "hyperframes"; // mesin render video (Opsi C 2026-11-02); undefined/ffmpeg = pipeline existing
+  renderEngine?: "ffmpeg" | "hyperframes" | "scenes"; // mesin render (Opsi C/HyperFrames Pro); scenes=frame desain bold-poster multi-scene
   look?: "clean" | "cinematic" | "warm" | "cool" | "vivid" | "mono"; // Fase 3 Look system (grade HyperFrames); MENANG atas AI Director. undefined = AI pilih / default clean
   // Animated Title (2026-10-26, Fase 3 Motion Library). Opsional & DEFAULT-OFF: kalau
   // title.enabled tidak true, title card TIDAK dirender (video lama tak berubah). Teksnya
@@ -153,7 +154,7 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
   }
   // Render engine (Opsi C 2026-11-02) - "ffmpeg" (default) atau "hyperframes" (worker terpisah).
   if ("renderEngine" in o && o.renderEngine !== undefined && o.renderEngine !== null) {
-    if (o.renderEngine !== "ffmpeg" && o.renderEngine !== "hyperframes") return { ok: false, error: "renderEngine harus 'ffmpeg' atau 'hyperframes'" };
+    if (o.renderEngine !== "ffmpeg" && o.renderEngine !== "hyperframes" && o.renderEngine !== "scenes") return { ok: false, error: "renderEngine harus 'ffmpeg', 'hyperframes', atau 'scenes'" };
     out.renderEngine = o.renderEngine;
   }
   // Look system (Fase 3 2026-11-02) - grade sinematik HyperFrames, enum ketat. undefined = AI Director pilih.
