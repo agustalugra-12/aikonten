@@ -93,6 +93,44 @@ window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
 </script></body></html>`;
 }
 
+// Scene FOOTAGE (hybrid P4): 1 klip brand full-frame + Ken Burns + caption bold-poster
+// (opsional) + brandmark. Menampilkan tempat NYATA di antara frame desain.
+export type BoldFootageInput = {
+  orientation?: "portrait" | "landscape" | "square";
+  videoUrl: string; durationSeconds?: number; caption?: string; mark?: string;
+};
+export function buildBoldFootage(input: BoldFootageInput): string {
+  const { orientation = "portrait", videoUrl, durationSeconds = 3.5, caption = "", mark = "" } = input;
+  const { w, h } = DIM[orientation] || DIM.portrait;
+  const total = Math.max(1.5, durationSeconds);
+  const tl: string[] = [];
+  // Ken Burns kuat pada klip.
+  tl.push(`tl.fromTo("#bg",{scale:1.12,xPercent:-3},{scale:1.34,xPercent:3,duration:${total.toFixed(2)},ease:"power1.out"},0);`);
+  if (caption) tl.push(`tl.fromTo("#cap",{opacity:0,y:40,scale:.9},{opacity:1,y:0,scale:1,duration:.5,ease:"back.out(1.6)"},.25);`);
+  tl.push(`tl.fromTo("#pbar",{scaleX:0},{scaleX:1,duration:${total.toFixed(2)},ease:"none"},0);`);
+  return `${headShell(w, h)}
+#bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+#scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(28,20,16,.15) 0%,rgba(28,20,16,0) 40%,rgba(28,20,16,.7) 100%);}
+#cap{position:absolute;left:${Math.round(w * 0.06)}px;right:${Math.round(w * 0.06)}px;bottom:${Math.round(h * 0.11)}px;opacity:0;}
+#cap .bar{width:${Math.round(w * 0.1)}px;height:${Math.round(h * 0.008)}px;background:var(--red);margin-bottom:${Math.round(h * 0.015)}px;}
+#cap .t{font-family:var(--disp);font-weight:400;font-size:${Math.round(w * 0.082)}px;line-height:1.0;color:var(--bg);text-shadow:2px 3px 0 rgba(28,20,16,.45);}
+#mk{position:absolute;top:${Math.round(h * 0.03)}px;left:${Math.round(w * 0.06)}px;font-family:var(--mono);font-weight:600;text-transform:uppercase;letter-spacing:2px;font-size:${Math.round(w * 0.028)}px;color:var(--bg);background:var(--red);padding:${Math.round(h * 0.008)}px ${Math.round(w * 0.035)}px;border-radius:100px;}
+#pbar{position:absolute;bottom:0;left:0;height:${Math.round(h * 0.006)}px;width:100%;background:var(--red);transform-origin:left;}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="on">
+  <video id="bg" class="clip" muted playsinline data-start="0" data-duration="${total.toFixed(3)}" data-media-start="0" data-track-index="0" src="${esc(videoUrl)}"></video>
+  <div id="scrim"></div>
+  ${caption ? `<div id="cap"><div class="bar"></div><div class="t">${esc(caption)}</div></div>` : ""}
+  ${mark ? `<div id="mk">${esc(mark)}</div>` : ""}
+  <div id="pbar"></div>
+</div>
+<script>
+const tl=gsap.timeline({paused:true});
+${tl.join("\n")}
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>`;
+}
+
 // <head> bersama (font Google + token bold-poster) - dipakai Stat & Closing.
 function headShell(w: number, h: number): string {
   return `<!doctype html>

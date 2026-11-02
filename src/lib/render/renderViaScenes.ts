@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { writeFile, readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildBoldCover, buildBoldStat, buildBoldClosing } from "./scenes/boldPoster";
+import { buildBoldCover, buildBoldStat, buildBoldClosing, buildBoldFootage } from "./scenes/boldPoster";
 import { renderComposition } from "./hyperframesClient";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 
@@ -22,6 +22,8 @@ export type ScenesRenderOpts = {
   statOverlays?: Array<{ label: string; value: string }>;
   cta?: string | null;
   musicUrl?: string | null;
+  brollClips?: Array<{ videoUrl: string; durationSeconds: number }>; // footage brand utk hybrid
+  captions?: string[]; // frasa caption footage-scene (dari emphasisPhrases)
 };
 
 const XFADE = 0.4;
@@ -35,7 +37,15 @@ function firstSentences(text: string | null | undefined, n: number): string {
 function buildScenePlan(opts: ScenesRenderOpts): Array<{ html: string; dur: number }> {
   const orientation = opts.orientation || "portrait";
   const mark = (opts.brandName || "").toUpperCase();
+  const broll = opts.brollClips || [];
+  const caps = opts.captions || [];
   const scenes: Array<{ html: string; dur: number }> = [];
+
+  // Footage-scene ke-i (hybrid): klip brand + caption. null kalau tak ada footage.
+  const footage = (i: number): { html: string; dur: number } | null =>
+    broll[i] && broll[i].videoUrl
+      ? { dur: 3.5, html: buildBoldFootage({ orientation, videoUrl: broll[i].videoUrl, durationSeconds: 3.5, caption: (caps[i] || "").slice(0, 60), mark }) }
+      : null;
 
   scenes.push({
     dur: 4,
@@ -49,6 +59,9 @@ function buildScenePlan(opts: ScenesRenderOpts): Array<{ html: string; dur: numb
     }),
   });
 
+  const f0 = footage(0);
+  if (f0) scenes.push(f0);
+
   const stat = opts.statOverlays && opts.statOverlays[0];
   if (stat && (stat.value || "").trim()) {
     scenes.push({
@@ -56,6 +69,9 @@ function buildScenePlan(opts: ScenesRenderOpts): Array<{ html: string; dur: numb
       html: buildBoldStat({ orientation, value: stat.value, label: (stat.label || "").toUpperCase(), sub: "", mark, durationSeconds: 3 }),
     });
   }
+
+  const f1 = footage(1);
+  if (f1) scenes.push(f1);
 
   scenes.push({
     dur: 3.5,

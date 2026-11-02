@@ -1193,6 +1193,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           statOverlays: statOverlays.map((s) => ({ label: s.label, value: s.value })),
           cta: pickCtaText(id, ctaContext),
           musicUrl,
+          brollClips,
+          captions: emphasisPhrases,
         });
       }
       if (brandKitRenderEngine(brand?.brandKit) === "hyperframes") {
