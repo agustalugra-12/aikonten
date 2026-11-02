@@ -1147,7 +1147,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // diminta utk preset itu, proporsional - jangan tambah elemen visual ke brand yg
     // tidak minta). positionFraction (0-1 dari GPT) dipetakan ke clipIndex SAMA
     // teknik proporsional dgn energyLevels di aiDirector.ts.
-    const rawStats = brand?.stylePreset === "documentary" ? await extractStatOverlays(narrationText) : [];
+    // P2 (2026-11-03): stat/highlight utk SEMUA brand (dulu HANYA documentary) - tiap video
+    // dapat momen sorot angka (harga/jumlah/suhu) spt pelangi-pro, bukan cuma brand documentary.
+    const rawStats = await extractStatOverlays(narrationText);
     const statOverlays = rawStats.map((s) => ({
       label: s.label,
       value: s.value,
@@ -1168,7 +1170,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // Lower Third (2026-08-10, "Overlay System PRD" Category A) - SAMA gating dgn stat
     // card (cuma preset "documentary"), panggilan GPT terpisah kecil (nama+tagline
     // subjek, bukan angka - beda tujuan dari statExtractor).
-    const lowerThird = brand?.stylePreset === "documentary" ? await extractLowerThird(narrationText) : null;
+    const lowerThird = await extractLowerThird(narrationText); // P2: lower-third utk semua brand (nama+tagline brand), bukan cuma documentary
     // Comparison Bar (2026-08-10) - REUSE stat "weight" yg SUDAH diekstrak di atas
     // (nol panggilan GPT tambahan) - HANYA jalan kalau nilainya bisa di-parse ke
     // satuan berat dikenal (lihat comparisonBar.ts kenapa TIDAK ditampilkan kalau
