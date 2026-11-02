@@ -30,6 +30,13 @@ const LOOKS: { value: string; label: string }[] = [
   { value: "mono", label: "Mono — hitam-putih berkelas" },
 ];
 
+// Mesin render (3 engine). "" = Standar/ffmpeg. Lihat brandKit.ts brandKitRenderEngine + validateBrandKit.
+const ENGINES: { value: string; label: string }[] = [
+  { value: "", label: "Standar" },
+  { value: "hyperframes", label: "HyperFrames" },
+  { value: "scenes", label: "Desain" },
+];
+
 function isEnabled(kit: Kit, key: string): boolean {
   const sec = kit[key];
   return typeof sec === "object" && sec !== null && (sec as Record<string, unknown>).enabled === true;
@@ -112,27 +119,36 @@ export function VisualStylePanel({ brandId }: { brandId: string }) {
   if (!kit) return null;
 
   const dirty = JSON.stringify(kit) !== baseline;
-  const hf = kit.renderEngine === "hyperframes";
+  const engine = typeof kit.renderEngine === "string" ? kit.renderEngine : ""; // "" = Standar/ffmpeg
+  const hf = engine === "hyperframes";
   const look = typeof kit.look === "string" ? kit.look : "";
 
   return (
     <div className="space-y-3">
       {/* Mesin Render + Look (2026-11-02) - sinematik HyperFrames vs standar ffmpeg */}
       <div className="rounded-md border p-3 space-y-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="space-y-2">
           <div>
             <span className="text-sm font-medium">Mesin Render</span>
             <p className="text-xs text-muted-foreground mt-0.5">
-              <span className="font-medium">HyperFrames</span> = editing sinematik (camera motion, grade warna, transisi, data block). <span className="font-medium">Standar</span> = pipeline lama.
+              <span className="font-medium">HyperFrames</span> = footage sinematik (camera motion, grade warna, transisi variasi, data block). <span className="font-medium">Desain</span> = scene poster (bold-poster: cover, angka raksasa, CTA) + sisipan footage, pas untuk konten fakta/angka. <span className="font-medium">Standar</span> = pipeline lama.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setField("renderEngine", hf ? undefined : "hyperframes")}
-            className={"shrink-0 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors " + (hf ? "bg-foreground text-background border-foreground" : "bg-muted text-muted-foreground border-border hover:border-muted-foreground")}
-          >
-            {hf ? "HyperFrames (sinematik)" : "Standar"}
-          </button>
+          <div className="flex rounded-full border border-border overflow-hidden w-fit">
+            {ENGINES.map((e) => {
+              const active = engine === e.value;
+              return (
+                <button
+                  key={e.value || "ffmpeg"}
+                  type="button"
+                  onClick={() => setField("renderEngine", e.value || undefined)}
+                  className={"text-xs font-medium px-3 py-1.5 transition-colors " + (active ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground")}
+                >
+                  {e.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
         {hf && (
           <div>
