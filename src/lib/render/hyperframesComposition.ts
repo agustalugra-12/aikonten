@@ -71,6 +71,15 @@ export function buildComposition(input: HfCompositionInput): string {
   // tengah video, tiap blok pop+punch lalu hilang. Fallback ke `stat` tunggal (back-compat).
   const statsArr = (stats && stats.length ? stats : stat ? [stat] : [])
     .filter((s) => s && (s.value || s.label)).slice(0, 3);
+  // Count-up (Fase 5 polish): kalau value punya angka (mis "3", "8 lengan", "Rp175.000"),
+  // angka dianimasikan 0->target saat kartu muncul. Simpan prefix/suffix + grouped (ribuan).
+  const statParsed = statsArr.map((s) => {
+    const m = String(s.value || "").match(/^(\D*?)(\d[\d.,]*)(\D*)$/);
+    if (!m) return null;
+    const num = parseInt(m[2].replace(/[.,]/g, ""), 10);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    return { prefix: m[1], num, suffix: m[3], grouped: /[.,]/.test(m[2]) };
+  });
 
   const { w, h } = DIM[orientation] || DIM.portrait;
   const bg1 = brand.primary || "#14213D", bg2 = brand.bg2 || "#0c1526", accent = brand.accent || "#FFD84D";
@@ -172,6 +181,8 @@ export function buildComposition(input: HfCompositionInput): string {
     statsArr.forEach((_s, j) => {
       const st = base + j * slot;
       tlLines.push(`tl.fromTo("#statCard${j}",{opacity:0,scale:.7,y:24},{opacity:1,scale:1,y:0,duration:.42,ease:"back.out(2)"},${st.toFixed(3)});`);
+      const p = statParsed[j];
+      if (p) tlLines.push(`var o${j}={v:0};tl.to(o${j},{v:${p.num},duration:.9,ease:"power2.out",onUpdate:function(){document.getElementById("num${j}").textContent=fmtNum(o${j}.v,${p.grouped});}},${st.toFixed(3)});`);
       tlLines.push(`tl.to("#statCard${j}",{opacity:0,scale:.92,duration:.3,ease:"power2.in"},${(st + hold).toFixed(3)});`);
     });
   }
@@ -235,7 +246,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
     ${bgmEl}
     ${capHtml}
     ${lowerThird ? `<div id="lt"><div class="t">${esc(lowerThird.title || "")}</div>${lowerThird.subtitle ? `<div class="s">${esc(lowerThird.subtitle)}</div>` : ""}</div>` : ""}
-    ${statsArr.map((s, j) => `<div class="statCard" id="statCard${j}"><span class="v">${esc(s.value || "")}</span><span class="l">${esc(s.label || "")}</span></div>`).join("")}
+    ${statsArr.map((s, j) => { const p = statParsed[j]; const v = p ? `${esc(p.prefix)}<span id="num${j}">0</span>${esc(p.suffix)}` : esc(s.value || ""); return `<div class="statCard" id="statCard${j}"><span class="v">${v}</span><span class="l">${esc(s.label || "")}</span></div>`; }).join("")}
     <div class="bar" id="bar"></div>
     ${mark ? `<div class="mark" id="mark">${esc(mark)}</div>` : ""}
     <div id="introLayer"><div id="introText">${hookSpans}</div></div>
@@ -243,6 +254,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 </div>
 <script>
 const tl=gsap.timeline({paused:true});
+function fmtNum(x,g){x=Math.round(x);return g?x.toLocaleString("id-ID"):String(x);}
 ${tlLines.join("\n")}
 window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
 </script></body></html>`;
