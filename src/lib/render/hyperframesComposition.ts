@@ -74,7 +74,24 @@ export function buildComposition(input: HfCompositionInput): string {
   const groups = groupWords(words);
   const capFont = Math.round(w * 0.078), introFont = Math.round(w * 0.115);
 
-  const videoEls = vids.map((v, i) => `<video id="bg${i}" class="clip bg" muted playsinline data-start="${(introSeconds + v.start).toFixed(3)}" data-duration="${v.dur.toFixed(3)}" data-media-start="0" data-track-index="0" style="z-index:${1 + i}" src="${esc(v.url)}"></video>`).join("\n    ");
+  // Fase 2 (camera motion + transisi): tiap klip dapat Ken Burns (zoom in/out + pan,
+  // gantian arah per klip) + crossfade masuk (overlap XFADE dtk, klip i>0 mulai lebih
+  // awal & fade opacity 0->1 nutup klip sebelumnya yg z-index lebih rendah). Transform &
+  // opacity dianimasikan GSAP di master timeline (data-start/duration tetap atur window
+  // media runtime). Scale >=1.14 + pan <=3.5% jaga frame tetap nutup (tak ada tepi hitam).
+  const XFADE = 0.45;
+  const clipWins = vids.map((v, i) => {
+    const over = i > 0 ? XFADE : 0;
+    const estart = Math.max(introSeconds, introSeconds + v.start - over);
+    const edur = Math.min(v.dur + over, total - estart);
+    const zoomIn = i % 2 === 0, dir = i % 2 === 0 ? 1 : -1;
+    return {
+      url: v.url, estart, edur, fade: i > 0,
+      s0: zoomIn ? 1.14 : 1.28, s1: zoomIn ? 1.28 : 1.14,
+      x0: dir * 3.5, x1: -dir * 3.5, y0: dir * 2, y1: -dir * 2,
+    };
+  });
+  const videoEls = clipWins.map((v, i) => `<video id="bg${i}" class="clip bg" muted playsinline data-start="${v.estart.toFixed(3)}" data-duration="${v.edur.toFixed(3)}" data-media-start="0" data-track-index="0" style="z-index:${1 + i}" src="${esc(v.url)}"></video>`).join("\n    ");
   const facelessHtml = faceless ? `<div id="facelessBg"></div>\n    <div class="blob" id="blob1"></div>\n    <div class="blob" id="blob2"></div>` : "";
   const audioEl = audioUrl ? `<audio id="vo" class="clip" data-start="${introSeconds.toFixed(3)}" data-volume="1" data-track-index="80" src="${esc(audioUrl)}"></audio>` : "";
 
@@ -114,6 +131,13 @@ export function buildComposition(input: HfCompositionInput): string {
   }
   const ctaStart = total - 2.6;
   if (cta) tlLines.push(`tl.fromTo("#cta",{opacity:0,y:28},{opacity:1,y:0,duration:.5,ease:"back.out(1.5)"},${ctaStart.toFixed(3)});`);
+  // Camera motion + transisi klip (Fase 2) - lihat clipWins di atas.
+  if (!faceless) {
+    clipWins.forEach((v, i) => {
+      if (v.fade) tlLines.push(`tl.fromTo("#bg${i}",{opacity:0},{opacity:1,duration:${XFADE},ease:"power1.inOut"},${v.estart.toFixed(3)});`);
+      tlLines.push(`tl.fromTo("#bg${i}",{scale:${v.s0},xPercent:${v.x0},yPercent:${v.y0}},{scale:${v.s1},xPercent:${v.x1},yPercent:${v.y1},duration:${v.edur.toFixed(3)},ease:"power1.out"},${v.estart.toFixed(3)});`);
+    });
+  }
   // Faceless bg: 2 blob lembut drift PELAN satu arah sepanjang video (ambient, bukan loop
   // "breathing" yg terlihat AI-generated). Gerak halus = latar "hidup" tanpa footage.
   if (faceless) {
