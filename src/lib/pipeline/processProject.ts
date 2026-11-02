@@ -1030,7 +1030,11 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     try {
       const transcription = await transcribeAudioBuffer(voiceoverBuffer);
       srt = buildSrtFromTranscriptSegments(transcription.segments);
-      wordTimings = transcription.words;
+      // Fix "00 00" (2026-11-03): Whisper kadang mendigitalkan ulang angka ucapan (mis
+      // "seratus tujuh puluh lima ribu" -> "175.000"/"00 00") yg render jelek di caption.
+      // Buang token caption yg MURNI angka - angka tempatnya di STAT CARD (bersih), bukan
+      // caption berjalan. Timing kata lain tak berubah (per-kata absolut).
+      wordTimings = transcription.words.filter((w) => !/^[\d.,]+$/.test(String(w.word || "").trim()));
     } catch (err) {
       console.error("[processProject] gagal transkripsi ulang audio TTS utk subtitle presisi, fallback ke estimasi rata:", err);
       srt = buildCaptionSrt(narrationText, totalDuration);
@@ -1438,7 +1442,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
             autoFixLog[autoFixLog.length - 1].result = "berhasil";
             rendered = retryRendered;
             srt = retrySrt;
-            wordTimings = retryTranscription.words;
+            wordTimings = retryTranscription.words.filter((w) => !/^[\d.,]+$/.test(String(w.word || "").trim()));
             qualityCheck = retryCheck;
             await db.insert(mediaAssets).values({
               id: newId("asset"),
