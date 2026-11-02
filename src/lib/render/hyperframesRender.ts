@@ -25,6 +25,8 @@ export type HyperframesRenderOpts = {
   voiceoverBuffer: Buffer;
   wordTimings?: HfWord[];
   cta?: string;
+  statOverlays?: Array<{ label: string; value: string }>; // dari pipeline (stat/harga) - ambil pertama
+  lowerThird?: { name: string; tagline: string } | null;   // dari extractLowerThird (documentary)
 };
 
 export async function renderViaHyperframes(
@@ -62,6 +64,8 @@ export async function renderViaHyperframes(
     audioDurationSeconds,
     words: opts.wordTimings || [],
     cta: opts.cta || "",
+    stat: opts.statOverlays && opts.statOverlays[0] ? { label: opts.statOverlays[0].label, value: opts.statOverlays[0].value } : null,
+    lowerThird: opts.lowerThird ? { title: opts.lowerThird.name, subtitle: opts.lowerThird.tagline, atSeconds: 1.2, durationSeconds: 4 } : null,
   });
 
   const mp4 = await renderComposition(html, { id: opts.projectId, name: opts.projectId });

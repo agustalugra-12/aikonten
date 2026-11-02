@@ -1188,6 +1188,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           voiceoverBuffer,
           wordTimings: wordTimingsForRender,
           cta: pickCtaText(id, ctaContext),
+          statOverlays: statOverlays.map((s) => ({ label: s.label, value: s.value })),
+          lowerThird,
         });
       }
       // PRD v1.1 §5 Final QC Checklist (2026-08-22) — jaring pengaman TERAKHIR sebelum render.
