@@ -92,7 +92,13 @@ export function buildComposition(input: HfCompositionInput): string {
   tlLines.push(`tl.set("#introLayer",{visibility:"hidden"},${introSeconds.toFixed(3)});`);
   groups.forEach((g, gi) => {
     const gStart = introSeconds + g[0].start, gEnd = introSeconds + g[g.length - 1].end + 0.15;
-    g.forEach((wd, wi) => { tlLines.push(`tl.fromTo("#g${gi}w${wi}",{opacity:0,filter:"blur(5px)"},{opacity:1,filter:"blur(0px)",duration:.12,ease:"power4.out"},${(introSeconds + wd.start).toFixed(3)});`); });
+    g.forEach((wd, wi) => {
+      const t = introSeconds + wd.start, te = introSeconds + wd.end;
+      // Pop-in (scale+y) JELAS + karaoke: kata aktif warna aksen saat diucapkan, balik ink di akhir.
+      tlLines.push(`tl.fromTo("#g${gi}w${wi}",{opacity:0,scale:.5,y:22},{opacity:1,scale:1,y:0,duration:.22,ease:"back.out(2)"},${t.toFixed(3)});`);
+      tlLines.push(`tl.set("#g${gi}w${wi}",{color:"${accent}"},${t.toFixed(3)});`);
+      tlLines.push(`tl.set("#g${gi}w${wi}",{color:"${ink}"},${te.toFixed(3)});`);
+    });
     tlLines.push(`tl.set("#cg${gi}",{visibility:"hidden"},${gEnd.toFixed(3)});`);
     tlLines.push(`tl.set("#cg${gi}",{visibility:"visible"},${gStart.toFixed(3)});`);
   });
@@ -138,7 +144,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 #introText{color:var(--ink);font-weight:800;font-size:${introFont}px;line-height:1.02;letter-spacing:-.03em;overflow:visible;}
 #introText .hw{display:inline-block;opacity:0;}
 .capgroup{position:absolute;left:0;right:0;bottom:${Math.round(h * 0.17)}px;text-align:center;padding:0 60px;z-index:500;overflow:visible;visibility:hidden;}
-.capgroup .cw{display:inline-block;color:var(--ink);font-weight:800;font-size:${capFont}px;line-height:1.12;letter-spacing:-.02em;margin:0 .12em;opacity:0;text-shadow:0 4px 18px rgba(0,0,0,.65);}
+.capgroup .cw{display:inline-block;transform-origin:center bottom;color:var(--ink);font-weight:800;font-size:${capFont}px;line-height:1.12;letter-spacing:-.02em;margin:0 .12em;opacity:0;text-shadow:0 4px 18px rgba(0,0,0,.65);}
 #lt{position:absolute;left:64px;right:64px;bottom:${Math.round(h * 0.30)}px;z-index:520;opacity:0;background:rgba(15,16,22,.78);backdrop-filter:blur(18px);border-left:8px solid var(--accent);border-radius:14px;padding:26px 32px;}
 #lt .t{color:var(--ink);font-weight:800;font-size:${Math.round(w * 0.052)}px;letter-spacing:-.01em;}
 #lt .s{color:rgba(255,255,255,.8);font-weight:600;font-size:${Math.round(w * 0.036)}px;margin-top:6px;}
