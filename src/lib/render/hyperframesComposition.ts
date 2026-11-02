@@ -138,8 +138,13 @@ export function buildComposition(input: HfCompositionInput): string {
   // kompensasi durasi pop-in + persepsi (subtitle idealnya pas/sedikit SEBELUM kata diucapkan,
   // bukan sesudah). Pop dipercepat .22->.16. Di-clamp >= introSeconds (tak muncul saat intro).
   const CAP_LEAD = 0.14;
+  const gStarts = groups.map((g) => Math.max(introSeconds, introSeconds + g[0].start - CAP_LEAD));
   groups.forEach((g, gi) => {
-    const gStart = Math.max(introSeconds, introSeconds + g[0].start - CAP_LEAD), gEnd = introSeconds + g[g.length - 1].end + 0.15;
+    const gStart = gStarts[gi];
+    const naturalEnd = introSeconds + g[g.length - 1].end + 0.15;
+    // Anti tumpang-tindih: grup N sembunyi TEPAT saat grup N+1 muncul (clamp ke gStart
+    // berikutnya) -> cuma 1 grup caption terlihat. Grup terakhir pakai akhir natural.
+    const gEnd = gi + 1 < gStarts.length ? Math.min(naturalEnd, gStarts[gi + 1]) : naturalEnd;
     g.forEach((wd, wi) => {
       const t = Math.max(introSeconds, introSeconds + wd.start - CAP_LEAD), te = introSeconds + wd.end;
       // Pop-in (scale+y) + karaoke: kata aktif warna aksen saat diucapkan, balik ink di akhir.
