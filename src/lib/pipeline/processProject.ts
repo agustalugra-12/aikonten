@@ -19,7 +19,8 @@ import { generateVoiceover } from "@/lib/ai/dubbing";
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
-import { resolveBrandKit, brandKitVoice } from "@/lib/render/brandKit";
+import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/render/brandKit";
+import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
 import { brandTransitionType } from "@/lib/render/transitions";
@@ -1169,6 +1170,26 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // panggilan - retry ini murni soal subtitle, bukan pilih ulang footage/durasi (itu
     // ranah Fase 2b, sudah selesai di atas sblm render pertama ini).
     const renderWithSubtitles = (srtForRender: string, wordTimingsForRender: typeof wordTimings) => {
+      // Opsi C (2026-11-02): brand opt-in engine HyperFrames -> render di worker terpisah
+      // (footage+kinetic caption+overlay di HTML, atau faceless bg) -> balik {videoUrl,durationSeconds}
+      // bentuk SAMA dgn renderFinalVideo, jadi downstream (quality check, media_assets) tak berubah.
+      // Branch di sini (bukan call-site) supaya retry pun ikut. QC footage ffmpeg di bawah dilewati
+      // (tak relevan HyperFrames; faceless memang tanpa footage). Default-off -> brand lain tak terpengaruh.
+      if (brandKitRenderEngine(brand?.brandKit) === "hyperframes") {
+        return renderViaHyperframes({
+          projectId: id,
+          brandId: project.brandId,
+          orientation: (isYoutubeShorts ? "portrait" : (brand?.videoOrientation ?? "portrait")) as "portrait" | "landscape" | "square",
+          brandName: brand?.name,
+          brandKitRaw: brand?.brandKit,
+          hookText,
+          brollClips,
+          segments: selected,
+          voiceoverBuffer,
+          wordTimings: wordTimingsForRender,
+          cta: pickCtaText(id, ctaContext),
+        });
+      }
       // PRD v1.1 §5 Final QC Checklist (2026-08-22) — jaring pengaman TERAKHIR sebelum render.
       // Semua cek wajib PASS agar render diizinkan. Gagal = throw Error + log ke autoFixLog.
       const qcErrors: string[] = [];

@@ -23,6 +23,16 @@ export function brandKitVoice(json: string | null | undefined): string | undefin
     return undefined;
   }
 }
+
+// Mesin render video dari brandKit JSON (Opsi C 2026-11-02). "hyperframes" | "ffmpeg" (default).
+export function brandKitRenderEngine(json: string | null | undefined): "ffmpeg" | "hyperframes" {
+  if (!json) return "ffmpeg";
+  try {
+    return (JSON.parse(json) as { renderEngine?: unknown }).renderEngine === "hyperframes" ? "hyperframes" : "ffmpeg";
+  } catch {
+    return "ffmpeg";
+  }
+}
 import { DEFAULT_TITLE_CARD_DESIGN, type TitleCardDesign } from "./titleCard";
 import {
   isTitleAnimation,
@@ -64,6 +74,7 @@ export type BrandKit = {
   secondaryColor?: string; // #RRGGBB - warna brand sekunder
   ctaColor?: string; // #RRGGBB - warna box CTA/subscribe (Fase 3); undefined = merah YouTube
   voice?: string; // suara TTS voiceover (lihat ttsVoices.ts); undefined = default (marin) - T4 2026-11-02
+  renderEngine?: "ffmpeg" | "hyperframes"; // mesin render video (Opsi C 2026-11-02); undefined/ffmpeg = pipeline existing
   // Animated Title (2026-10-26, Fase 3 Motion Library). Opsional & DEFAULT-OFF: kalau
   // title.enabled tidak true, title card TIDAK dirender (video lama tak berubah). Teksnya
   // dari hookText (processProject.ts). Font/warna judul ikut heading font + primaryColor.
@@ -138,6 +149,11 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
   if ("voice" in o && o.voice !== undefined && o.voice !== null) {
     if (!isValidVoice(o.voice)) return { ok: false, error: "voice tidak dikenal (harus salah satu suara kurasi)" };
     out.voice = o.voice;
+  }
+  // Render engine (Opsi C 2026-11-02) - "ffmpeg" (default) atau "hyperframes" (worker terpisah).
+  if ("renderEngine" in o && o.renderEngine !== undefined && o.renderEngine !== null) {
+    if (o.renderEngine !== "ffmpeg" && o.renderEngine !== "hyperframes") return { ok: false, error: "renderEngine harus 'ffmpeg' atau 'hyperframes'" };
+    out.renderEngine = o.renderEngine;
   }
   if ("outlineWidth" in o && o.outlineWidth !== undefined) {
     const v = Number(o.outlineWidth);
