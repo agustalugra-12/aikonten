@@ -158,7 +158,15 @@ export function buildComposition(input: HfCompositionInput): string {
   const tlLines: string[] = [];
   tlLines.push(`tl.fromTo("#bar",{scaleX:0},{scaleX:1,duration:.5,ease:"power2.inOut"},0);`);
   if (mark) tlLines.push(`tl.fromTo("#mark",{opacity:0,filter:"blur(6px)"},{opacity:1,filter:"blur(0px)",duration:.35,ease:"power4.out"},.3);`);
-  const hookWords = esc(hook).split(/\s+/).filter(Boolean);
+  // Hook pendek (2026-11-03): hookText AI sering 1 kalimat penuh -> menutupi footage. Batasi
+  // tampilan intro ke <=7 kata + buang kata sambung di ujung (dangling) biar hook punchy.
+  const HOOK_STOP = new Set(["dan", "dengan", "yang", "untuk", "di", "ke", "atau", "dari", "serta", "pada", "ini", "itu", "agar", "demi", "sambil"]);
+  let hw = esc(hook).split(/\s+/).filter(Boolean);
+  if (hw.length > 7) {
+    hw = hw.slice(0, 7);
+    while (hw.length > 3 && HOOK_STOP.has(hw[hw.length - 1].toLowerCase().replace(/[^a-z]/g, ""))) hw.pop();
+  }
+  const hookWords = hw;
   hookWords.forEach((_wd, i) => { tlLines.push(`tl.fromTo("#hw${i}",{opacity:0,filter:"blur(6px)"},{opacity:1,filter:"blur(0px)",duration:.13,ease:"power4.out"},${(0.55 + i * 0.09).toFixed(3)});`); });
   tlLines.push(`tl.to("#introLayer",{opacity:0,filter:"blur(8px)",duration:.3,ease:"power3.in"},${(introSeconds - 0.3).toFixed(3)});`);
   tlLines.push(`tl.set("#introLayer",{visibility:"hidden"},${introSeconds.toFixed(3)});`);
