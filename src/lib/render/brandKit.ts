@@ -75,6 +75,7 @@ export type BrandKit = {
   ctaColor?: string; // #RRGGBB - warna box CTA/subscribe (Fase 3); undefined = merah YouTube
   voice?: string; // suara TTS voiceover (lihat ttsVoices.ts); undefined = default (marin) - T4 2026-11-02
   renderEngine?: "ffmpeg" | "hyperframes"; // mesin render video (Opsi C 2026-11-02); undefined/ffmpeg = pipeline existing
+  look?: "clean" | "cinematic" | "warm" | "cool" | "vivid" | "mono"; // Fase 3 Look system (grade HyperFrames); MENANG atas AI Director. undefined = AI pilih / default clean
   // Animated Title (2026-10-26, Fase 3 Motion Library). Opsional & DEFAULT-OFF: kalau
   // title.enabled tidak true, title card TIDAK dirender (video lama tak berubah). Teksnya
   // dari hookText (processProject.ts). Font/warna judul ikut heading font + primaryColor.
@@ -154,6 +155,12 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
   if ("renderEngine" in o && o.renderEngine !== undefined && o.renderEngine !== null) {
     if (o.renderEngine !== "ffmpeg" && o.renderEngine !== "hyperframes") return { ok: false, error: "renderEngine harus 'ffmpeg' atau 'hyperframes'" };
     out.renderEngine = o.renderEngine;
+  }
+  // Look system (Fase 3 2026-11-02) - grade sinematik HyperFrames, enum ketat. undefined = AI Director pilih.
+  if ("look" in o && o.look !== undefined && o.look !== null) {
+    const LOOKS = ["clean", "cinematic", "warm", "cool", "vivid", "mono"];
+    if (!LOOKS.includes(o.look as string)) return { ok: false, error: "look harus clean/cinematic/warm/cool/vivid/mono" };
+    out.look = o.look as BrandKit["look"];
   }
   if ("outlineWidth" in o && o.outlineWidth !== undefined) {
     const v = Number(o.outlineWidth);
