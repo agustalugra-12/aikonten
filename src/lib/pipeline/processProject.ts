@@ -1366,7 +1366,10 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // pantas dipakai. Di atas 120dtk kurang dianggap genuinely bermasalah (bukan cuma
     // drift wajar) - tetap reject spt sebelumnya.
     const POST_RENDER_DURATION_TOLERANCE_SECONDS = 120;
-    if (rendered.durationSeconds < effectiveMinDuration - POST_RENDER_DURATION_TOLERANCE_SECONDS) {
+    // Engine "scenes" (HyperFrames Pro): video frame-desain SENGAJA pendek (~10dtk), bukan
+    // narasi footage panjang - QC durasi minimum long-form tak berlaku.
+    const isScenesEngine = brandKitRenderEngine(brand?.brandKit) === "scenes";
+    if (!isScenesEngine && rendered.durationSeconds < effectiveMinDuration - POST_RENDER_DURATION_TOLERANCE_SECONDS) {
       throw new Error(
         `Video hasil render cuma ${rendered.durationSeconds} detik, di bawah minimum ` +
           `${effectiveMinDuration} detik (toleransi ${POST_RENDER_DURATION_TOLERANCE_SECONDS}dtk) yg diwajibkan - ` +
@@ -1395,8 +1398,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // butuh restrukturisasi pipeline lebih besar, belum aman dilakukan di pass ini) -
     // tetap hard_reject, selaras daftar alasan reject SAH milik PRD sendiri sendiri
     // ("render/audio total failure").
-    let qualityCheck = await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, effectiveMinDuration, srt);
-    if (!qualityCheck.passed) {
+    // Engine "scenes": lewati QC footage/voiceover (video frame-desain, musik-only, tanpa SRT/VO).
+    let qualityCheck = isScenesEngine ? null : await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, effectiveMinDuration, srt);
+    if (qualityCheck && !qualityCheck.passed) {
       const hardRejectIssues = qualityCheck.structured.filter((i) => i.fixability === "hard_reject");
       const subtitleIssues = qualityCheck.structured.filter((i) => i.fixability === "retry_subtitle_only");
 
@@ -1440,7 +1444,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       }
     }
 
-    if (!qualityCheck.passed) {
+    if (qualityCheck && !qualityCheck.passed) {
       await db
         .update(projects)
         .set({ status: "failed", errorMessage: `Quality Check gagal: ${qualityCheck.issues.join("; ")}`, updatedAt: new Date() })
