@@ -33,11 +33,19 @@ function splitLines(text: string, maxLines = 3): string[] {
 export function buildBoldCover(input: BoldCoverInput): string {
   const { orientation = "portrait", title, eyebrow = "", tagline = "", mark = "", durationSeconds = 4 } = input;
   const { w, h } = DIM[orientation] || DIM.portrait;
-  const lines = splitLines(title, 3);
+  // Auto-fit (2026-11-03, fix "cover kepanjangan"): judul panjang -> lebih banyak baris
+  // (tiap baris lebih pendek) + font shrink-only supaya baris terpanjang muat ~1 baris
+  // (baris merah dirender 1.08x, Shrikhand lebar ~0.62em/char). Hook pendek tak terpengaruh.
+  const wc = String(title || "").trim().split(/\s+/).filter(Boolean).length;
+  const maxLines = wc <= 3 ? 2 : wc <= 6 ? 3 : 4;
+  const lines = splitLines(title, maxLines);
   const total = Math.max(2.5, durationSeconds);
   // cqw: 1% lebar container. Ukuran hero diskalakan ke lebar supaya muat portrait.
   const heroCqw = orientation === "portrait" ? 12.5 : 9.0; // Shrikhand hero
-  const heroPx = Math.round((w * heroCqw) / 100);
+  const heroPxBase = Math.round((w * heroCqw) / 100);
+  const maxChars = Math.max(...lines.map((l) => l.length), 6);
+  const fitPx = Math.floor((w * 0.9) / (maxChars * 0.68)); // shrink biar baris terpanjang muat
+  const heroPx = Math.min(heroPxBase, Math.max(Math.round(w * 0.052), fitPx)); // tak pernah membesar
 
   // Kelas per baris: tengah (indeks ganjil) = merah + miring, lain = gelap miring halus.
   const lineHtml = lines.map((ln, i) => {
