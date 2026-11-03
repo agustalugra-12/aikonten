@@ -50,6 +50,23 @@ export function directFootageOrder<T>(
   return [...good, ...bad].map((x) => x.c);
 }
 
+// Tahap 2 (2026-11-03, keputusan Gerbang 1): pilih SUMBER hero lintas sumber (foto bank vs
+// video-segment vs top-up) berdasar skor tertinggi. Tiap kandidat {key, tags} = tag hero tiap
+// sumber. Return key sumber relevansi tertinggi (non-avoid, ber-tag, relevance>0); null kalau tak
+// ada kandidat layak -> caller pakai urutan default lama. Dipakai processProject utk mutuskan
+// sumber mana render DULU (bukan selalu foto brollClips[0]).
+export type HeroCandidate = { key: string; tags: string[] };
+export function chooseHeroSource(cands: HeroCandidate[], hookText: string, script: string): string | null {
+  const hookTokens = new Set(tokens(hookText));
+  const scriptTokens = new Set(tokens(script));
+  const scored = cands
+    .map((c) => ({ key: c.key, s: scoreClipTags(c.tags || [], hookTokens, scriptTokens) }))
+    .filter((x) => !x.s.avoid && x.s.hasTags && x.s.relevance > 0);
+  if (!scored.length) return null;
+  scored.sort((a, b) => b.s.relevance - a.s.relevance);
+  return scored[0].key;
+}
+
 // Self-check ringan.
 export function _demo(): void {
   const tagsByUrl = new Map<string, string[]>([
@@ -62,4 +79,12 @@ export function _demo(): void {
   // hero harus "b" (cocok hook), toilet "a" harus terakhir
   if (out[0].url !== "b") throw new Error("hero bukan klip paling relevan: " + out.map((x) => x.url).join(","));
   if (out[out.length - 1].url !== "a") throw new Error("klip toilet tidak di belakang: " + out.map((x) => x.url).join(","));
+  // chooseHeroSource: video-segment lebih cocok hook drpd foto -> pilih "video".
+  const hero = chooseHeroSource(
+    [{ key: "photo", tags: ["kamar tidur", "ranjang"] }, { key: "video", tags: ["pemandangan", "teras"] }],
+    "pemandangan teras sejuk", "liburan",
+  );
+  if (hero !== "video") throw new Error("chooseHeroSource salah pilih: " + hero);
+  // semua avoid/tak-relevan -> null (caller pakai default lama).
+  if (chooseHeroSource([{ key: "x", tags: ["toilet"] }], "liburan teras", "x") !== null) throw new Error("chooseHeroSource harus null kalau avoid");
 }
