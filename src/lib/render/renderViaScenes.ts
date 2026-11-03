@@ -27,6 +27,10 @@ export type ScenesRenderOpts = {
 };
 
 const XFADE = 0.4;
+// #3 (2026-11-03): variasi transisi antar-scene (dulu selalu "fade" polos -> monoton).
+// ffmpeg xfade: slide/zoom/wipe + fade, cycle per batas scene biar terasa "diedit" (senada P4
+// engine hyperframes). Semua nama valid xfade (lihat ffmpeg -h filter=xfade).
+const SCENE_TRANSITIONS = ["slideleft", "zoomin", "wiperight", "fade"];
 
 function firstSentences(text: string | null | undefined, n: number): string {
   const s = String(text || "").split(/(?<=[.!?])\s+/).filter(Boolean);
@@ -127,7 +131,8 @@ function buildXfadeFilter(durs: number[], hasMusic: boolean, total: number): { f
   for (let i = 1; i < durs.length; i++) {
     const out = i === durs.length - 1 ? "vout" : `x${i}`;
     const offset = (acc - XFADE).toFixed(3);
-    parts.push(`[${prev}][v${i}]xfade=transition=fade:duration=${XFADE}:offset=${offset}[${out}]`);
+    const trans = SCENE_TRANSITIONS[(i - 1) % SCENE_TRANSITIONS.length];
+    parts.push(`[${prev}][v${i}]xfade=transition=${trans}:duration=${XFADE}:offset=${offset}[${out}]`);
     prev = out;
     acc = acc + durs[i] - XFADE;
   }
