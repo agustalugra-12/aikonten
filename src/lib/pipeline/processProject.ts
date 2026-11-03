@@ -1220,7 +1220,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // Semua param LAIN (klip, motion, transisi, musik, overlay) TETAP sama persis antar
     // panggilan - retry ini murni soal subtitle, bukan pilih ulang footage/durasi (itu
     // ranah Fase 2b, sudah selesai di atas sblm render pertama ini).
-    const renderWithSubtitles = (srtForRender: string, wordTimingsForRender: typeof wordTimings) => {
+    const renderWithSubtitles = async (srtForRender: string, wordTimingsForRender: typeof wordTimings) => {
       // Opsi C (2026-11-02): brand opt-in engine HyperFrames -> render di worker terpisah
       // (footage+kinetic caption+overlay di HTML, atau faceless bg) -> balik {videoUrl,durationSeconds}
       // bentuk SAMA dgn renderFinalVideo, jadi downstream (quality check, media_assets) tak berubah.
@@ -1243,7 +1243,10 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         });
       }
       if (brandKitRenderEngine(brand?.brandKit) === "hyperframes") {
-        return renderViaHyperframes({
+        // C (2026-11-03): fallback ffmpeg kalau HyperFrames gagal/timeout (konten panjang bisa
+        // lewat RENDER_TIMEOUT_MS worker). Sukses -> return; gagal -> jatuh ke renderFinalVideo di bawah.
+        try {
+        return await renderViaHyperframes({
           projectId: id,
           brandId: project.brandId,
           orientation: (isYoutubeShorts ? "portrait" : (brand?.videoOrientation ?? "portrait")) as "portrait" | "landscape" | "square",
@@ -1262,6 +1265,10 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           musicUrl,                // Fase 6 musik latar (sama dgn jalur ffmpeg)
           emphasisPhrases,         // Fase A HyperFrames Pro - kinetic callouts
         });
+        } catch (hfErr) {
+          console.error("[processProject] HyperFrames render gagal, fallback ke ffmpeg:", hfErr);
+          autoFixLog.push({ step: "render_fallback", action: `HyperFrames gagal/timeout -> fallback ffmpeg (${String((hfErr as Error)?.message || hfErr).slice(0, 140)})`, result: "fallback" });
+        }
       }
       // PRD v1.1 §5 Final QC Checklist (2026-08-22) — jaring pengaman TERAKHIR sebelum render.
       // Semua cek wajib PASS agar render diizinkan. Gagal = throw Error + log ke autoFixLog.

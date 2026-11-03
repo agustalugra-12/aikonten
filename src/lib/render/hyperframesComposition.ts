@@ -54,7 +54,11 @@ function tileClips(clips: HfClip[], dur: number, maxTile = 99): Array<{ url: str
   // (bukan frame yg sama), lalu balik ke awal segmen saat habis.
   const used = new Map<number, number>();
   const safe = clips && clips.length ? clips : [{ videoUrl: "", durationSeconds: 5 }];
-  while (t < dur - 0.05 && out.length < 200) {
+  // A (2026-11-03): plafon JUMLAH tile (= jumlah <video>, beban render Chrome frame-by-frame).
+  // Konten panjang dulu bisa puluhan tile -> render > timeout worker. Video pendek TAK terpengaruh
+  // (berhenti di pacing/durasi jauh sebelum plafon ini).
+  const MAX_TILES = 18;
+  while (t < dur - 0.05 && out.length < MAX_TILES) {
     const c = safe[i % safe.length];
     // maxTile (Fase 4 pacing): batasi durasi tiap potongan -> cut lebih sering utk pacing cepat.
     const full = typeof c.durationSeconds === "number" && c.durationSeconds > 0 ? c.durationSeconds : 5;
@@ -66,6 +70,10 @@ function tileClips(clips: HfClip[], dur: number, maxTile = 99): Array<{ url: str
     used.set(idx, off + d);
     t += d; i++;
   }
+  // A: kalau mentok MAX_TILES sebelum durasi penuh (konten sangat panjang/klip pendek),
+  // panjangkan tile TERAKHIR isi sisa durasi (video tahan frame akhir) -> tak ada layar hitam.
+  // ponytail: freeze-tail cuma utk konten sangat panjang; idealnya segitu -> ffmpeg (fallback C).
+  if (out.length && t < dur - 0.05) out[out.length - 1].dur += (dur - t);
   return out;
 }
 
