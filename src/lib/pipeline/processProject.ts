@@ -22,7 +22,7 @@ import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/render/brandKit";
 import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
 import { renderViaScenes } from "@/lib/render/renderViaScenes";
-import { directFootageOrder } from "@/lib/ai/footageDirector";
+import { directFootageOrder, chooseHeroSource } from "@/lib/ai/footageDirector";
 import { editorialPreflight, hasRejectIssue } from "@/lib/ai/editorialQc";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
@@ -712,6 +712,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // milik brand sendiri, tidak perlu jejak lisensi pihak ketiga).
     let brollClips: DestinationBrollClip[] = [];
     let heroFootageTags: string[] = []; // P3: tag footage HOOK (klip pertama) utk gerbang QC editorial
+    let photoHeroTags: string[] = [];   // Tahap 2 #3: tag hero kandidat FOTO (utk chooseHeroSource)
+    let videoHeroTags: string[] = [];   // Tahap 2 #3: tag hero kandidat VIDEO-SEGMENT
     // footageSource "internal" (2026-08-21, permintaan Agus - Harmoni Hills) - lewati
     // SEMUA pencarian Pexels/Pixabay, 100% footage bank brand sendiri.
     const internalOnly = (brand?.footageSource ?? "mixed") === "internal";
@@ -769,6 +771,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       // heroFootageTags (P3 QC): kalau hero NYATA dari video (foto bank bakal kosong) pakai tag
       // video hero; blok foto di bawah MENIMPA dgn tag foto hero kalau ada foto (foto render duluan).
       const vHeroTags = vidTags.get(selected[0]?.sourceUrl);
+      videoHeroTags = vHeroTags || []; // Tahap 2 #3: kandidat hero video-segment (utk chooseHeroSource)
       if (vHeroTags && vHeroTags.length) heroFootageTags = vHeroTags;
     }
     if (!isStockFootage) {
@@ -787,6 +790,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       }));
       const freshPhotos = directFootageOrder(freshPhotosRaw, (p) => p.fileUrl, photoTags, hookText || "", project.script || "");
       heroFootageTags = photoTags.get(freshPhotos[0]?.fileUrl) || []; // P3: tag klip hook (hero)
+      photoHeroTags = heroFootageTags; // Tahap 2 #3: kandidat hero foto (utk chooseHeroSource)
       for (const photo of freshPhotos.slice(0, 2)) {
         try {
           const clip = await imageToVideoClip(photo.fileUrl, project.brandId);
@@ -1251,6 +1255,22 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         const HYPERFRAMES_MAX_SECONDS = 210;
         const estVideoSeconds = 3 + await getAudioDurationSeconds(voiceoverBuffer);
         if (estVideoSeconds <= HYPERFRAMES_MAX_SECONDS) {
+        // Tahap 2 #3 (keputusan Gerbang 1): pilih SUMBER hero skor TERTINGGI lintas foto vs
+        // video-segment. Video menang -> render segment DULU (heroFromSegments). Tak ada hero AMAN
+        // (ada footage ber-tag tapi semua avoid/salah-topik) -> JANGAN pakai klip pertama: render
+        // faceless (scene brand tanpa footage) + tandai footage kurang. Data kurang/tanpa tag ->
+        // heroKey null TANPA flag -> urutan LAMA dipertahankan (#6, aman). (#4: hero video-segment
+        // tag-nya lewat editorialPreflight P3 di bawah; cek isi-frame butuh vision = di luar ruang lingkup.)
+        const heroKey = chooseHeroSource(
+          [{ key: "photo", tags: photoHeroTags }, { key: "video", tags: videoHeroTags }],
+          hookText || "", project.script || "",
+        );
+        const heroFromSegments = heroKey === "video";
+        if (heroFromSegments) heroFootageTags = videoHeroTags; // #4: P3 cek hero NYATA (video-segment)
+        const noSafeHero = heroKey === null && (photoHeroTags.length > 0 || videoHeroTags.length > 0);
+        if (noSafeHero) {
+          autoFixLog.push({ step: "footage_hero", action: "tak ada hero footage aman (semua avoid/salah-topik) -> render faceless; footage brand perlu ditambah/di-review", result: "faceless_flag" });
+        }
         try {
         return await renderViaHyperframes({
           projectId: id,
@@ -1259,8 +1279,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           brandName: brand?.name,
           brandKitRaw: brand?.brandKit,
           hookText,
-          brollClips,
-          segments: selected,
+          brollClips: noSafeHero ? [] : brollClips,   // #3: tak ada hero aman -> faceless (tanpa footage)
+          segments: noSafeHero ? [] : selected,
           voiceoverBuffer,
           wordTimings: wordTimingsForRender,
           cta: pickCtaText(id, ctaContext),
@@ -1270,6 +1290,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           pacing,                  // Fase 4 AI Director
           musicUrl,                // Fase 6 musik latar (sama dgn jalur ffmpeg)
           emphasisPhrases,         // Fase A HyperFrames Pro - kinetic callouts
+          heroFromSegments,        // Tahap 2 #3: hero dari video-segment (skor tertinggi) -> render duluan
         });
         } catch (hfErr) {
           console.error("[processProject] HyperFrames render gagal, fallback ke ffmpeg:", hfErr);
