@@ -266,8 +266,17 @@ export function buildComposition(input: HfCompositionInput): string {
   return `<!doctype html>
 <html lang="id"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=${w}, height=${h}"/>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+<script src="./vendor/gsap.min.js"></script>
 <style>
+/* Font ter-vendor di worker base/fonts (Fase 0, 2026-11-03) - path relatif, TANPA CDN. */
+@font-face{font-family:"Poppins";font-weight:400;src:url("./fonts/poppins-400.woff2") format("woff2");}
+@font-face{font-family:"Poppins";font-weight:600;src:url("./fonts/poppins-600.woff2") format("woff2");}
+@font-face{font-family:"Poppins";font-weight:700;src:url("./fonts/poppins-700.woff2") format("woff2");}
+@font-face{font-family:"Archivo Black";font-weight:400;src:url("./fonts/archivo-black-400.woff2") format("woff2");}
+@font-face{font-family:"Oswald";font-weight:400;src:url("./fonts/oswald-400.woff2") format("woff2");}
+@font-face{font-family:"Oswald";font-weight:600;src:url("./fonts/oswald-600.woff2") format("woff2");}
+@font-face{font-family:"Playfair Display";font-weight:400;src:url("./fonts/playfair-400.woff2") format("woff2");}
+@font-face{font-family:"Playfair Display";font-weight:700;src:url("./fonts/playfair-700.woff2") format("woff2");}
 :root{--bg1:${bg1};--bg2:${bg2};--accent:${accent};--ink:${ink};--cta:${ctaColor};--font:"${font}",sans-serif;}
 *{margin:0;padding:0;box-sizing:border-box;}
 html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}

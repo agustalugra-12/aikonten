@@ -69,11 +69,15 @@ export function buildBoldCover(input: BoldCoverInput): string {
   return `<!doctype html>
 <html lang="id"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=${w}, height=${h}"/>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Shrikhand&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+<script src="./vendor/gsap.min.js"></script>
 <style>
+/* Font ter-vendor di worker base/fonts (Fase 0, 2026-11-03) - path relatif, TANPA CDN. */
+@font-face{font-family:"Shrikhand";font-weight:400;src:url("./fonts/shrikhand-400.woff2") format("woff2");}
+@font-face{font-family:"Libre Baskerville";font-weight:400;font-style:normal;src:url("./fonts/libre-baskerville-400.woff2") format("woff2");}
+@font-face{font-family:"Libre Baskerville";font-weight:700;font-style:normal;src:url("./fonts/libre-baskerville-700.woff2") format("woff2");}
+@font-face{font-family:"Libre Baskerville";font-weight:400;font-style:italic;src:url("./fonts/libre-baskerville-400i.woff2") format("woff2");}
+@font-face{font-family:"Space Grotesk";font-weight:400;src:url("./fonts/space-grotesk-400.woff2") format("woff2");}
+@font-face{font-family:"Space Grotesk";font-weight:600;src:url("./fonts/space-grotesk-600.woff2") format("woff2");}
 :root{--bg:#FFFFFF;--dark:#1C1410;--red:#D8000F;--light:#F5F2EF;--disp:"Shrikhand",cursive;--body:"Libre Baskerville",serif;--mono:"Space Grotesk",sans-serif;}
 *{margin:0;padding:0;box-sizing:border-box;}
 html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg);color:var(--dark);font-family:var(--body);-webkit-font-smoothing:antialiased;}
@@ -144,11 +148,15 @@ function headShell(w: number, h: number): string {
   return `<!doctype html>
 <html lang="id"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=${w}, height=${h}"/>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Shrikhand&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+<script src="./vendor/gsap.min.js"></script>
 <style>
+/* Font ter-vendor di worker base/fonts (Fase 0, 2026-11-03) - path relatif, TANPA CDN. */
+@font-face{font-family:"Shrikhand";font-weight:400;src:url("./fonts/shrikhand-400.woff2") format("woff2");}
+@font-face{font-family:"Libre Baskerville";font-weight:400;font-style:normal;src:url("./fonts/libre-baskerville-400.woff2") format("woff2");}
+@font-face{font-family:"Libre Baskerville";font-weight:700;font-style:normal;src:url("./fonts/libre-baskerville-700.woff2") format("woff2");}
+@font-face{font-family:"Libre Baskerville";font-weight:400;font-style:italic;src:url("./fonts/libre-baskerville-400i.woff2") format("woff2");}
+@font-face{font-family:"Space Grotesk";font-weight:400;src:url("./fonts/space-grotesk-400.woff2") format("woff2");}
+@font-face{font-family:"Space Grotesk";font-weight:600;src:url("./fonts/space-grotesk-600.woff2") format("woff2");}
 :root{--bg:#FFFFFF;--dark:#1C1410;--red:#D8000F;--light:#F5F2EF;--disp:"Shrikhand",cursive;--body:"Libre Baskerville",serif;--mono:"Space Grotesk",sans-serif;}
 *{margin:0;padding:0;box-sizing:border-box;}
 html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg);color:var(--dark);font-family:var(--body);-webkit-font-smoothing:antialiased;}
