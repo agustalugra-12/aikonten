@@ -52,21 +52,51 @@ export function directFootageOrder<T>(
   return [...good, ...bad].map((x) => x.c);
 }
 
-// Tahap 2 (2026-11-03, keputusan Gerbang 1): pilih SUMBER hero lintas sumber (foto bank vs
-// video-segment vs top-up) berdasar skor tertinggi. Tiap kandidat {key, tags} = tag hero tiap
-// sumber. Return key sumber relevansi tertinggi (non-avoid, ber-tag, relevance>0); null kalau tak
-// ada kandidat layak -> caller pakai urutan default lama. Dipakai processProject utk mutuskan
-// sumber mana render DULU (bukan selalu foto brollClips[0]).
-export type HeroCandidate = { key: string; tags: string[] };
-export function chooseHeroSource(cands: HeroCandidate[], hookText: string, script: string): string | null {
+// planHeroAndClips (Tahap 2 refactor review, 2026-11-03): SATU fungsi murni yg memutuskan hero +
+// urutan klip + faceless utk SEMUA kandidat (stok/foto/video, termasuk mixed brand). Dipakai titik
+// TUNGGAL -> QC & render & fallback pakai keputusan SAMA.
+// - basis skor: tag kalau ada; klip stok TANPA tag diperiksa via `probe` (sourceQuery/judul/metadata)
+//   -> TIDAK auto-aman (#1). Klip tanpa basis sama sekali = no_basis (dibuang, bukan dianggap aman).
+// - buang: avoid (kamar mandi dll), off_topic (basis ada tapi nol overlap, mis golf utk Ankylosaurus),
+//   no_basis. AMAN = non-avoid & relevance>0.
+// - hero = klip AMAN relevansi TERTINGGI (order[0]); kalau teratas gagal, berikutnya (list aman terurut).
+// - faceless HANYA kalau tak ada klip aman sama sekali (#4). heroTags = basis hero (SAMA dgn render) utk QC (#3).
+export type ClipCandidate = { key: string; tags?: string[]; probe?: string };
+export type HeroPlan = {
+  order: string[];               // key klip AMAN urut relevansi (hero = order[0])
+  heroKey: string | null;        // null kalau faceless
+  heroTags: string[];            // basis hero (tag/probe) -> QC cek hero yg SAMA dgn render
+  faceless: boolean;             // true -> render brand tanpa footage (tak ada klip aman)
+  dropped: { key: string; reason: "avoid" | "off_topic" | "no_basis" }[];
+};
+function clipBasis(c: ClipCandidate): string[] {
+  if (c.tags && c.tags.length) return c.tags.map(norm).filter(Boolean);
+  if (c.probe && String(c.probe).trim()) return [norm(c.probe)];
+  return [];
+}
+export function planHeroAndClips(cands: ClipCandidate[], hookText: string, script: string): HeroPlan {
   const hookTokens = new Set(tokens(hookText));
   const scriptTokens = new Set(tokens(script));
-  const scored = cands
-    .map((c) => ({ key: c.key, s: scoreClipTags(c.tags || [], hookTokens, scriptTokens) }))
-    .filter((x) => !x.s.avoid && x.s.hasTags && x.s.relevance > 0);
-  if (!scored.length) return null;
-  scored.sort((a, b) => b.s.relevance - a.s.relevance);
-  return scored[0].key;
+  const dropped: HeroPlan["dropped"] = [];
+  const safe: { key: string; rel: number; basis: string[] }[] = [];
+  for (const c of cands) {
+    const basis = clipBasis(c);
+    if (!basis.length) { dropped.push({ key: c.key, reason: "no_basis" }); continue; } // #1: tanpa basis -> jangan auto-aman
+    const s = scoreClipTags(basis, hookTokens, scriptTokens);
+    if (s.avoid) { dropped.push({ key: c.key, reason: "avoid" }); continue; }
+    if (s.relevance === 0) { dropped.push({ key: c.key, reason: "off_topic" }); continue; } // #5: salah topik
+    safe.push({ key: c.key, rel: s.relevance, basis });
+  }
+  safe.sort((a, b) => b.rel - a.rel);
+  if (!safe.length) return { order: [], heroKey: null, heroTags: [], faceless: true, dropped };
+  return { order: safe.map((x) => x.key), heroKey: safe[0].key, heroTags: safe[0].basis, faceless: false, dropped };
+}
+
+// TRANSISI (akan diganti wiring planHeroAndClips): dipakai processProject lama. Jangan tes/perluas.
+export type HeroCandidate = { key: string; tags: string[] };
+export function chooseHeroSource(cands: HeroCandidate[], hookText: string, script: string): string | null {
+  const p = planHeroAndClips(cands.map((c) => ({ key: c.key, tags: c.tags })), hookText, script);
+  return p.heroKey;
 }
 
 // Relevance guard (Tahap 2 #5): klip "salah topik" = PUNYA tag tapi NOL overlap dgn hook+script
