@@ -14,7 +14,7 @@ import {
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt, buildSrtFromTranscriptSegments, type ContentAngle } from "@/lib/ai/generateContent";
 import { getRecentStructureAndHookUsage, isStructureOverused, isHookTypeOverused, getRecentContentTypeUsage, isContentTypeOverused } from "@/lib/ai/contentVariety";
 import { getOverusedHashtags } from "@/lib/ai/hashtagTracking";
-import { generateVoiceover } from "@/lib/ai/dubbing";
+import { generateVoiceover, getAudioDurationSeconds } from "@/lib/ai/dubbing";
 // Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
@@ -1243,8 +1243,14 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         });
       }
       if (brandKitRenderEngine(brand?.brandKit) === "hyperframes") {
-        // C (2026-11-03): fallback ffmpeg kalau HyperFrames gagal/timeout (konten panjang bisa
-        // lewat RENDER_TIMEOUT_MS worker). Sukses -> return; gagal -> jatuh ke renderFinalVideo di bawah.
+        // C (2026-11-03): fallback ffmpeg kalau HyperFrames gagal/timeout. Sukses -> return;
+        // gagal -> jatuh ke renderFinalVideo di bawah.
+        // #5 routing proaktif (2026-11-03): video > HYPERFRAMES_MAX_SECONDS PASTI lewat timeout
+        // worker (HyperFrames ~4.8fps jalur SDR; timeout 25min -> ~240s max). Skip HyperFrames,
+        // ffmpeg LANGSUNG -> hindari buang ~25min + monopoli worker serial. 210s = margin aman.
+        const HYPERFRAMES_MAX_SECONDS = 210;
+        const estVideoSeconds = 3 + await getAudioDurationSeconds(voiceoverBuffer);
+        if (estVideoSeconds <= HYPERFRAMES_MAX_SECONDS) {
         try {
         return await renderViaHyperframes({
           projectId: id,
@@ -1268,6 +1274,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         } catch (hfErr) {
           console.error("[processProject] HyperFrames render gagal, fallback ke ffmpeg:", hfErr);
           autoFixLog.push({ step: "render_fallback", action: `HyperFrames gagal/timeout -> fallback ffmpeg (${String((hfErr as Error)?.message || hfErr).slice(0, 140)})`, result: "fallback" });
+        }
+        } else {
+          autoFixLog.push({ step: "render_routing", action: `video ~${Math.round(estVideoSeconds)}s > ${HYPERFRAMES_MAX_SECONDS}s: ffmpeg langsung (HyperFrames pasti lewat timeout worker)`, result: "routed_ffmpeg" });
         }
       }
       // PRD v1.1 §5 Final QC Checklist (2026-08-22) — jaring pengaman TERAKHIR sebelum render.
