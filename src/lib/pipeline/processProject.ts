@@ -748,6 +748,29 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // zoom/pan (imageToClip.ts, variasi otomatis per foto - bukan cuma zoom-in-center
     // spt versi lama yang TIDAK PERNAH benar-benar disambungkan ke pipeline manapun).
     // MEMPERLUAS pool sumber visual (24+44), bukan menggantikan mekanisme yang sudah ada.
+    // P1 #1 (2026-11-03): kurasi VIDEO segments pakai tag visual bank yg SAMA (spt foto) -
+    // hero segment = klip paling relevan hook/script, demote kamar mandi. sourceUrl video =
+    // footageBank.fileUrl (video TAK di-derive spt gambar) -> join tag aman. Dulu `selected`
+    // cuma urut skor/kronologis (abaikan tag visual); penting saat brollClips foto kosong
+    // (brand banyak video sedikit foto) -> hero = selected[0]. directFootageOrder cuma reorder
+    // (membership tetap -> top-up dedup di bawah tak terpengaruh).
+    if (!isStockFootage && selected.length > 1) {
+      const vidRows = await db
+        .select({ fileUrl: footageBank.fileUrl, tags: footageBank.tags })
+        .from(footageBank)
+        .where(and(eq(footageBank.brandId, project.brandId), eq(footageBank.mediaType, "video")));
+      const vidTags = new Map<string, string[]>();
+      for (const r of vidRows) {
+        let t: string[] = [];
+        try { const j = JSON.parse(r.tags); if (Array.isArray(j)) t = j.filter((x): x is string => typeof x === "string"); } catch { /* tag rusak -> kosong */ }
+        vidTags.set(r.fileUrl, t);
+      }
+      selected = directFootageOrder(selected, (s) => s.sourceUrl, vidTags, hookText || "", project.script || "");
+      // heroFootageTags (P3 QC): kalau hero NYATA dari video (foto bank bakal kosong) pakai tag
+      // video hero; blok foto di bawah MENIMPA dgn tag foto hero kalau ada foto (foto render duluan).
+      const vHeroTags = vidTags.get(selected[0]?.sourceUrl);
+      if (vHeroTags && vHeroTags.length) heroFootageTags = vHeroTags;
+    }
     if (!isStockFootage) {
       const bankPhotos = await db
         .select({ fileUrl: footageBank.fileUrl, tags: footageBank.tags })
