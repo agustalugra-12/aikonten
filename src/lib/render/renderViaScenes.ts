@@ -33,6 +33,27 @@ function firstSentences(text: string | null | undefined, n: number): string {
   return s.slice(0, n).join(" ");
 }
 
+// Cover title PENDEK-PUNCHY (fix 2026-11-03): hookText sering 1 kalimat panjang -> judul
+// Cover wrap 6 baris & kepotong (buildBoldCover font tetap, belum auto-fit). Ambil klausa
+// pertama (potong di tanda baca kuat), cap <=8 kata, buang kata-sambung di ujung (EN+ID)
+// biar tak ngegantung ("...cat that", "...yang"). Hook yg sudah pendek lewat apa adanya.
+const HOOK_STOP = new Set(["the", "a", "an", "of", "to", "and", "or", "that", "with", "for", "in", "on", "at", "is", "are", "was", "were", "as", "their", "its", "your", "not", "just", "how", "what", "dan", "dengan", "yang", "untuk", "di", "ke", "dari", "pada", "atau", "ini", "itu", "yg", "adalah", "akan"]);
+function coverTitle(raw: string): string {
+  const full = String(raw || "").trim();
+  const clause = (full.match(/^[^.!?—:;,]+/)?.[0] || full).trim();
+  const words = clause.split(/\s+/).filter(Boolean).slice(0, 8);
+  while (words.length > 2 && HOOK_STOP.has(words[words.length - 1].toLowerCase().replace(/[^a-z']/g, ""))) words.pop();
+  return words.join(" ") || full;
+}
+
+// Self-check (ponytail): jalankan manual `tsx -e` kalau ragu.
+export function _coverTitleDemo(): void {
+  const long = coverTitle("Success Discover the incredible hunting strategies of Smilodon, the iconic saber-toothed cat that ruled");
+  if (long !== "Success Discover the incredible hunting strategies of Smilodon") throw new Error("clause+cap gagal: " + long);
+  if (coverTitle("Kamar sejuk tanpa AC?") !== "Kamar sejuk tanpa AC") throw new Error("hook pendek harus lewat");
+  if (coverTitle("Promo kamar untuk") !== "Promo kamar") throw new Error("buang stopword ujung gagal");
+}
+
 // Petakan konten -> daftar scene {html, dur}. Selalu Cover + Closing; Stat kalau ada angka.
 function buildScenePlan(opts: ScenesRenderOpts): Array<{ html: string; dur: number }> {
   const orientation = opts.orientation || "portrait";
@@ -51,7 +72,7 @@ function buildScenePlan(opts: ScenesRenderOpts): Array<{ html: string; dur: numb
     dur: 4,
     html: buildBoldCover({
       orientation,
-      title: opts.hookText || firstSentences(opts.caption, 1) || opts.brandName || "Konten",
+      title: coverTitle(opts.hookText || firstSentences(opts.caption, 1) || opts.brandName || "Konten"),
       eyebrow: mark,
       tagline: firstSentences(opts.caption, 1).slice(0, 140),
       mark,
