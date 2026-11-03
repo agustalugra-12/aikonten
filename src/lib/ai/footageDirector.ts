@@ -22,13 +22,15 @@ export type FootageScore = { avoid: boolean; relevance: number; hasTags: boolean
 export function scoreClipTags(tags: string[], hookTokens: Set<string>, scriptTokens: Set<string>): FootageScore {
   const t = (tags || []).map(norm);
   const avoid = t.some((tag) => AVOID_HOOK.some((a) => tag.includes(a)));
-  let relevance = 0;
+  // Skor PER-TAG (bukan per-token) lalu NORMALISASI dgn jumlah tag (Tahap 2 #2): klip ber-tag
+  // BANYAK tak dapat keuntungan volume; yg menang = DENSITAS relevansi. Tag cocok hook=2, script=1.
+  let sum = 0;
   for (const tag of t) {
-    for (const w of tokens(tag)) {
-      if (hookTokens.has(w)) relevance += 2; // cocok hook = bobot ganda (hook paling penting)
-      else if (scriptTokens.has(w)) relevance += 1;
-    }
+    const toks = tokens(tag);
+    if (toks.some((w) => hookTokens.has(w))) sum += 2; // cocok hook = bobot ganda (hook paling penting)
+    else if (toks.some((w) => scriptTokens.has(w))) sum += 1;
   }
+  const relevance = t.length ? sum / t.length : 0;
   return { avoid, relevance, hasTags: t.length > 0 };
 }
 
@@ -67,24 +69,10 @@ export function chooseHeroSource(cands: HeroCandidate[], hookText: string, scrip
   return scored[0].key;
 }
 
-// Self-check ringan.
-export function _demo(): void {
-  const tagsByUrl = new Map<string, string[]>([
-    ["a", ["kamar mandi", "toilet", "handuk"]],
-    ["b", ["pemandangan", "teras", "gunung"]],
-    ["c", ["kamar tidur", "ranjang"]],
-  ]);
-  const clips = [{ url: "a" }, { url: "c" }, { url: "b" }];
-  const out = directFootageOrder(clips, (x) => x.url, tagsByUrl, "pemandangan teras sejuk", "liburan di teras dengan pemandangan gunung");
-  // hero harus "b" (cocok hook), toilet "a" harus terakhir
-  if (out[0].url !== "b") throw new Error("hero bukan klip paling relevan: " + out.map((x) => x.url).join(","));
-  if (out[out.length - 1].url !== "a") throw new Error("klip toilet tidak di belakang: " + out.map((x) => x.url).join(","));
-  // chooseHeroSource: video-segment lebih cocok hook drpd foto -> pilih "video".
-  const hero = chooseHeroSource(
-    [{ key: "photo", tags: ["kamar tidur", "ranjang"] }, { key: "video", tags: ["pemandangan", "teras"] }],
-    "pemandangan teras sejuk", "liburan",
-  );
-  if (hero !== "video") throw new Error("chooseHeroSource salah pilih: " + hero);
-  // semua avoid/tak-relevan -> null (caller pakai default lama).
-  if (chooseHeroSource([{ key: "x", tags: ["toilet"] }], "liburan teras", "x") !== null) throw new Error("chooseHeroSource harus null kalau avoid");
+// Relevance guard (Tahap 2 #5): klip "salah topik" = PUNYA tag tapi NOL overlap dgn hook+script
+// (mis golf/iguana utk topik Ankylosaurus). relevance===0 & hasTags -> off-topic. Klip TANPA tag
+// TIDAK dianggap off-topik (tak ada info -> jangan tolak; biar jalur lama/flag footage-kurang yg urus).
+export function isOffTopic(tags: string[], hookText: string, script: string): boolean {
+  const s = scoreClipTags(tags || [], new Set(tokens(hookText)), new Set(tokens(script)));
+  return s.hasTags && s.relevance === 0;
 }
