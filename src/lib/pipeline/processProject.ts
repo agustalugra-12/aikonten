@@ -1023,14 +1023,17 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // dibacakan, lihat generateCaptionAndHashtags).
     const narrationText = youtubeMeta ? project.script! : caption;
     const totalDuration = currentTotalDuration();
-    const voiceoverBuffer = await generateVoiceover(narrationText, brandKitVoice(brand?.brandKit));
-    let srt: string;
+    // Engine "scenes" (HyperFrames Pro): video frame-desain MUSIK-ONLY - tak pakai voiceover/
+    // subtitle. Skip TTS + Whisper (hemat biaya tiap konten Desain; dulu digenerate lalu dibuang).
+    const isScenesEngine = brandKitRenderEngine(brand?.brandKit) === "scenes";
+    const voiceoverBuffer = isScenesEngine ? Buffer.alloc(0) : await generateVoiceover(narrationText, brandKitVoice(brand?.brandKit));
+    let srt: string = "";
     // wordTimings (2026-08-10, Subtitle Designer) - dari transkripsi yg SAMA (1
     // panggilan Whisper, tidak ada biaya tambahan) - dipakai renderFinalVideo utk
     // caption "kata per kata" gaya TikTok/YT Shorts. Kosong = fallback ke srt statis
     // di bawah (ffmpeg.ts otomatis pakai jalur non-animasi kalau ini kosong).
     let wordTimings: Awaited<ReturnType<typeof transcribeAudioBuffer>>["words"] = [];
-    try {
+    if (!isScenesEngine) try {
       const transcription = await transcribeAudioBuffer(voiceoverBuffer);
       srt = buildSrtFromTranscriptSegments(transcription.segments);
       // Fix "00 00" (2026-11-03): Whisper kadang mendigitalkan ulang angka ucapan (mis
@@ -1403,7 +1406,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     const POST_RENDER_DURATION_TOLERANCE_SECONDS = 120;
     // Engine "scenes" (HyperFrames Pro): video frame-desain SENGAJA pendek (~10dtk), bukan
     // narasi footage panjang - QC durasi minimum long-form tak berlaku.
-    const isScenesEngine = brandKitRenderEngine(brand?.brandKit) === "scenes";
+    // (isScenesEngine sudah dihitung di atas, sebelum blok VO - skip TTS/Whisper utk scenes)
     if (!isScenesEngine && rendered.durationSeconds < effectiveMinDuration - POST_RENDER_DURATION_TOLERANCE_SECONDS) {
       throw new Error(
         `Video hasil render cuma ${rendered.durationSeconds} detik, di bawah minimum ` +
