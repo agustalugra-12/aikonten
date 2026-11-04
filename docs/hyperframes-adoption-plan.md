@@ -322,3 +322,40 @@ Contoh false reject: Animal "water buffalo"/"dolphins swimming"/"ants on leaf" D
 ### RENCANA DEPLOY (observe) + ROLLBACK (saat wiring selesai & disetujui)
 - Deploy: merge feat/hf-adoption -> saas-multitenant -> kontenpilot-saas stop+rm .next+build+restart. Default mode=observe -> NOL perubahan footage, hanya log -> aman diamati di prod.
 - Rollback: revert commit wiring atau checkout 45fd784 + rebuild. Mode observe juga bisa dimatikan via config brand tanpa redeploy (kalau diimplementasikan sbg brandKit flag).
+
+---
+
+## CHECKPOINT — plural/unknown-reel selesai; frame-label; wiring BELUM (2026-11-04)
+
+**Commit:** `ccf9ab0` (plural #1 + unknown-reel #2). Branch feat/hf-adoption.
+
+### Part 1-3 SELESAI (22 tes PASS, tsc rc=0)
+- #1 `singular()` plural->singular (dolphins=dolphin, towels=towel, ants=ant) di canonTokens + kwHits.
+- #2 guard stok: buang HANYA forbidden / kategori-DIKENAL-di-luar-domain; UNKNOWN (water buffalo, steaming shirt) -> REEL (benefit of doubt) TAPI heroOK=false (tak jadi hero).
+- #3 tes water buffalo / dolphins / ants / steaming shirt / towels / golf.
+
+### Part 4 FRAME-LABEL (jujur): 6 dari 11/12 berhasil (HD timeout); label-frame vs slug:
+1 buffalo [Animal reel] frame=kerbau OK-slug (v3 benar: reel, dulu false-reject)
+3 ants [Animal reel] frame=tanah (semut samar) slug longgar; reel OK
+5 clothesline [agustap reel] frame=jemuran pedesaan OK-slug; reel ambient
+7 choosing-clothes [agustap reel] frame=tangan pilih baju OK-slug; reel
+9 laundry-roller [laundry HERO] frame=mesin laundry industrial OK-slug; HERO BENAR
+11 hanging-laundry [laundry HERO] frame=cucian digantung OK-slug; HERO BENAR
+=> 2 hero terverifikasi frame = BENAR (tak ada false accept di keduanya). TIDAK diklaim false-accept=0 global (cuma 6 frame; sisanya gagal ekstrak). Slug akurat 5/6 (ants longgar).
+
+### Part 5-6 WIRING (BELUM - refactor besar processProject, konteks tipis)
+Gate: brand-tak-dibuang OK; false-accept-hero=0 (bukti frame 2 hero BENAR, forbidden selalu drop). Lanjut wiring default OBSERVE (aman).
+RENCANA:
+- Thread per-brand DOMAIN (map brand->profile: homestay=hospitality, laundry=laundry, animal story=animal, agustap=business; default universal) + source/tags/probe(slugFromSourceUrl utk stok, tags/description utk brand) ke SETIAP klip saat footage-assembly (processProject ~711-943). Brand foto-hasil: source=brand + tag/description ASLI (bukan url mp4 derived).
+- Satu `planHeroAndClips(cands, hook, script, {domain})` SEBELUM editorialPreflight -> plan.
+- QC (editorialPreflight pakai plan.heroTags), render (reorder clips per plan.order, hero=order[0]), fallback ffmpeg: SEMUA pakai plan SAMA.
+- MODE per-brand (brandKit.footageGuardMode): observe(DEFAULT, hanya log plan+dropped, TAK ubah footage) | hero-only(hero dari plan, reel tak dibuang) | full(guard penuh + cap repeat 2x via planFootageSufficiency + flag footage kurang).
+- Hapus `chooseHeroSource` + blok wiring 505081c.
+- Re-search otomatis BELUM wajib: log status need_replacement.
+
+### DEPLOY (observe) + ROLLBACK
+- Deploy: merge feat/hf-adoption -> saas-multitenant -> kontenpilot-saas stop+rm .next+build+restart. Default observe -> NOL ubah footage, hanya log -> aman diamati di prod.
+- Rollback: revert commit wiring / checkout 45fd784 + rebuild. Mode = brandKit flag -> bisa dimatikan tanpa redeploy.
+
+### SARAN sebelum mode full
+Perbaikan v3 (plural+unknown-reel) sudah kurangi false-reject besar. Masih: perluas lexicon (buffalo/stingray/shirt opsional - unknown sudah ke reel), ukur ulang golden set stlh wiring observe kumpulkan data nyata.
