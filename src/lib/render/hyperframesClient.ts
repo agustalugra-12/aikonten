@@ -7,18 +7,29 @@
 // FLAG OFF (default) -> jalur lama postRender apa adanya (IDENTIK produksi). FLAG ON -> fair-queue per tenant
 // (antre adil, bukan langsung fallback) + idempotency (anti render ganda) + slot-timeout + retry transient.
 import http from "node:http";
-import { FairScheduler, InFlightRegistry, makeJobId, runWithSlotTimeout, nextRetryDelayMs, isRetriable, isQueueTimeout } from "./workerQueue";
+import { FairScheduler, InFlightRegistry, makeJobId, runWithSlotTimeout, nextRetryDelayMs, isRetriable, isQueueTimeout, isQueueFull } from "./workerQueue";
 
-const RENDER_URL = process.env.HYPERFRAMES_RENDER_URL || "http://127.0.0.1:3400";
+const renderUrl = () => process.env.HYPERFRAMES_RENDER_URL || "http://127.0.0.1:3400"; // call-time (env bisa di-set belakangan/tes)
 const SECRET = process.env.HYPERFRAMES_RENDER_SECRET || "";
 const RENDER_DEADLINE_MS = Number(process.env.HYPERFRAMES_RENDER_DEADLINE_MS) || 28 * 60 * 1000;
 // Timeout render worker (server.mjs RENDER_TIMEOUT_MS). Deadline client WAJIB > ini supaya worker SEHAT
 // sempat balas 500 duluan, dan (selama /cancel belum ada) slot tak dianggap bebas sebelum timeout worker lewat.
 const WORKER_RENDER_TIMEOUT_MS = Number(process.env.HYPERFRAMES_WORKER_TIMEOUT_MS) || 25 * 60 * 1000;
 const RETRY_CFG = { maxAttempts: 2, baseMs: 1500, capMs: 8000 };
+// DASAR ANGKA (2026-11-04): HyperFrames hanya me-render video <=210s (HYPERFRAMES_MAX_SECONDS di
+// processProject; di atas itu ffmpeg langsung). Jalur SDR ~4.8fps -> 210s@30fps = 6300 frame / 4.8 =~ 22 menit
+// (mendekati cap worker 25min); video ~60s =~ 6 menit. Jadi render TIPIKAL ~6 menit, WORST ~22-25 menit.
+export const TYPICAL_RENDER_MS = 6 * 60 * 1000;   // referensi tes "dua render 6 menit tidak fallback"
+// Default queue-timeout = cap worker 25min: satu job boleh menunggu selama ~satu render WORST-CASE di
+// depannya (lebih dari itu, job di depan sendiri sudah kena timeout worker -> slot bebas). 5min lama terlalu
+// agresif (jatuh ke ffmpeg walau antrean normal). Batas antrean (QUEUE_MAX) yg mencegah tunggu tanpa batas.
+export const QUEUE_TIMEOUT_DEFAULT_MS = 25 * 60 * 1000;
+// Batas job MENUNGGU: ~queueTimeout/tipikal (25/6 =~ 4) + margin. Penuh -> tolak cepat (fallback), tak numpuk.
+export const QUEUE_MAX_DEFAULT = 8;
 // Dibaca saat CALL (bukan module-load) -> testable toggle; prod set via systemd env.
 const queueEnabled = () => process.env.HYPERFRAMES_QUEUE_ENABLED === "1" || process.env.HYPERFRAMES_QUEUE_ENABLED === "true";
-const queueTimeoutMs = () => Number(process.env.HYPERFRAMES_QUEUE_TIMEOUT_MS) || 5 * 60 * 1000;
+const queueTimeoutMs = () => Number(process.env.HYPERFRAMES_QUEUE_TIMEOUT_MS) || QUEUE_TIMEOUT_DEFAULT_MS;
+const queueMax = () => Number(process.env.HYPERFRAMES_QUEUE_MAX) || QUEUE_MAX_DEFAULT;
 
 // Singleton per-proses: render SATU per satu (serial, cocok worker) + registry in-flight (dedup).
 const scheduler = new FairScheduler(Number(process.env.HYPERFRAMES_MAX_CONCURRENT) || 1);
@@ -31,7 +42,7 @@ export type RenderQueueOpts = { tenantId: string; projectId: string; contentHash
 // supaya renderWithRetry TIDAK me-retry timeout render (mahal, cenderung berulang).
 function postRender(html: string, meta: { id?: string; name?: string } | undefined, opts: { deadlineMs: number; url?: string; signal?: AbortSignal }): Promise<Buffer> {
   const deadlineMs = opts.deadlineMs;
-  const u = new URL(opts.url || RENDER_URL);
+  const u = new URL(opts.url || renderUrl());
   const payload = JSON.stringify({ html, meta: meta || { id: "app", name: "app" } });
   return new Promise<Buffer>((resolve, reject) => {
     let settled = false;
@@ -132,10 +143,11 @@ async function scheduleAndRender(tenantId: string, renderDeadlineMs: number, url
         if (slot.ok) return slot.value;
         throw slot.error;
       },
-      { queueTimeoutMs: queueTimeoutMs(), onDequeue: (waitedMs) => log?.("render_queue", `antre ${waitedMs}ms`, "dequeued") },
+      { queueTimeoutMs: queueTimeoutMs(), maxWaiting: queueMax(), onDequeue: (waitedMs) => log?.("render_queue", `antre ${waitedMs}ms`, "dequeued") },
     );
   } catch (e) {
-    if (isQueueTimeout(e)) log?.("render_queue", `antre > ${queueTimeoutMs()}ms -> fallback ffmpeg`, "queue_timeout");
+    if (isQueueFull(e)) log?.("render_queue", `antrean penuh (>= ${queueMax()}) -> fallback ffmpeg`, "queue_full");
+    else if (isQueueTimeout(e)) log?.("render_queue", `antre > ${queueTimeoutMs()}ms -> fallback ffmpeg`, "queue_timeout");
     else log?.("render_queue", `gagal: ${String((e as Error)?.message || e).slice(0, 120)} -> fallback ffmpeg`, "fallback");
     throw e; // -> renderViaHyperframes catch -> processProject fallback ffmpeg (perilaku aman existing)
   }

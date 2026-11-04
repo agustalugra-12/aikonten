@@ -81,7 +81,12 @@ const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
   assert.strictEqual(nextRetryDelayMs(0, { maxAttempts: 2, baseMs: 1500, capMs: 8000 }), 1500);
   assert.strictEqual(nextRetryDelayMs(2, { maxAttempts: 2, baseMs: 1500, capMs: 8000 }), null, "retry habis -> fallback");
   assert.strictEqual(isRetriable("timeout", new Error("slot timeout")), false, "timeout TIDAK di-retry (anti render ganda mahal)");
-  assert.strictEqual(isRetriable("error", new Error("socket hang up")), true, "transient boleh retry");
+  // Pre-worker SAJA (idempoten-aman): ECONNREFUSED + 502/503. Lainnya (bisa after-request) TIDAK.
+  assert.strictEqual(isRetriable("error", new Error("connect ECONNREFUSED 127.0.0.1:3400")), true, "ECONNREFUSED (pre-worker) boleh retry");
+  assert.strictEqual(isRetriable("error", new Error("HyperFrames render gagal (503): ...")), true, "503 tunnel boleh retry");
+  assert.strictEqual(isRetriable("error", new Error("socket hang up")), false, "socket hang up (bisa after-request) TIDAK di-retry");
+  assert.strictEqual(isRetriable("error", new Error("read ECONNRESET")), false, "ECONNRESET TIDAK di-retry");
+  assert.strictEqual(isRetriable("error", new Error("HyperFrames render gagal (504): ...")), false, "504 gateway-timeout TIDAK di-retry");
   ok("fallback: budget/estimasi-tunggu/retry-habis; timeout no-retry");
 }
 

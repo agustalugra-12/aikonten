@@ -3,6 +3,7 @@
 // -> render tiap scene di worker -> ffmpeg concat (xfade) + musik -> R2. MUSIK-ONLY (tanpa voiceover;
 // frame desain bawa pesan visual). Return {videoUrl,durationSeconds} sama bentuk renderFinalVideo.
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { writeFile, readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +25,7 @@ export type ScenesRenderOpts = {
   musicUrl?: string | null;
   brollClips?: Array<{ videoUrl: string; durationSeconds: number }>; // footage brand utk hybrid
   captions?: string[]; // frasa caption footage-scene (dari emphasisPhrases)
+  onQueueEvent?: (step: string, action: string, result: string) => void; // Gerbang 2: log antre/render (flag-gated)
 };
 
 const XFADE = 0.4;
@@ -155,7 +157,15 @@ export async function renderViaScenes(opts: ScenesRenderOpts): Promise<{ videoUr
     const files: string[] = [];
     const durs: number[] = [];
     for (let i = 0; i < scenes.length; i++) {
-      const buf = await renderComposition(scenes[i].html, { id: `${opts.projectId}-s${i}`, name: `scene${i}` });
+      // Gerbang 2 (req2): tiap scene lewat ANTREAN yg sama (brand+project+contentHash PER ADEGAN) -> satu
+      // video scenes (N render) ikut fair-scheduler per tenant, tak memonopoli worker tanpa batas.
+      // Flag off -> renderComposition abaikan queueOpts (jalur lama, IDENTIK).
+      const buf = await renderComposition(
+        scenes[i].html,
+        { id: `${opts.projectId}-s${i}`, name: `scene${i}` },
+        undefined,
+        { tenantId: opts.brandId, projectId: `${opts.projectId}-s${i}`, contentHash: createHash("sha256").update(scenes[i].html).digest("hex").slice(0, 16), log: opts.onQueueEvent },
+      );
       const f = join(dir, `s${i}.mp4`);
       await writeFile(f, buf);
       files.push(f);

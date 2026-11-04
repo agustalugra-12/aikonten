@@ -1295,6 +1295,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           musicUrl,
           brollClips,
           captions: emphasisPhrases,
+          onQueueEvent: (step, action, result) => autoFixLog.push({ step, action, result }), // Gerbang 2: antre scenes
         });
       }
       if (brandKitRenderEngine(brand?.brandKit) === "hyperframes") {

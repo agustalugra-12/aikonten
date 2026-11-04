@@ -76,10 +76,14 @@ export function nextRetryDelayMs(attempt: number, opts: { maxAttempts: number; b
   const d = opts.baseMs * Math.pow(2, attempt);
   return Math.min(d, opts.capMs ?? d);
 }
+// Retry HANYA kegagalan yg PASTI sebelum worker menerima job (idempoten-aman): koneksi ditolak
+// (ECONNREFUSED) atau tunnel/proxy menolak sebelum meneruskan (502/503). JANGAN retry ECONNRESET,
+// "socket hang up", ETIMEDOUT, 504, atau timeout: koneksi bisa putus SETELAH request terkirim -> worker
+// mungkin sedang/sudah render -> retry = risiko render ganda.
 export function isRetriable(reason: "timeout" | "error", err: unknown): boolean {
   if (reason === "timeout") return false;
   const msg = String((err as Error)?.message || err).toLowerCase();
-  return /econnreset|econnrefused|etimedout|socket hang up|502|503|504|tunnel/.test(msg);
+  return /econnrefused/.test(msg) || /\b(502|503)\b/.test(msg);
 }
 
 // (kuota per tenant ADIL - antre, bukan langsung fallback) Scheduler round-robin lintas tenant + batas
@@ -124,8 +128,14 @@ export class FairScheduler {
   }
   // opts.queueTimeoutMs: kalau job tak dapat giliran dalam waktu itu -> cancel + reject {__queueTimeout}
   // (pemanggil fallback ffmpeg). opts.onDequeue(waitedMs): dipanggil saat mulai jalan (catat waktu antre).
-  schedule<T>(tenantId: string, task: () => Promise<T>, opts?: { queueTimeoutMs?: number; onDequeue?: (waitedMs: number) => void }): Promise<T> {
+  schedule<T>(tenantId: string, task: () => Promise<T>, opts?: { queueTimeoutMs?: number; onDequeue?: (waitedMs: number) => void; maxWaiting?: number }): Promise<T> {
     return new Promise<T>((resolve, reject) => {
+      // Batas antrean (req1): kalau job yg MENUNGGU sudah penuh, tolak segera (fallback) drpd menumpuk
+      // tanpa batas. Job yg sedang JALAN tak dihitung (hanya yg antre).
+      if (opts?.maxWaiting != null && this.waitingCount() >= opts.maxWaiting) {
+        reject(Object.assign(new Error(`queue full (>= ${opts.maxWaiting} menunggu)`), { __queueFull: true }));
+        return;
+      }
       const enqueuedAt = Date.now();
       let qTimer: ReturnType<typeof setTimeout> | undefined;
       const entry: SchedEntry = { cancelled: false, start: () => { /* diisi di bawah */ } };
@@ -147,3 +157,4 @@ export class FairScheduler {
 }
 
 export function isQueueTimeout(err: unknown): boolean { return (err as { __queueTimeout?: boolean })?.__queueTimeout === true; }
+export function isQueueFull(err: unknown): boolean { return (err as { __queueFull?: boolean })?.__queueFull === true; }

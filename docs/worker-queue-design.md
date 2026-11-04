@@ -38,7 +38,7 @@ mahal + cenderung berulang) → langsung fallback.
 
 ## Kebijakan retry
 `nextRetryDelayMs(attempt, {maxAttempts, baseMs, capMs})` exponential backoff di-cap; habis → `null` → fallback.
-Hanya transient (ECONNRESET/5xx/tunnel) via `isRetriable`. Default usul: `maxAttempts=2, baseMs=1500, capMs=8000`.
+Hanya kegagalan PRE-WORKER via `isRetriable` (lihat Revisi di bawah: `ECONNREFUSED`+`502/503` saja — BUKAN ECONNRESET/socket-hang-up/timeout). Default: `maxAttempts=2, baseMs=1500, capMs=8000`.
 
 ## Interaksi fallback ffmpeg (aman, sudah ada di processProject)
 Bermuara ke fallback ffmpeg existing: `proceed=false` (budget), `estimateWaitMs>budget`, `reason:"timeout"/"error"`,
@@ -57,3 +57,10 @@ retry habis (`null`). Nol perubahan perilaku observe/engine ffmpeg.
 - `/cancel` belum ada di worker → sampai ditambah (gated), timeout hanya abort client; proses worker lama masih
   menahan slot serial sampai 25min. Mitigasi penuh = langkah worker di atas (perlu Gerbang + akses VPS).
 - `maxConcurrent` harus cocok dengan kapasitas worker serial (1). Salah set → kelebihan antre/timeout.
+
+## Revisi (2026-11-04): dasar angka queue-timeout + batas antrean + retry dipersempit + scenes
+- **Dasar durasi render:** HyperFrames hanya me-render video <=210s (`HYPERFRAMES_MAX_SECONDS`, processProject; di atas itu ffmpeg langsung). Jalur SDR ~4.8fps: 210s@30fps = 6300 frame / 4.8 =~ **22 menit** (mendekati cap worker 25min); video ~60s = 1800/4.8 =~ **6 menit**. Jadi render TIPIKAL ~6 menit, WORST ~22-25 menit.
+- **Default `HYPERFRAMES_QUEUE_TIMEOUT_MS` = 25 menit** (dulu 5min terlalu agresif -> antrean normal jatuh ke ffmpeg). Basis: satu job boleh menunggu ~satu render worst-case di depannya; lebih dari itu, job di depan sudah kena timeout worker -> slot bebas. `QUEUE_TIMEOUT_DEFAULT_MS >= 2x render tipikal 6min` (diuji numerik).
+- **Batas antrean `HYPERFRAMES_QUEUE_MAX` = 8** job MENUNGGU (basis: queueTimeout/tipikal = 25/6 =~ 4 + margin). Penuh -> tolak cepat (`__queueFull` -> fallback), bukan menunggu tanpa batas.
+- **Retry dipersempit (idempoten-aman):** HANYA `ECONNREFUSED` + `502/503` (pre-worker/tunnel menolak sebelum meneruskan). BUKAN `ECONNRESET`, `socket hang up`, `ETIMEDOUT`, `504`, atau timeout -> koneksi bisa putus SETELAH request terkirim (worker mungkin sedang render) -> retry = risiko render ganda.
+- **renderViaScenes ikut antrean:** tiap adegan di-render via `renderComposition` dengan queueOpts (brand + `${projectId}-s{i}` + contentHash per adegan) -> N render satu video scenes ikut fair-scheduler per tenant -> tak memonopoli worker tanpa batas.
