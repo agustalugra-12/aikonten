@@ -359,3 +359,49 @@ RENCANA:
 
 ### SARAN sebelum mode full
 Perbaikan v3 (plural+unknown-reel) sudah kurangi false-reject besar. Masih: perluas lexicon (buffalo/stingray/shirt opsional - unknown sudah ke reel), ukur ulang golden set stlh wiring observe kumpulkan data nyata.
+
+---
+
+## Checkpoint Part 5-6: WIRING guard footage (2026-11-04, commit 4dc326d)
+
+**Status: SELESAI.** Belum deploy/merge (prod tetap 45fd784). tsc rc=0, 25/25 tes PASS.
+
+### Yang dikerjakan (sesuai 7 poin)
+1. **Bawa source/tag/description/slug/domain ke setiap klip.** Kandidat dibangun di processProject
+   sebelum closure render: broll ber-`sourceUrl` = `stock` (skor via `slugFromSourceUrl` = isi klip);
+   broll foto-derive + segment bank = `brand` dgn tag ASLI (map `photoClipTagByUrl` by videoUrl +
+   `brandVidTags` by sourceUrl, dihoist ke scope fungsi). Domain dari `brandKit.footageDomain`.
+2. **Satu `planHeroAndClips` sebelum `editorialPreflight`.** Dihitung SEKALI sebelum closure
+   `renderWithSubtitles` -> dipakai render HyperFrames + fallback ffmpeg + editorialPreflight
+   (`heroFootageTags`). Tidak ada perhitungan hero ganda.
+3. **Hapus `chooseHeroSource`, `heroFromSegments`, `noSafeHero`, wiring 505081c.** Bukti:
+   `grep -rn "chooseHeroSource\|HeroCandidate\|heroFromSegments\|noSafeHero" src/ scripts/` = NONE.
+   `hyperframesRender` kini selalu broll-dulu-lalu-segment (urutan 45fd784), param heroFromSegments dibuang.
+4. **`brandKit.footageGuardMode`: observe | hero-only | full. Default observe.** Nilai tak dikenal -> observe.
+5. **Observe = identik 45fd784 + log.** Mode observe: `applyFootageGuard` return `changed:false`,
+   footage/segments/heroTags/QC/render/fallback TIDAK diubah. Hanya push `autoFixLog`
+   `step:"footage_guard"` berisi hero, dropped (+alasan per sumber), kecukupan footage, domain.
+6. **hero-only & full dibuat tapi tak aktif tanpa setting brand.** Blok apply hanya jalan kalau
+   `guardMode !== "observe"`; default observe -> jalur ini MATI di prod. (ponytail: reorder dalam
+   masing-masing daftar; hero lintas-sumber ke posisi-0 perlu unified clip list, ditunda sampai ada
+   brand aktifkan mode -> lihat komentar kode.)
+7. **Tes.** `applyFootageGuard` = fungsi murni. verify-hero-selection.ts tes 23 (observe tak ubah
+   order/heroTags, changed=false), 24 (hero-only: hero depan, reel utuh), 25 (full: plan.order dipakai,
+   dropped dibuang). Total 25/25 PASS.
+
+### File berubah
+- `src/lib/ai/footageDirector.ts` — hapus shim `chooseHeroSource`; tambah `GuardMode` + `applyFootageGuard` (pure).
+- `src/lib/pipeline/processProject.ts` — hoist tag maps; 1 footagePlan+log+apply sebelum closure; hapus blok 505081c.
+- `src/lib/render/hyperframesRender.ts` — hapus `heroFromSegments` (selalu broll-lalu-seg).
+- `scripts/verify-hero-selection.ts` — +3 tes mode.
+
+### Rencana deploy OBSERVE (saat disetujui)
+1. merge `feat/hf-adoption` -> `saas-multitenant`; `kontenpilot-saas` ff-merge.
+2. stop + `rm -rf .next` + build + restart; health 200.
+3. Default observe -> NOL perubahan footage/QC/render. Amati log `step:"footage_guard"` beberapa hari di
+   semua tenan (hero/dropped/kecukupan/domain) tanpa risiko regresi visual.
+4. Baru setelah data observe sehat: aktifkan hero-only/full per-brand (brandKit) + set footageDomain per brand.
+
+### Rollback
+- `git revert 4dc326d` (atau checkout 45fd784) + rebuild -> kembali ke prod sekarang.
+- Per-brand: hapus `brandKit.footageGuardMode` -> otomatis observe (nol-ubah). Tanpa redeploy.
