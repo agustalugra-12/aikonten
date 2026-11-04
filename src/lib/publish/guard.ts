@@ -68,15 +68,15 @@ export function applyQuota<T extends { id: string; brandId: string }>(cands: T[]
 }
 
 // === #6 Budget 30 hari (lindungi plan Buffer ~2000/bln). used30d = jumlah call Buffer 30hr (proxy: publish_logs). ===
-export type BudgetCfg = { monthly: number; reserve: number };
+export type BudgetCfg = { per30d: number; reserve: number }; // budget TEKNIS Buffer per token per 30 hari (bukan kuota paket)
 export function defaultBudgetCfg(env: Record<string, string | undefined> = process.env): BudgetCfg {
-  return { monthly: numEnv(env.BUFFER_MONTHLY_BUDGET, 2000), reserve: numEnv(env.BUFFER_BUDGET_RESERVE, 150) };
+  return { per30d: numEnv(env.BUFFER_TOKEN_BUDGET_30D, 2000), reserve: numEnv(env.BUFFER_BUDGET_RESERVE, 150) };
 }
 export type BudgetVerdict = { remaining: number; allowNewPublish: boolean; allowRetry: boolean; allowNonEssential: boolean };
 // Prioritas: publish BARU jalan selama masih ada sisa; retry & call nonesensial (analytics/verify) BERHENTI
 // begitu sisa <= reserve -> sisakan anggaran utk konten baru, bukan dihabiskan retry/analytics.
 export function budgetVerdict(used30d: number, cfg: BudgetCfg): BudgetVerdict {
-  const remaining = cfg.monthly - used30d;
+  const remaining = cfg.per30d - used30d;
   return { remaining, allowNewPublish: remaining > 0, allowRetry: remaining > cfg.reserve, allowNonEssential: remaining > cfg.reserve };
 }
 
@@ -101,18 +101,25 @@ export function isInCooldown(cooldownUntilMs: number | null | undefined, nowMs: 
 
 // === #7 Kuota HARIAN per brand/akun (di atas kuota siklus). count24h dari publish_logs sukses 24 jam. ===
 export type DailyCfg = { maxPerBrandPerDay: number; maxPerAccountPerDay: number };
-// Diselaraskan dgn kuota BULANAN 20/brand (#3): default harian 5 (≈ sebar 20/bln tanpa burst 1 hari).
+// Kuota harian BISNIS - HANYA brand INTERNAL (owner users.unlimited). Pelanggan eksternal TIDAK dikuota harian
+// di publish (mereka dibatasi kredit paket saat GENERATE; publish tak memotong kredit). Default 20/hari.
 export function defaultDailyCfg(env: Record<string, string | undefined> = process.env): DailyCfg {
-  return { maxPerBrandPerDay: numEnv(env.PUBLISH_MAX_PER_BRAND_DAY, 5), maxPerAccountPerDay: numEnv(env.PUBLISH_MAX_PER_ACCOUNT_DAY, 5) };
+  return { maxPerBrandPerDay: numEnv(env.PUBLISH_MAX_PER_BRAND_DAY, 20), maxPerAccountPerDay: numEnv(env.PUBLISH_MAX_PER_ACCOUNT_DAY, 20) };
 }
 export function dailyBrandExceeded(brandCount24h: number, cfg: DailyCfg): boolean { return brandCount24h >= cfg.maxPerBrandPerDay; }
 
-// #3 Kuota BULANAN per brand (ceiling di atas harian). Default 20 publish/brand/30hr (PUBLISH_MAX_PER_BRAND_MONTH).
-export type MonthlyCfg = { maxPerBrandPerMonth: number };
-export function defaultMonthlyCfg(env: Record<string, string | undefined> = process.env): MonthlyCfg {
-  return { maxPerBrandPerMonth: numEnv(env.PUBLISH_MAX_PER_BRAND_MONTH, 20) };
+// PUBLISH_QUOTA_START_AT (ISO / epoch ms): titik mulai hitung kuota harian internal & baseline teknis
+// (ledger budget). Window efektif = max(now - window, startAt) -> riwayat sebelum aktivasi tidak menghukum.
+export function quotaStartMs(env: Record<string, string | undefined> = process.env): number | null {
+  const v = env.PUBLISH_QUOTA_START_AT;
+  if (!v) return null;
+  const t = /^\d+$/.test(v) ? Number(v) : Date.parse(v);
+  return Number.isFinite(t) ? t : null;
 }
-export function monthlyBrandExceeded(brandSuccess30d: number, cfg: MonthlyCfg): boolean { return brandSuccess30d >= cfg.maxPerBrandPerMonth; }
+export function windowStartMs(nowMs: number, windowMs: number, env: Record<string, string | undefined> = process.env): number {
+  const start = quotaStartMs(env);
+  return Math.max(nowMs - windowMs, start ?? -Infinity);
+}
 
 // === #8 Jalankan siklus publish TERURUT; berhenti SEGERA pada breaker (token/rate), jangan coba kandidat lain. ===
 export type PublishOutcome = { ok: boolean; bufferError?: string | null };

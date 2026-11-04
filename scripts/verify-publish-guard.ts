@@ -64,7 +64,7 @@ ok("batas usia & kuota bisa diatur via env");
 // === BAGIAN 2 ===
 // 10. Budget 30 hari: default 2000; berhenti retry/nonessential sebelum limit, publish baru tetap jalan.
 const bcfg = defaultBudgetCfg({});
-assert.strictEqual(bcfg.monthly, 2000);
+assert.strictEqual(bcfg.per30d, 2000, "budget teknis Buffer per token 30hr");
 { const v = budgetVerdict(100, bcfg); assert.ok(v.allowNewPublish && v.allowRetry && v.allowNonEssential, "pemakaian rendah -> semua boleh"); }
 { const v = budgetVerdict(2000 - 50, bcfg); assert.ok(v.allowNewPublish && !v.allowRetry && !v.allowNonEssential, "sisa<=reserve -> retry/nonessential STOP, publish baru tetap"); }
 { const v = budgetVerdict(2000, bcfg); assert.ok(!v.allowNewPublish && !v.allowRetry, "budget habis -> semua stop"); }

@@ -6,6 +6,7 @@ import { db, sqlite } from "@/db";
 import { bufferCallLedger, bufferTokenState } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { LEDGER_TABLES } from "./ledgerSchema";
+import { windowStartMs } from "./guard";
 
 export type BufferCallKind = "createPost" | "duplicateCheck" | "verify" | "sweep" | "analytics" | "channels" | "tokenCheck" | "delete";
 
@@ -53,7 +54,8 @@ export async function recordBufferCall(kind: BufferCallKind, token: string | nul
 
 // Hitung call 30 hari per TOKEN (dari ledger, bukan publish_logs). Isolasi token: hanya tokenFp ini.
 export async function countCalls30d(token: string | null | undefined, nowMs: number): Promise<number> {
-  const since = new Date(nowMs - 30 * 24 * 60 * 60 * 1000);
+  // Baseline teknis: window 30 hari, dipotong PUBLISH_QUOTA_START_AT bila di-set.
+  const since = new Date(windowStartMs(nowMs, 30 * 24 * 60 * 60 * 1000));
   const [row] = await db.select({ c: count() }).from(bufferCallLedger).where(and(eq(bufferCallLedger.tokenFp, tokenFingerprint(token)), gte(bufferCallLedger.createdAt, since)));
   return row?.c ?? 0;
 }

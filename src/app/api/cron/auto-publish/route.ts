@@ -61,7 +61,13 @@ async function publishScheduledProjects(cfg: GuardCfg, nowMs: number, gate: Gate
   // Gate per token/brand (cooldown persisten, budget ledger, kuota harian/bulanan). Scheduled = publish BARU.
   let skippedGate = 0;
   const gated: typeof candidates = [];
-  for (const p of candidates) { if ((await gate(p.brandId)).allowNew) gated.push(p); else skippedGate++; }
+  for (const p of candidates) {
+    const g = await gate(p.brandId);
+    if (g.allowNew) { gated.push(p); continue; }
+    skippedGate++;
+    // Tampilkan alasan JELAS di project (teknis Buffer / kuota harian internal - BUKAN kuota paket; kredit tak dipotong).
+    if (g.message && p.errorMessage !== g.message) await db.update(projects).set({ errorMessage: g.message }).where(eq(projects.id, p.id));
+  }
   const { selected, skippedQuota } = applyQuota(gated.map((p) => ({ id: p.id, brandId: p.brandId })), cfg);
   const selSet = new Set(selected.map((s) => s.id));
   const published: Array<{ projectId: string; brandId: string }> = [];
@@ -212,7 +218,7 @@ export async function POST(req: NextRequest) {
     if (slotHalted) break;
     const g = await gate(brand.id);
     if (!g.allowNew) {
-      results.push({ brandId: brand.id, name: brand.name, slot: "-", published: 0, skipped: `gate:${g.reason}` });
+      results.push({ brandId: brand.id, name: brand.name, slot: "-", published: 0, skipped: `${g.reason}: ${g.message}` });
       continue;
     }
     // Automation dimatikan (2026-11-02) - skip auto-publish slot baru utk brand ini.

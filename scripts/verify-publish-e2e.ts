@@ -202,10 +202,10 @@ const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
   const ins = raw.prepare("INSERT INTO buffer_call_ledger (id,token_fp,brand_id,channel_id,kind,created_at) VALUES (?,?,?,?,?,?)");
   raw.transaction(() => { for (let i = 0; i < 1900; i++) ins.run(`c${i}`, ledger.tokenFingerprint("tok-C"), "brC", "chC", "createPost", S(t)); })();
   let gC = await evaluateBrandGate("brC", t);
-  assert.ok(gC.allowNew && !gC.allowRetry && gC.reason === "budget_reserve", "1900/2000: retry stop, publish baru jalan");
+  assert.ok(gC.allowNew && !gC.allowRetry && gC.reason === "token_budget_reserve", "1900/2000: retry stop, publish baru jalan");
   raw.transaction(() => { for (let i = 1900; i < 2000; i++) ins.run(`c${i}`, ledger.tokenFingerprint("tok-C"), "brC", "chC", "createPost", S(t)); })();
   gC = await evaluateBrandGate("brC", t);
-  assert.ok(!gC.allowNew && gC.reason === "budget_exhausted", "2000/2000: semua stop SEBELUM lewat limit");
+  assert.ok(!gC.allowNew && gC.reason === "token_budget_exhausted", "2000/2000: semua stop SEBELUM lewat limit");
   assert.ok((await evaluateBrandGate("brB", t)).allowNew, "isolasi: token B tak terpengaruh budget token C");
   // breaker -> cooldown persisten HANYA token akun yg gagal
   raw.prepare("INSERT INTO projects (id,brand_id,type,status,created_at,updated_at) VALUES ('pB','brB','video','failed',?,?)").run(S(t), S(t));
@@ -213,23 +213,41 @@ const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
   const fp = await tripBreakerForProject("pB", "token_invalid", t, defaultCooldownCfg());
   assert.strictEqual(fp, ledger.tokenFingerprint("tok-B"));
   const gB = await evaluateBrandGate("brB", t);
-  assert.ok(!gB.allowNew && gB.reason === "cooldown", "token B cooldown");
-  assert.notStrictEqual((await evaluateBrandGate("brA", t)).reason, "cooldown", "brand A (token lain) tak kena cooldown");
+  assert.ok(!gB.allowNew && gB.reason === "token_cooldown", "token B cooldown");
+  assert.notStrictEqual((await evaluateBrandGate("brA", t)).reason, "token_cooldown", "brand A (token lain) tak kena cooldown");
   const rr = new Database(TMP, { readonly: true });
   assert.ok((rr.prepare("SELECT cooldown_until FROM buffer_token_state WHERE token_fp=?").get(fp) as { cooldown_until: number }).cooldown_until > S(t), "cooldown tersimpan di DB (tahan restart)");
   rr.close();
-  // kuota bulanan 20/brand: 20 konten sukses 2-25 hari lalu -> stop (harian tidak penuh)
-  raw.transaction(() => {
-    for (let i = 0; i < 20; i++) {
-      const at = S(t - (2 + i) * 24 * 3600_000);
-      raw.prepare("INSERT INTO projects (id,brand_id,type,status,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(`pm${i}`, "brC", "video", "published", at, at);
-      raw.prepare("INSERT INTO publish_logs (id,project_id,social_account_id,status,created_at) VALUES (?,?,?,?,?)").run(`lm${i}`, `pm${i}`, "accC", "success", at);
+  assert.match(gC.message!, /budget teknis Buffer/); assert.match(gC.message!, /Bukan kuota paket; kredit tidak dipotong/);
+  raw.prepare("DELETE FROM buffer_call_ledger WHERE token_fp=?").run(ledger.tokenFingerprint("tok-C"));
+  const seedPublished = (brand: string, acc: string, nItems: number, atMs: number, pfx: string) => raw.transaction(() => {
+    for (let i = 0; i < nItems; i++) {
+      raw.prepare("INSERT INTO projects (id,brand_id,type,status,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(`${pfx}${i}`, brand, "video", "published", S(atMs), S(atMs));
+      raw.prepare("INSERT INTO publish_logs (id,project_id,social_account_id,status,created_at) VALUES (?,?,?,?,?)").run(`l${pfx}${i}`, `${pfx}${i}`, acc, "success", S(atMs));
     }
   })();
-  raw.prepare("DELETE FROM buffer_call_ledger WHERE token_fp=?").run(ledger.tokenFingerprint("tok-C"));
+  // EKSTERNAL (owner bukan unlimited): 25 publish hari ini + 60 bulan ini -> TETAP boleh (tak ada kuota harian/bulanan)
+  seedPublished("brC", "accC", 25, t - 3600_000, "ext"); seedPublished("brC", "accC", 60, t - 10 * 24 * 3600_000, "extm");
   gC = await evaluateBrandGate("brC", t);
-  assert.ok(!gC.allowNew && gC.reason === "monthly_quota" && gC.published30d === 20 && gC.published24h === 0, "20/brand/bulan -> stop");
-  ok("budget ledger per token (reserve 1900, habis 2000), isolasi token, breaker cooldown persisten per token, kuota 20/brand/bulan");
+  assert.ok(gC.allowNew && gC.allowRetry && !gC.internal && gC.publishedToday === null, "eksternal: tanpa kuota harian/bulanan");
+  // INTERNAL (owner unlimited, ditentukan dari akun owner, bukan nama brand): 20/hari
+  raw.exec(`INSERT INTO users (id,email,password_hash,created_at,unlimited) VALUES ('uI','i@x','h',${S(t)},1)`);
+  raw.exec(`INSERT INTO brands (id,user_id,name,created_at) VALUES ('brI','uI','Pelangi Homestay KLON',${S(t)})`);
+  raw.exec(`INSERT INTO social_accounts (id,brand_id,platform,publish_via,username,connected,created_at,buffer_channel_id,access_token) VALUES ('accI','brI','tiktok','buffer','i_tt',1,${S(t)},'chI','tok-I')`);
+  seedPublished("brI", "accI", 19, t - 2 * 3600_000, "int");
+  let gI = await evaluateBrandGate("brI", t);
+  assert.ok(gI.internal && gI.allowNew && gI.publishedToday === 19, "internal 19/20 -> boleh");
+  seedPublished("brI", "accI", 1, t - 2 * 3600_000, "int20");
+  gI = await evaluateBrandGate("brI", t);
+  assert.ok(!gI.allowNew && gI.reason === "internal_daily_quota" && gI.publishedToday === 20, "internal 20/hari -> ditahan");
+  // brand bernama "Pelangi" tapi owner eksternal -> TETAP eksternal (tak hardcode nama)
+  raw.exec(`INSERT INTO brands (id,user_id,name,created_at) VALUES ('brP','u1','Pelangi Homestay',${S(t)})`);
+  assert.strictEqual((await evaluateBrandGate("brP", t)).internal, false, "internal/eksternal dari owner, bukan nama brand");
+  // PUBLISH_QUOTA_START_AT: publish sebelum titik mulai tak dihitung kuota harian internal
+  process.env.PUBLISH_QUOTA_START_AT = new Date(t - 3600_000).toISOString();
+  assert.ok((await evaluateBrandGate("brI", t)).allowNew, "baseline: 20 publish sebelum START_AT tak dihitung");
+  delete process.env.PUBLISH_QUOTA_START_AT;
+  ok("budget token (reserve 1900 / habis 2000, pesan teknis bukan kuota paket), isolasi, cooldown persisten per token, eksternal tanpa kuota harian/bulanan, internal 20/hari dari owner, baseline START_AT");
 
   // ===== 7. Route sweep: flag OFF -> no-op; dryRun boleh =====
   const { POST: sweepRoute } = await import("@/app/api/cron/publish-sweep/route");
@@ -237,6 +255,37 @@ const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
   const so = await sweepRoute(new NextRequest("http://x/api/cron/publish-sweep", { method: "POST", headers: { "x-cron-key": "test-secret" } }));
   assert.match(JSON.stringify(await so.json()), /BUFFER_SWEEP_ENABLED off/);
   ok("cron publish-sweep: flag OFF -> no-op (verifikasi lama aktif)");
+
+  // ===== 8. CRON NYATA: kredit tak terpotong, anti-burst, token sehat jalan, token habis ditahan jelas =====
+  nextCreateStatus = "sent"; makeDupOnCreate = false;
+  const t8 = Date.now();
+  raw.exec(`UPDATE users SET saldo_kredit=7 WHERE id='u1'`);
+  raw.exec(`INSERT INTO brands (id,user_id,name,created_at) VALUES ('brY','u1','Brand Y',${S(t8)}),('brX','u1','Brand X',${S(t8)})`);
+  raw.exec(`INSERT INTO social_accounts (id,brand_id,platform,publish_via,username,connected,created_at,buffer_channel_id,access_token) VALUES
+    ('accY','brY','youtube','buffer','y_yt',1,${S(t8)},'chY','tok-Y'), ('accX','brX','youtube','buffer','x_yt',1,${S(t8)},'chX','tok-X')`);
+  const seedScheduled = (id: string, brand: string) => {
+    raw.prepare("INSERT INTO projects (id,brand_id,type,status,generated_caption,scheduled_for,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)").run(id, brand, "video", "scheduled", `Judul ${id}\nisi`, S(t8 - 60_000), S(t8), S(t8));
+    raw.prepare("INSERT INTO media_assets (id,project_id,type,file_url,created_at) VALUES (?,?,?,?,?)").run(`ma${id}`, id, "final_video", `https://v/${id}.mp4`, S(t8));
+  };
+  for (const id of ["y1", "y2", "y3", "y4"]) seedScheduled(id, "brY");
+  seedScheduled("x1", "brX");
+  raw.transaction(() => { for (let i = 0; i < 2000; i++) ins.run(`x${i}`, ledger.tokenFingerprint("tok-X"), "brX", "chX", "createPost", S(t8)); })();
+  const creditTxBefore = q<{ c: number }>("SELECT COUNT(*) c FROM credit_transactions")[0].c;
+  const createBefore = hits.createPost ?? 0;
+  const res8 = await autoPublish(new NextRequest("http://x/api/cron/auto-publish", { method: "POST", headers: { "x-cron-key": "test-secret" } }));
+  const body8 = await res8.json() as { counts: { published: number; skipped_quota: number; skipped_gate: number } };
+  const st = (id: string) => q<{ status: string; error_message: string | null }>("SELECT status, error_message FROM projects WHERE id=?", id)[0];
+  assert.strictEqual(res8.status, 200);
+  assert.strictEqual(body8.counts.published, 1, "anti-burst: 4 scheduled brand Y -> HANYA 1 per siklus");
+  assert.strictEqual(["y1", "y2", "y3", "y4"].filter((id) => st(id).status === "published").length, 1, "token sehat (Y) tetap publish");
+  assert.strictEqual(body8.counts.skipped_quota, 3, "3 sisanya menunggu siklus berikut (tak burst)");
+  assert.strictEqual(st("x1").status, "scheduled", "token X habis -> publish DITAHAN sebelum melewati limit");
+  assert.match(st("x1").error_message || "", /budget teknis Buffer token ini habis/);
+  assert.doesNotMatch(st("x1").error_message || "", /kuota paket tercapai|kuota paket habis/);
+  assert.strictEqual((hits.createPost ?? 0) - createBefore, 1, "tepat 1 createPost; 0 call utk token habis");
+  assert.strictEqual(q<{ saldo_kredit: number }>("SELECT saldo_kredit FROM users WHERE id='u1'")[0].saldo_kredit, 7, "kredit TIDAK dipotong saat publish");
+  assert.strictEqual(q<{ c: number }>("SELECT COUNT(*) c FROM credit_transactions")[0].c, creditTxBefore, "tak ada transaksi kredit dari publish");
+  ok("cron nyata: 1/brand/siklus (anti-burst), token sehat jalan, token habis ditahan dgn alasan teknis, kredit tak dipotong");
 
   raw.close(); server.close();
   for (const f of [TMP, TMP + "-wal", TMP + "-shm", BAK, BAK + "2"]) rmSync(f, { force: true });

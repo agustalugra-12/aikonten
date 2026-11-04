@@ -19,7 +19,8 @@ const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
 
 (async () => {
   const { tokenFingerprint, recordBufferCall, countCalls30d, getTokenCooldownUntil, setTokenCooldown } = await import("@/lib/publish/ledger");
-  const { budgetVerdict, defaultBudgetCfg, monthlyBrandExceeded, defaultMonthlyCfg, isInCooldown } = await import("@/lib/publish/guard");
+  const guardMod = await import("@/lib/publish/guard");
+  const { budgetVerdict, defaultBudgetCfg, isInCooldown } = guardMod;
 
   const now = 1_700_000_000_000; // kelipatan 1000 -> detik bersih (drizzle timestamp = detik)
   const TK_A = "token-brand-A", TK_B = "token-brand-B";
@@ -68,12 +69,14 @@ const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
   assert.strictEqual(await getTokenCooldownUntil(TK_A, now + 7 * 3600 * 1000), null, "cooldown kadaluarsa -> null");
   ok("cooldown/breaker per token PERSISTEN + tahan restart + isolasi + kadaluarsa");
 
-  // 7. batas 20 publish/brand/bulan
-  const mcfg = defaultMonthlyCfg({});
-  assert.strictEqual(mcfg.maxPerBrandPerMonth, 20);
-  assert.strictEqual(monthlyBrandExceeded(19, mcfg), false);
-  assert.strictEqual(monthlyBrandExceeded(20, mcfg), true);
-  ok("batas 20 publish per brand per bulan");
+  // 7. TIDAK ada kuota bulanan publish; PUBLISH_QUOTA_START_AT = baseline teknis (call sebelum titik mulai tak dihitung)
+  assert.strictEqual("defaultMonthlyCfg" in guardMod || "monthlyBrandExceeded" in guardMod, false, "kuota bulanan publish dihapus");
+  process.env.PUBLISH_QUOTA_START_AT = String(now + 1000); // aktivasi SETELAH 6 call di 'now'
+  assert.strictEqual(await countCalls30d(TK_A, now + 2000), 0, "call sebelum PUBLISH_QUOTA_START_AT tak menghitung budget");
+  await recordBufferCall("createPost", TK_A, "pelangi", "ch1", now + 1500);
+  assert.strictEqual(await countCalls30d(TK_A, now + 2000), 1);
+  delete process.env.PUBLISH_QUOTA_START_AT;
+  ok("tanpa kuota bulanan; PUBLISH_QUOTA_START_AT = baseline teknis ledger");
 
   for (const s of ["", "-wal", "-shm"]) rmSync(TMP + s, { force: true });
   console.log(`ALL_PUBLISH_LEDGER_TESTS_PASS (${n} tes)`);

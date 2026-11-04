@@ -10,7 +10,8 @@ import { db } from "@/db";
 import { bufferPendingChecks, publishLogs, projects, socialAccounts } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { listRecentPosts, tryDeletePost, verifyPublishSucceeded } from "./bufferAuth";
-import { assertLedgerReady, getTokenCooldownUntil, setTokenCooldown, tokenFingerprint } from "./ledger";
+import { assertLedgerReady, setTokenCooldown, tokenFingerprint } from "./ledger";
+import { tokenVerdict } from "./publishGate";
 import { channelsToSweep, defaultSweepCfg, reconcileSweep, sweepEnabled, type SweepCfg } from "./sweep";
 import { classifyBufferError, cooldownForReason, defaultCooldownCfg } from "./guard";
 
@@ -81,6 +82,7 @@ export type SweepReport = {
   channelsSwept: number;
   bufferCalls: number;
   skippedCooldown: string[];
+  skippedBudget: string[];
   confirmed: number;
   waiting: number;
   errored: number;
@@ -96,7 +98,7 @@ export type SweepReport = {
 export async function runPublishSweep(opts: { nowMs?: number; dryRun?: boolean; notify?: (msg: string) => Promise<void>; cfg?: SweepCfg; ignoreFlag?: boolean } = {}): Promise<SweepReport> {
   const nowMs = opts.nowMs ?? Date.now();
   const dryRun = !!opts.dryRun;
-  const report: SweepReport = { enabled: sweepEnabled(), dryRun, pendingOpen: 0, channelsSwept: 0, bufferCalls: 0, skippedCooldown: [], confirmed: 0, waiting: 0, errored: 0, stuck: 0, duplicatesFound: 0, duplicatesDeleted: 0, breaker: [], details: [] };
+  const report: SweepReport = { enabled: sweepEnabled(), dryRun, pendingOpen: 0, channelsSwept: 0, bufferCalls: 0, skippedCooldown: [], skippedBudget: [], confirmed: 0, waiting: 0, errored: 0, stuck: 0, duplicatesFound: 0, duplicatesDeleted: 0, breaker: [], details: [] };
   if (!report.enabled && !opts.ignoreFlag) return report; // flag OFF -> no-op (verifikasi lama yang jalan)
   assertLedgerReady();
   const notify = opts.notify ?? (async (m: string) => { const { sendTelegramNotification } = await import("./telegram"); await sendTelegramNotification(m); });
@@ -115,7 +117,12 @@ export async function runPublishSweep(opts: { nowMs?: number; dryRun?: boolean; 
     const [acc] = await db.select().from(socialAccounts).where(eq(socialAccounts.id, rows[0].socialAccountId));
     const token = acc?.accessToken ?? null;
     const fp = tokenFingerprint(token);
-    if (trippedTokens.has(fp) || (await getTokenCooldownUntil(token, nowMs))) { report.skippedCooldown.push(channelId); continue; }
+    if (trippedTokens.has(fp)) { report.skippedCooldown.push(channelId); continue; }
+    // Sweep menyesuaikan sisa budget token: cooldown -> lewati; budget habis -> lewati (pending tetap di DB,
+    // diproses saat budget pulih). Di zona cadangan sweep TETAP jalan (verifikasi = esensial, 1 call/channel).
+    const tv = await tokenVerdict(token, nowMs);
+    if (tv.cooldownUntil) { report.skippedCooldown.push(channelId); continue; }
+    if (!tv.allowNewPublish) { report.skippedBudget.push(channelId); continue; }
 
     let posts;
     try {
