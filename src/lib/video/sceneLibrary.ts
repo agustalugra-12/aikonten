@@ -191,7 +191,7 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
         tl: [
           `tl.set("#${id}",{visibility:"visible"},${f3(c.start)});`,
           `tl.fromTo("#${id}",{opacity:0},{opacity:1,duration:.35,ease:"power2.out"},${f3(c.start)});`,
-          `tl.fromTo("#${id} .m",{opacity:0,scale:.82,letterSpacing:"0.3em"},{opacity:1,scale:1,letterSpacing:"0.02em",duration:.7,ease:"power3.out"},${f3(c.start + 0.1)});`,
+          `tl.fromTo("#${id} .m",{opacity:0,scale:.82,y:24},{opacity:1,scale:1,y:0,duration:.7,ease:"power3.out"},${f3(c.start + 0.1)});`,
           `tl.fromTo("#${id} .ln",{scaleX:0},{scaleX:1,duration:.45,ease:"power2.inOut"},${f3(c.start + 0.45)});`,
           ...(scene.tagline ? [`tl.fromTo("#${id} .t",{opacity:0,y:20},{opacity:1,y:0,duration:.4,ease:"power2.out"},${f3(c.start + 0.65)});`] : []),
         ],

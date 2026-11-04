@@ -64,17 +64,26 @@ export async function runHfGate(dir: string, opts: { env?: Record<string, string
   const run = promisify(opts.exec ?? execFile);
   const PATH = env.HF_CLI_NODE_BIN ? `${env.HF_CLI_NODE_BIN}:${env.PATH ?? ""}` : env.PATH;
   const cli = ["--yes", "hyperframes@0.8.230"];
-  const o = { env: { ...env, PATH } as unknown as NodeJS.ProcessEnv, timeout: opts.timeoutMs ?? 180_000, maxBuffer: 16 << 20 };
+  const o = { env: { ...env, PATH, DO_NOT_TRACK: "1" } as unknown as NodeJS.ProcessEnv, timeout: opts.timeoutMs ?? 180_000, maxBuffer: 16 << 20 };
   try {
     let stdout = "";
     try { ({ stdout } = await run("npx", [...cli, "check", "--json", "--samples=7", dir], o)); }
     catch (e) { stdout = String((e as { stdout?: string }).stdout ?? ""); if (!stdout) throw e; } // exit≠0 = ada temuan
-    const j = JSON.parse(stdout.slice(stdout.indexOf("{")));
-    const issues: Array<{ severity?: string; level?: string; code?: string; rule?: string; message?: string }> = j.issues ?? j.findings ?? [];
-    const sev = (x: (typeof issues)[number]) => (x.severity ?? x.level ?? "").toLowerCase();
+    // Format 0.8.230: { ok, browserSkipped, lint:{findings}, runtime:{findings}, layout:{findings}, motion, contrast, craft, audio }.
+    const j = JSON.parse(stdout.slice(stdout.indexOf("{"))) as Record<string, unknown> & { ok?: boolean; browserSkipped?: boolean };
+    type F = { severity?: string; code?: string; message?: string; section: string };
+    const issues: F[] = [];
+    for (const [section, v] of Object.entries(j)) {
+      const fs = (v as { findings?: unknown })?.findings;
+      if (Array.isArray(fs)) for (const f of fs as F[]) issues.push({ ...f, section });
+    }
+    const sev = (x: F) => (x.severity ?? "").toLowerCase();
     const errors = issues.filter((x) => sev(x) === "error").length;
     const warnings = issues.filter((x) => sev(x).startsWith("warn")).length;
-    const res: HfGateResult = { ran: true, ok: errors === 0 && j.ok !== false, errors, warnings, findings: issues.slice(0, 20).map((x) => `${sev(x)}:${x.code ?? x.rule ?? "?"}:${String(x.message ?? "").slice(0, 120)}`), ms: 0 };
+    const findings = issues.filter((x) => sev(x) !== "info").slice(0, 20).map((x) => `${sev(x)}:${x.section}/${x.code ?? "?"}:${String(x.message ?? "").slice(0, 120)}`);
+    // browserSkipped = runtime/layout/kontras TIDAK diperiksa -> belum bukti lolos (fail-closed).
+    if (j.browserSkipped) findings.unshift("error:check/browser_skipped:runtime/layout/kontras tidak dijalankan");
+    const res: HfGateResult = { ran: true, ok: errors === 0 && j.ok !== false && !j.browserSkipped, errors: errors + (j.browserSkipped ? 1 : 0), warnings, findings, ms: 0 };
     if (opts.snapshotAt?.length) {
       const snapshotDir = `${dir}/.qc-snapshots`;
       await run("npx", [...cli, "snapshot", `--at=${opts.snapshotAt.map((t) => t.toFixed(2)).join(",")}`, `--output=${snapshotDir}`, dir], o);

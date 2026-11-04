@@ -62,12 +62,16 @@ const errs = (h: string) => staticPreCheck(h, hosts).filter((x) => x.level === "
   let called = 0;
   const fakeExec = ((cmd: string, args: string[], _o: unknown, cb: (e: Error | null, r: { stdout: string; stderr: string }) => void) => {
     called++;
-    if (args.includes("check")) cb(null, { stdout: JSON.stringify({ ok: true, issues: [{ severity: "warning", code: "contrast", message: "low" }] }), stderr: "" });
+    if (args.includes("check")) cb(null, { stdout: JSON.stringify({ ok: true, browserSkipped: false, lint: { findings: [{ severity: "info", code: "x" }] }, contrast: { findings: [{ severity: "warning", code: "contrast", message: "low" }] }, layout: { findings: [] } }), stderr: "" });
     else cb(null, { stdout: "{}", stderr: "" });
   }) as unknown as typeof import("node:child_process").execFile;
   assert.strictEqual((await runHfGate("/x", { env: {}, exec: fakeExec })).ran, false); assert.strictEqual(called, 0);
   const g = await runHfGate("/x", { env: { HF_PRERENDER_CHECK: "1" }, exec: fakeExec, snapshotAt: [0, 1, 3] });
   assert.ok(g.ran && g.ok && g.warnings === 1 && g.snapshotDir === "/x/.qc-snapshots" && Number(called) === 2);
+  // Format nyata 0.8.230 (dari run lokal): lint error + browserSkipped -> gagal, dihitung per bagian.
+  const realExec = ((_c: string, args: string[], _o: unknown, cb: (e: Error | null, r: { stdout: string; stderr: string }) => void) => cb(null, { stdout: JSON.stringify({ ok: false, browserSkipped: true, lint: { ok: false, findings: [{ code: "gsap_non_transform_motion", severity: "error", message: "letterSpacing" }] }, runtime: { findings: [] } }), stderr: "" })) as unknown as typeof import("node:child_process").execFile;
+  const gr = await runHfGate("/x", { env: { HF_PRERENDER_CHECK: "1" }, exec: realExec });
+  assert.ok(!gr.ok && gr.errors === 2 && gr.findings.some((f) => f.includes("lint/gsap_non_transform_motion")) && gr.findings[0].includes("browser_skipped"));
   const boom = ((_c: string, _a: string[], _o: unknown, cb: (e: Error) => void) => cb(new Error("ENOENT npx"))) as unknown as typeof import("node:child_process").execFile;
   const gb = await runHfGate("/x", { env: { HF_PRERENDER_CHECK: "1" }, exec: boom });
   assert.ok(gb.ran && !gb.ok && decideQc({ gate: gb, fallbackAvailable: true }).action === "fallback");
