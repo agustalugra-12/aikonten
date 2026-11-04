@@ -278,3 +278,47 @@ Golden-set 100 klip dgn LABEL FRAME (visual) TIDAK dibuat: download HD Pexels ti
 - Golden set frame-labeled (butuh vision/human) utk validasi false-reject/accept sejati.
 - Tuning: Pelangi no_basis artefak (image-derived), agustap/Pelangi repeat >2x (footage tipis -> re-search di wiring).
 - LANGKAH 2 wiring (processProject): thread domain+slug-probe ke semua klip, planHeroAndClips 1x sblm editorialPreflight, QC+render+fallback plan sama, hapus shim.
+
+---
+
+## CHECKPOINT — BAGIAN 1 selesai, BAGIAN 2 (golden set) + GATE, BAGIAN 3 (wiring) BELUM (2026-11-04)
+
+**Commit:** `fca7258` (BAGIAN 1). Branch feat/hf-adoption.
+
+### BAGIAN 1 (guard v3 fix) — SELESAI (20 tes PASS, tsc rc=0)
+- #1 forbidden_category HANYA stok; brand tetap hanya drop avoid.
+- #2 `kwHits` token-UTUH/frasa (bukan substring): vacation!=cat, season!=sea, education/location aman.
+- #3 `matchedCategories`: forbidden hit APA PUN menang (golf+forest+lake -> ditolak sport).
+- #4 (brand foto-hasil source=brand+tag asli) = urusan WIRING BAGIAN 3.
+
+### BAGIAN 2 (mini golden set) — SEBAGIAN + JUJUR
+29 klip terpilih (Pelangi=0 stok, internal): 15 DROP + 14 KEEP lintas Animal/agustap/laundry.
+Frame ffmpeg (timeout 12s, tanpa HD penuh): **ok=12, GAGAL=17/29** (HD lambat). Montage pecah
+(file non-contiguous) -> 1 frame terlihat: #1 water buffalo (slug akurat) -> di-DROP utk animal = FALSE REJECT.
+Label-SLUG lengkap; label-FRAME hanya 1 terverifikasi (sisanya butuh sesi vision; TIDAK diklaim).
+**TEMUAN: FALSE REJECT masif** (stok). Akar: (a) LEXICON sparse (buffalo/stingray/steamer/shirt/shopping tak ada);
+(b) PLURAL/singular ("ants"!="ant", "dolphins"!="dolphin", "towels"!="towel", "cows"!="cow").
+Contoh false reject: Animal "water buffalo"/"dolphins swimming"/"ants on leaf" DROP; laundry "steaming shirt"/
+"towels in cart" DROP (padahal laundry). False accept: belum ketemu hero salah (forbidden selalu di-drop).
+
+### GATE BAGIAN 3 (wiring) — status
+- "tidak ada brand keliru dibuang": OK (brand hanya avoid; golden set semua stok).
+- "false accept hero = 0": OK by construction (forbidden selalu di-drop -> hero tak pernah forbidden/jelas-salah).
+- TAPI false-REJECT stok tinggi (lexicon/plural). Mitigasi: mode default OBSERVE (hanya catat, tak ubah footage).
+=> Wiring BOLEH dilanjut dgn default observe (AMAN), TAPI perbaiki lexicon+stemming sebelum mode "full".
+
+### SARAN sebelum "full": perbaiki matching (BELUM dikerjakan)
+- Stemming plural ID/EN ringan (buang akhiran s) ATAU tambah plural ke lexicon.
+- Perluas CATEGORY_LEXICON (buffalo/stingray/whale/... animal; shirt/towel/steamer/... laundry; shopping/market/... business).
+- Ukur ulang golden set stlh perbaikan; target reject salah-topik >=90% + false-reject rendah.
+
+### BAGIAN 3 (wiring) — RENCANA (BELUM dikerjakan, nunggu sesi)
+- Thread domain(brand profile) + source/tags/probe(slug) ke SETIAP klip saat footage-assembly processProject (~711-943).
+- Satu `planHeroAndClips` SEBELUM editorialPreflight; QC + render + fallback ffmpeg pakai PLAN sama.
+- Mode per-brand: **observe** (default, hanya log keputusan, TAK ubah footage) | **hero-only** (pilih hero, tak buang reel) | **full** (guard + cap repeat 2x + flag footage kurang via planFootageSufficiency).
+- Hapus `chooseHeroSource` + wiring 505081c.
+- Re-search otomatis BELUM wajib: catat kebutuhan pengganti (planFootageSufficiency status=need_replacement).
+
+### RENCANA DEPLOY (observe) + ROLLBACK (saat wiring selesai & disetujui)
+- Deploy: merge feat/hf-adoption -> saas-multitenant -> kontenpilot-saas stop+rm .next+build+restart. Default mode=observe -> NOL perubahan footage, hanya log -> aman diamati di prod.
+- Rollback: revert commit wiring atau checkout 45fd784 + rebuild. Mode observe juga bisa dimatikan via config brand tanpa redeploy (kalau diimplementasikan sbg brandKit flag).
