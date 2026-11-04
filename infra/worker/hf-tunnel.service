@@ -1,0 +1,18 @@
+# /etc/systemd/system/hf-tunnel.service  (SNAPSHOT infra, SECRET DIHAPUS - lihat infra/README.md)
+# Tunnel autossh dari APP box -> worker render. Forward 127.0.0.1:3400 (app) ke 127.0.0.1:3400 (worker).
+# NILAI SENSITIF diganti placeholder: WORKER_HOST, WORKER_SSH_PORT, kunci SSH privat (path saja, bukan isi).
+[Unit]
+Description=SSH tunnel ke HyperFrames worker render (:3400)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=admin
+Environment=AUTOSSH_GATETIME=0
+# <WORKER_SSH_PORT> = port SSH worker; <WORKER_HOST> = IP/host worker; kunci privat di /home/admin/.ssh/hf_worker (JANGAN commit isi kunci).
+ExecStart=/usr/bin/autossh -M 0 -N -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -i /home/admin/.ssh/hf_worker -p <WORKER_SSH_PORT> -L 127.0.0.1:3400:127.0.0.1:3400 root@<WORKER_HOST>
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
