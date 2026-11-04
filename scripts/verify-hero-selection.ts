@@ -3,7 +3,7 @@
 // Mencakup syarat tes #7: mixed brand, klip stok pertama, skor 0, semua avoid, tag kosong,
 // Ankylosaurus, + fallback (plan deterministik = dipakai render & ffmpeg sama). + sinonim #4.
 import assert from "node:assert";
-import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, resolveDomain, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, resolveDomain, categoryOf, matchedCategories, type ClipCandidate } from "@/lib/ai/footageDirector";
 
 let n = 0;
 const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
@@ -195,6 +195,37 @@ const S = (key: string, probe: string): ClipCandidate => ({ key, source: "stock"
   assert.deepStrictEqual(p.dropped.map((d) => d.reason), ["avoid"], "brand: hanya avoid dibuang");
   assert.ok(p.order.includes("b1"), "brand skor rendah tetap dipakai");
   ok("footage brand: hanya avoid dibuang (semua domain)");
+}
+
+// === BAGIAN 1: perbaikan guard v3 ===
+// 18. #2 token UTUH (bukan substring): vacation != cat, season != sea, education/location != kategori
+{
+  assert.ok(!matchedCategories("family vacation trip").has("animal"), "vacation != animal(cat)");
+  assert.ok(!matchedCategories("peak season sale").has("nature"), "season != nature(sea)");
+  assert.ok(!matchedCategories("online education program").has("animal"), "education bukan kategori");
+  assert.ok(!matchedCategories("map location pin").has("animal"), "location bukan kategori");
+  assert.strictEqual(categoryOf("close up of iguana in habitat"), "animal", "iguana (token utuh) -> animal");
+  ok("#2 token utuh: vacation/season/education/location tak salah-kategori");
+}
+
+// 19. #3 forbidden hit APA PUN menang: "golf course with forest lake view" ditolak utk domain animal
+{
+  const p = planHeroAndClips([{ key: "golfforest", source: "stock", probe: "golf course with forest lake view" }], "wildlife animals", "forest lake animals", { domain: "animal" });
+  const d = p.dropped.find((x) => x.key === "golfforest");
+  assert.ok(d && d.reason === "forbidden_category" && d.category === "sport", "golf+forest -> forbidden(sport) menang: " + JSON.stringify(d));
+  ok("#3 forbidden hit apa pun menang (golf+forest+lake ditolak)");
+}
+
+// 20. #1 forbidden HANYA stok; brand dgn tag sport TETAP (hanya avoid dibuang)
+{
+  const p = planHeroAndClips([{ key: "brandgolf", source: "brand", tags: ["golf", "lapangan"] }], "promo lapangan golf", "main golf", { domain: "animal" });
+  assert.strictEqual(p.faceless, false, "brand sport TIDAK forbidden -> tetap dipakai");
+  assert.strictEqual(p.heroKey, "brandgolf");
+  assert.deepStrictEqual(p.dropped, [], "brand tak kena forbidden (hanya avoid)");
+  // tapi stok sport yg sama -> forbidden
+  const p2 = planHeroAndClips([{ key: "stockgolf", source: "stock", probe: "golf lapangan" }], "promo lapangan golf", "main golf", { domain: "animal" });
+  assert.strictEqual(p2.dropped[0]?.reason, "forbidden_category", "stok sport -> forbidden");
+  ok("#1 forbidden hanya stok; brand sport tetap dipakai");
 }
 
 console.log(`ALL_HERO_TESTS_PASS (${n} tes)`);

@@ -115,16 +115,32 @@ const CATEGORY_LEXICON: Record<string, string[]> = {
   laundry: ["laundry", "clothes", "washing", "ironing", "garment", "folding", "fabric", "detergent", "linen", "towel"],
   business: ["business", "shop", "store", "product", "brand", "entrepreneur", "startup", "retail", "customer"],
 };
+// Cocok keyword dgn TOKEN UTUH (bukan substring) supaya "vacation" tak dianggap "cat", "season"
+// bukan "sea", dll (BAGIAN 1 #2). Keyword multi-kata dicocokkan sbg frasa berbatas.
+function kwHits(text: string, kws: string[]): number {
+  const toks = new Set(tokens(text));
+  const low = " " + norm(text) + " ";
+  let n = 0;
+  for (const kw of kws) {
+    if (kw.includes(" ")) { if (low.includes(" " + kw + " ")) n++; }
+    else if (toks.has(kw)) n++;
+  }
+  return n;
+}
 // Kategori ISI dominan dari teks basis (slug/tag). "unknown" kalau tak ada kata cocok.
-function categoryOf(text: string): string {
-  const t = norm(text);
+export function categoryOf(text: string): string {
   let best = "unknown", bestN = 0;
   for (const [cat, kws] of Object.entries(CATEGORY_LEXICON)) {
-    let n = 0;
-    for (const kw of kws) if (t.includes(kw)) n++;
+    const n = kwHits(text, kws);
     if (n > bestN) { bestN = n; best = cat; }
   }
   return best;
+}
+// SEMUA kategori yg punya >=1 keyword cocok (BAGIAN 1 #3: forbidden hit APA PUN menang).
+export function matchedCategories(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const [cat, kws] of Object.entries(CATEGORY_LEXICON)) if (kwHits(text, kws) > 0) out.add(cat);
+  return out;
 }
 export type DomainProfile = { key: string; reelCategories: string[]; forbidden: string[] };
 // Profil domain CONFIGURABLE (bukan hardcode per-brand). reelCategories = kategori yg "nyambung"
@@ -184,17 +200,19 @@ export function planHeroAndClips(cands: ClipCandidate[], hookText: string, scrip
     const s = scoreClipTags(basis, hookTokens, scriptTokens);
     if (s.avoid) { dropped.push({ key: c.key, source: c.source, reason: "avoid" }); continue; } // avoid SELALU di-drop
     const category = categoryOf(basis.join(" "));
-    // #3: kategori TERLARANG MENANG atas token match (mis golfer-mountain-view utk domain animal).
-    if (forbidden.has(category)) { dropped.push({ key: c.key, source: c.source, reason: "forbidden_category", category }); continue; }
     const heroOK = s.relevance >= HERO_MIN_RELEVANCE; // hero wajib RELEVAN KUAT
     if (c.source === "stock") {
       if (basis.length === 0) { dropped.push({ key: c.key, source: c.source, reason: "no_basis", category }); continue; } // #4 Pixabay: no slug -> no_basis
+      // BAGIAN1 #3: forbidden (STOK saja) - keyword forbidden APA PUN MENANG (mis golf+forest+lake -> golf menang).
+      const cats = matchedCategories(basis.join(" "));
+      const hitForbidden = [...forbidden].find((f) => cats.has(f));
+      if (hitForbidden) { dropped.push({ key: c.key, source: c.source, reason: "forbidden_category", category: hitForbidden }); continue; }
       // REEL: klip suasana boleh kalau DOMAIN COCOK (kategori reel) ATAU ada relevansi. Selain itu buang.
       const domainMatch = reelCats.has(category);
       if (!domainMatch && s.relevance === 0) { dropped.push({ key: c.key, source: c.source, reason: "off_topic", category }); continue; }
       kept.push({ key: c.key, rel: s.relevance, hero: heroBasisTags(c), heroOK });
     } else {
-      // FOOTAGE BRAND: hanya avoid/forbidden yg dibuang; selain itu SELALU di reel. Hero kalau relevan kuat.
+      // BAGIAN1 #1: FOOTAGE BRAND hanya `avoid` yg dibuang (TIDAK kena forbidden); selalu di reel. Hero kalau relevan kuat.
       kept.push({ key: c.key, rel: s.relevance, hero: heroBasisTags(c), heroOK });
     }
   }
