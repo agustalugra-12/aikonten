@@ -36,7 +36,9 @@ const accentOr = (accent: string, bg: string) => (contrast(accent, bg) >= 4.5 ? 
 // ---------- tipografi ----------
 // Lebar rata-rata glyph (em) per font untuk estimasi wrap. Font tak dikenal -> Poppins (fallback lokal).
 export const FONT_WIDTH: Record<string, number> = { Poppins: 0.6, "Archivo Black": 0.7, Oswald: 0.47, "Playfair Display": 0.56 };
-export const fontStack = (f: string) => `"${FONT_WIDTH[f] ? f : "Poppins"}","Poppins",Arial,sans-serif`;
+// TANPA "Arial": compiler HyperFrames memetakan family itu ke Inter & mengunduhnya dari Google Fonts (terbukti di
+// render uji). Stack = sama dgn builder lama ("Poppins",sans-serif) -> font lokal saja.
+export const fontStack = (f: string) => `"${FONT_WIDTH[f] ? f : "Poppins"}","Poppins",sans-serif`;
 // Ukuran font terbesar (≤ base) yang muat di maxW dalam ≤ lines baris (wrap greedy = estLines) dan kata
 // terpanjang muat 1 baris. Tak muat sampai min -> min (CSS overflow-wrap:anywhere jadi pengaman terakhir).
 export function fitFont(text: string, maxW: number, base: number, min: number, lines: number, font: string): number {

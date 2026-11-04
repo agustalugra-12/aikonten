@@ -107,6 +107,9 @@ export function buildCompositionFromPlan(plan: VideoPlan, m: PlanMedia): PlanBui
     if (L) layers.push(L);
     if (!["hook", "footage-caption"].includes(win.scene.type)) busy.push([win.start, win.start + win.dur]);
   });
+  // Keterbacaan (temuan hyperframes check render uji): nama brand (#mark, aksen) & teks hook putih gagal kontras di
+  // atas footage terang. Mode plan saja (jalur lama tak diubah): mark dlm pil gelap, scrim intro lebih pekat.
+  if (clips.length) layers.push({ html: "", tl: [], css: `#mark{left:50%;right:auto;transform:translateX(-50%);white-space:nowrap;background:rgba(8,10,14,.72);padding:10px 28px;border-radius:999px;text-shadow:none;}#introLayer{background:linear-gradient(180deg,rgba(6,12,24,.62) 0%,rgba(6,12,24,.56) 45%,rgba(6,12,24,.74) 100%);}` });
   const fl = flashLayer(clips.length ? flashes : []);
   if (fl) layers.push(fl);
   // Efek suara (aset lokal hasil generate sendiri, lihat scripts/gen-sfx.sh): whoosh di transisi, hit di stat.

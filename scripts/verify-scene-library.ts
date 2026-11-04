@@ -78,16 +78,16 @@ for (const d of DIMS) for (const t of TONES) for (const sc of SCENES) {
 ok("semua elemen adegan di zona title-safe (atas 12%, bawah 22% portrait; samping 7%) di 3 orientasi");
 
 // 4. Font fallback lokal; tanpa aset luar; teks ter-escape.
-assert.strictEqual(fontStack("Comic Unknown"), '"Poppins","Poppins",Arial,sans-serif');
+assert.strictEqual(fontStack("Comic Unknown"), '"Poppins","Poppins",sans-serif');
 for (const t of TONES) for (const sc of SCENES) {
   const L = renderScene(sc, { idx: 3, start: 0, dur: 3, w: 1080, h: 1920, tone: t, brand: BRANDS[3], variant: 0 })!;
   const all = L.html + L.css + L.tl.join("");
   assert.ok(!/https?:|url\(|@import|<script|<img|<link/i.test(all), `${t}/${sc.type} aset luar`);
-  for (const f of all.matchAll(/font:[^;]*?px\/[\d.]+ ([^;}]+)/g)) assert.ok(f[1].includes("Arial,sans-serif"), "font stack punya fallback");
+  for (const f of all.matchAll(/font:[^;]*?px\/[\d.]+ ([^;}]+)/g)) assert.ok(f[1].endsWith("sans-serif") && !f[1].includes("Arial"), "font stack lokal + generic, tanpa Arial (dipetakan ke Inter/Google Fonts)");
 }
 const evil = renderScene({ ...base, type: "cta", text: '<img src=x onerror="a()">' } as Scene, { idx: 0, start: 0, dur: 2, w: 1080, h: 1920, tone: "friendly", brand: BRANDS[3], variant: 0 })!;
 assert.ok(!evil.html.includes("<img") && evil.html.includes("&lt;img"));
-ok("font fallback lokal (font tak dikenal -> Poppins, stack + Arial/sans-serif), tanpa CDN/url/gambar luar, teks di-escape");
+ok("font fallback lokal (font tak dikenal -> Poppins, stack lokal + sans-serif, tanpa Arial), tanpa CDN/url/gambar luar, teks di-escape");
 
 // 5. Variasi gaya antar-brand: 4 tone beda font judul/radius/easing/arah masuk.
 const sig = TONES.map((t) => { const s = TONE_STYLE[t]; return `${s.head}|${s.radius}|${s.ease}|${s.from}`; });
