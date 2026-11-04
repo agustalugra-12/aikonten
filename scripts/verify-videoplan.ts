@@ -63,17 +63,17 @@ if (require.main === module) {
   [lo.scenes[4], lo.scenes[5]] = [lo.scenes[5], lo.scenes[4]];
   const r3 = validateVideoPlan(lo, f.ctx);
   assert.ok(!r3.ok && r3.errors.some((e) => e.includes("logo_outro_only_last")));
-  const ba = structuredClone(f.valid) as { scenes: Array<Record<string, any>> };
+  const ba = structuredClone(f.valid) as { scenes: Array<Record<string, unknown> & { after: Record<string, unknown> }> };
   delete ba.scenes[1].after.footageRef;
   const r4 = validateVideoPlan(ba, f.ctx);
   assert.ok(!r4.ok && r4.errors.some((e) => e.includes("after.footageRef: footage_ref_missing")));
-  const ch = structuredClone(f.valid) as { scenes: Array<Record<string, any>> };
+  const ch = structuredClone(f.valid) as { scenes: Array<Record<string, unknown> & { after: Record<string, unknown> }> };
   ch.scenes[2].chart = [1, -5];
   assert.ok(!validateVideoPlan(ch, f.ctx).ok);
   const r5 = validateVideoPlan(f.valid, { ...f.ctx, maxScenes: 4 });
   assert.ok(!r5.ok && r5.errors.some((e) => e.includes("count(6 not in 3..4)")));
   for (const evil of ["onerror=alert(1)", "a{color:red}", "x` y", "&#60;b", "@import x", "javascript:alert(1)", "data:text/html,x"]) {
-    const e = structuredClone(f.valid) as { scenes: Array<Record<string, any>> };
+    const e = structuredClone(f.valid) as { scenes: Array<Record<string, unknown> & { after: Record<string, unknown> }> };
     e.scenes[0].text = evil;
     const re = validateVideoPlan(e, f.ctx);
     assert.ok(!re.ok && re.errors.some((x) => x.includes("markup_forbidden")), `tolak: ${evil}`);

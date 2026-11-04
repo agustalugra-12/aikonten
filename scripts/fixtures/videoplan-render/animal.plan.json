@@ -1,0 +1,62 @@
+{
+ "version": 1,
+ "orientation": "portrait",
+ "look": "cinematic",
+ "pacing": "medium",
+ "music": {
+  "mood": "none",
+  "volume": 0
+ },
+ "brand": {
+  "tone": "playful"
+ },
+ "scenes": [
+  {
+   "id": "hook",
+   "type": "hook",
+   "duration": 2,
+   "transition": "cut",
+   "text": "This bird drinks BLOOD",
+   "footageRef": "c3"
+  },
+  {
+   "id": "meet",
+   "type": "footage-caption",
+   "duration": 4,
+   "transition": "zoom",
+   "footageRef": "c2",
+   "caption": "Vampire finch, Galapagos"
+  },
+  {
+   "id": "peck",
+   "type": "footage-caption",
+   "duration": 4,
+   "transition": "whip",
+   "footageRef": "c1",
+   "mediaStart": 2,
+   "caption": "Pecks larger seabirds"
+  },
+  {
+   "id": "facts",
+   "type": "feature-list",
+   "duration": 4,
+   "transition": "slide",
+   "title": "Survival hack",
+   "items": [
+    "Pecks seabirds",
+    "Sips their blood",
+    "Lives where food is scarce"
+   ],
+   "footageRef": "c0",
+   "mediaStart": 3
+  },
+  {
+   "id": "cta",
+   "type": "cta",
+   "duration": 2.5,
+   "transition": "flash",
+   "text": "Follow for wild facts",
+   "footageRef": "c4"
+  }
+ ]
+}

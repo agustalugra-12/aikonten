@@ -1,0 +1,62 @@
+{
+ "version": 1,
+ "orientation": "portrait",
+ "look": "vivid",
+ "pacing": "fast",
+ "music": {
+  "mood": "none",
+  "volume": 0
+ },
+ "brand": {
+  "tone": "friendly"
+ },
+ "scenes": [
+  {
+   "id": "hook",
+   "type": "hook",
+   "duration": 2.2,
+   "transition": "cut",
+   "text": "Baju bersih tanpa keluar rumah",
+   "footageRef": "c0"
+  },
+  {
+   "id": "ba",
+   "type": "before-after",
+   "duration": 3.5,
+   "transition": "whip",
+   "before": {
+    "label": "Dijemput",
+    "footageRef": "c2",
+    "mediaStart": 3
+   },
+   "after": {
+    "label": "Diantar rapi",
+    "footageRef": "c3",
+    "mediaStart": 5
+   }
+  },
+  {
+   "id": "svc",
+   "type": "feature-list",
+   "duration": 4.5,
+   "transition": "slide",
+   "title": "Laundry In Bali",
+   "items": [
+    "Pickup & delivery",
+    "Jadwal reguler",
+    "Warga Denpasar"
+   ],
+   "footageRef": "c1",
+   "mediaStart": 2
+  },
+  {
+   "id": "cta",
+   "type": "cta",
+   "duration": 3,
+   "transition": "flash",
+   "text": "Chat admin untuk pickup",
+   "sub": "Jadwal sesuai waktu kamu",
+   "footageRef": "c4"
+  }
+ ]
+}
