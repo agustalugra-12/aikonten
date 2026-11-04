@@ -246,3 +246,35 @@ lalu laporkan bukti tiap tahap dan berhenti.
 
 ### Batasan tetap
 Jangan deploy/merge/generate/mulai Tahap 3. Worker tak disentuh. Verifikasi 3-video butuh deploy (approval).
+
+---
+
+## CHECKPOINT — Guard v3 (2026-11-04)
+
+**Commit:** `81ccc67` (feat/hf-adoption). Pure function di `footageDirector.ts` (TANPA processProject/wiring).
+
+### Guard v3 (fungsi murni) — selesai & teruji (17 tes PASS, tsc rc=0)
+- **Hero vs Reel** (#1): hero wajib relevan kuat (skor >= HERO_MIN_RELEVANCE 0.5); reel boleh klip SUASANA domain-match walau relevansi rendah. Brand: hanya `avoid` dibuang.
+- **Profil domain configurable** (#2): `DOMAIN_PROFILES` animal/hospitality/laundry/business (reelCategories + forbidden). Domain tak dikenal -> `universal` + `domainKnown=false`. Tak hardcode per-brand.
+- **Kategori terlarang MENANG atas token** (#3): `CATEGORY_LEXICON` + `categoryOf()`; forbidden (mis sport/human_media utk animal) di-drop walau token cocok (golfer-mountain ditolak).
+- **Pixabay** (#4): `slugFromSourceUrl` balik "" kalau tak ada kata >=3 huruf (mis `id-85674`) -> no_basis.
+- **planFootageSufficiency** (#5): ok/repeat_ok/need_replacement/insufficient, cap repeat 2x (pure; re-search = pipeline nanti).
+
+### Ukur ulang #8 (v3 domain-aware, klip nyata):
+| Brand [domain] | unik detik bef->aft | repeat | faceless | kurang | drop |
+|---|---|---|---|---|---|
+| Pelangi [hospitality] | 22->9 | 2.4x | 0/6 | 6/6 | avoid 3, no_basis 19* |
+| Animal Story [animal] | 120->83 | **1.5x** | 1/10 | 1/10 | off_topic 60, forbidden 15 |
+| laundry [laundry] | 26->17 | 1.5x | 0/7 | 4/7 | no_basis 12, off_topic 3, avoid 1 |
+| agustap [business] | 24->11 | 2.1x | 0/4 | 3/4 | off_topic 10 |
+(*Pelangi no_basis = artefak klip image-derived internal tanpa tag/url, bukan stok Pexels.)
+
+Peningkatan vs v2: Animal Story repeat 3.1x->1.5x (ambient hewan dipertahankan domain match), forbidden tangkap golf/human. Target reel repeat <=2x: Animal Story/laundry OK; agustap 2.1x & Pelangi 2.4x sedikit lewat (footage tipis/internal).
+
+### JUJUR: golden set frame-label BELUM
+Golden-set 100 klip dgn LABEL FRAME (visual) TIDAK dibuat: download HD Pexels timeout + label visual 100 klip butuh vision/human-in-loop (tak tersedia). Yang ADA: label-SLUG (kategori) + keputusan guard (measurement di atas). Frame-vs-slug discrepancy (audit sebelumnya) menunjukkan slug kadang salah (slug "video of a jelly fish" vs frame jellyfish benar) -> validasi frame perlu sesi khusus/vision. TIDAK diklaim frame-labeled.
+
+### NEXT (belum, nunggu arahan)
+- Golden set frame-labeled (butuh vision/human) utk validasi false-reject/accept sejati.
+- Tuning: Pelangi no_basis artefak (image-derived), agustap/Pelangi repeat >2x (footage tipis -> re-search di wiring).
+- LANGKAH 2 wiring (processProject): thread domain+slug-probe ke semua klip, planHeroAndClips 1x sblm editorialPreflight, QC+render+fallback plan sama, hapus shim.
