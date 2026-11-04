@@ -213,3 +213,36 @@ Gerbang [nomor] disetujui. Keputusan: [isi keputusan].
 Lanjutkan sampai gerbang berikutnya, ikuti docs/hyperframes-adoption-plan.md,
 lalu laporkan bukti tiap tahap dan berhenti.
 ```
+
+---
+
+## STATUS CHECKPOINT — Tahap 2 (2026-11-04)
+
+**Branch kerja:** `feat/hf-adoption` (base prod `45fd784`). BELUM deploy/merge.
+**Commits Tahap 2:** `9c9ca8f` (doc) · `9b8446f` · `af3318a` · `505081c` (wiring lama, JANGAN deploy) · `0c358e4` · `ff063ac` (terbaru, planHeroAndClips v2 source-aware).
+
+### Sudah selesai & teruji (ff063ac)
+`src/lib/ai/footageDirector.ts` — `planHeroAndClips(cands, hook, script)` SOURCE-AWARE (pure):
+- BRAND: drop HANYA `avoid`; relevansi rendah/tag kosong/skor 0 TETAP dipakai (ranking saja); tak ada faceless palsu.
+- STOK: wajib lolos guard topik (tags/description/probe); tak jelas = `no_basis`; `off_topic` ditolak.
+- Sinonim terbatas `SYN_GROUPS` + `canon()` (bukan vision). Normalisasi skor per token unik.
+- Faceless hanya kalau nol klip aman. Plan deterministik (heroTags = render & fallback).
+- `scripts/verify-hero-selection.ts` — 9 tes PASS (mixed brand, stok-pertama, skor 0, semua avoid, tag kosong, Ankylosaurus golf/iguana, fallback-determinism, sinonim). tsc rc=0.
+- Ukur read-only #8 (klip nyata per-video): Pelangi/agustap/laundry FACELESS 0/6; brand hanya `avoid` dibuang.
+- `chooseHeroSource` = SHIM brand sementara (dipakai wiring lama 505081c).
+
+### LANGKAH 1 (berikutnya) — perbaiki guard stok
+- `sourceQuery` = niat pencarian, BUKAN bukti isi klip. Gunakan metadata HASIL: slug `sourceUrl`, judul, atau tag sumber bila ada. Tak ada metadata isi → `no_basis`.
+- Regresi: project Animal Story yang footage-nya golf/kura-kura/iguana → pakai `source_query` + `source_url` NYATA; golf & iguana harus DITOLAK tanpa menambah kata "golf" manual.
+- Ukur ulang read-only: Pelangi, **Animal Story**, laundry, agustap → lapor lolos / no_basis / off_topic per sumber.
+- Kalau golf/iguana TAK bisa dibedakan dari metadata yang ada → BERHENTI & lapor (jangan tambah vision/biaya).
+
+### LANGKAH 2 (hanya kalau Langkah 1 berhasil) — wiring penuh
+- Thread `source`/`tags`/`probe` ke SETIAP klip saat footage-assembly (`processProject.ts` ~711–943).
+- Panggil `planHeroAndClips` SEKALI sebelum `editorialPreflight`.
+- QC + render HyperFrames + fallback FFmpeg pakai PLAN yang SAMA (klip pertama = `plan.order[0]`).
+- Hapus wiring lama (505081c block) + shim `chooseHeroSource`.
+- Tes hasil akhir: klip pertama, QC, faceless, fallback.
+
+### Batasan tetap
+Jangan deploy/merge/generate/mulai Tahap 3. Worker tak disentuh. Verifikasi 3-video butuh deploy (approval).
