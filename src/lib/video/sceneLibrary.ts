@@ -8,7 +8,9 @@ import type { Scene } from "./videoPlan";
 export type Tone = "premium" | "friendly" | "playful" | "corporate";
 export type BrandColors = { primary: string; bg2: string; accent: string; ink: string; cta: string; font: string; mark: string };
 export type Layer = { html: string; css: string; tl: string[] };
-export type SceneCtx = { idx: number; start: number; dur: number; w: number; h: number; tone: Tone; brand: BrandColors; variant: number };
+// place = zona teks bebas subjek (revisi 2026-11-05, dari analisis frame); design = adegan tanpa footage cocok;
+// ctaText = teks CTA utk diulang di logo-outro (akhir video selalu ada CTA + nama brand).
+export type SceneCtx = { idx: number; start: number; dur: number; w: number; h: number; tone: Tone; brand: BrandColors; variant: number; place?: "top" | "bottom"; design?: boolean; ctaText?: string };
 
 const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const f3 = (n: number) => n.toFixed(3);
@@ -88,6 +90,22 @@ function inOut(sel: string, c: SceneCtx, st: ToneStyle, outAt?: number): string[
   ];
 }
 
+// Posisi vertikal kartu: tanpa place -> top bawaan; top -> 14% tinggi; bottom -> menempel batas bawah title-safe.
+function vpos(c: SceneCtx, defTop: number): string {
+  const sa = safeArea(c.w, c.h);
+  if (c.place === "top") return `top:${Math.round(c.h * 0.14)}px;`;
+  if (c.place === "bottom") return `top:auto;bottom:${c.h - sa.y1}px;`;
+  return `top:${defTop}px;`;
+}
+// Latar desain penuh (brand) utk adegan tanpa footage yg cocok: menutup footage, di bawah caption & kartu.
+export function designBg(id: string, start: number, dur: number, b: BrandColors): Layer {
+  return {
+    html: `<div id="${id}" class="vp-design"><i></i></div>`,
+    css: `#${id}{position:absolute;inset:0;z-index:400;visibility:hidden;background:radial-gradient(120% 85% at 50% 30%,${b.primary},${b.bg2});overflow:hidden;}#${id} i{position:absolute;width:70%;aspect-ratio:1;left:15%;top:22%;border-radius:50%;background:${b.accent};opacity:.18;filter:blur(80px);}`,
+    tl: [`tl.set("#${id}",{visibility:"visible"},${f3(start)});`, `tl.fromTo("#${id} i",{scale:.85},{scale:1.1,duration:${f3(Math.max(0.5, dur))},ease:"sine.inOut"},${f3(start)});`, `tl.set("#${id}",{visibility:"hidden"},${f3(start + dur)});`],
+  };
+}
+
 export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
   const st = TONE_STYLE[c.tone];
   const sa = safeArea(c.w, c.h);
@@ -106,11 +124,20 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
       return { html: "", css: "", tl: [`tl.fromTo("#cw0",{scale:1},{scale:1.08,duration:${f3(c.dur)},ease:"power1.inOut"},0);`] };
     }
     case "footage-caption": {
-      if (!scene.caption) return null;
+      if (!scene.caption) return c.design ? designBg(`${id}d`, c.start, c.dur, c.brand) : null;
+      if (c.design) {
+        const bg = designBg(`${id}d`, c.start, c.dur, c.brand), dInk = pickInk(c.brand.primary);
+        const ds = fitFont(scene.caption, maxW, Math.round(c.w * 0.085), Math.round(c.w * 0.05), 3, st.head);
+        return {
+          html: bg.html + `<div id="${id}" class="vp-dcap">${esc(scene.caption)}</div>`,
+          css: bg.css + `${base}#${id}{top:${Math.round(c.h * 0.3)}px;text-align:center;color:${dInk};font:${st.headW} ${ds}px/1.12 ${head};${up}overflow-wrap:anywhere;}`,
+          tl: [...bg.tl, ...inOut(`#${id}`, c, st)],
+        };
+      }
       const fs = fitFont(scene.caption, maxW, Math.round(c.w * 0.05), Math.round(c.w * 0.034), 2, c.brand.font);
       return {
         html: `<div id="${id}" class="vp-kicker"><span>${esc(scene.caption)}</span></div>`,
-        css: `${base}#${id}{top:${sa.y0}px;text-align:${align};}#${id} span{display:inline-block;max-width:100%;overflow-wrap:anywhere;background:${card};color:${ink};font:${700} ${fs}px/${1.15} ${body};${up}padding:${Math.round(fs * 0.45)}px ${Math.round(fs * 0.8)}px;border-radius:${st.radius}px;}`,
+        css: `${base}#${id}{${vpos(c, sa.y0)}text-align:${align};}#${id} span{display:inline-block;max-width:100%;overflow-wrap:anywhere;background:${card};color:${ink};font:${700} ${fs}px/${1.15} ${body};${up}padding:${Math.round(fs * 0.45)}px ${Math.round(fs * 0.8)}px;border-radius:${st.radius}px;}`,
         tl: inOut(`#${id}`, c, st),
       };
     }
@@ -129,7 +156,7 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
       chart?.forEach((_v, j) => tl.push(`tl.fromTo("#${id}b${j}",{scaleY:0},{scaleY:1,duration:.5,ease:"power3.out"},${f3(c.start + 0.25 + j * 0.12)});`));
       return {
         html: `<div id="${id}" class="vp-stat"><div class="v">${valHtml}</div><div class="l">${esc(scene.label)}</div>${bars}</div>`,
-        css: `${base}#${id}{top:${Math.round(c.h * 0.28)}px;${cardCss}text-align:${align};}#${id} .v{font:${st.headW} ${vs}px/1 ${head};color:${acc};letter-spacing:-.02em;white-space:nowrap;}#${id} .l{font:600 ${ls}px/1.2 ${body};${up}margin-top:${Math.round(c.w * 0.02)}px;overflow-wrap:anywhere;}#${id} .vp-chart{display:flex;gap:18px;align-items:flex-end;height:${chH}px;margin-top:${Math.round(c.w * 0.03)}px;}#${id} .vp-chart i{display:block;border-radius:6px 6px 0 0;transform-origin:bottom;}`,
+        css: `${base}#${id}{${vpos(c, Math.round(c.h * 0.28))}${cardCss}text-align:${align};}#${id} .v{font:${st.headW} ${vs}px/1 ${head};color:${acc};letter-spacing:-.02em;white-space:nowrap;}#${id} .l{font:600 ${ls}px/1.2 ${body};${up}margin-top:${Math.round(c.w * 0.02)}px;overflow-wrap:anywhere;}#${id} .vp-chart{display:flex;gap:18px;align-items:flex-end;height:${chH}px;margin-top:${Math.round(c.w * 0.03)}px;}#${id} .vp-chart i{display:block;border-radius:6px 6px 0 0;transform-origin:bottom;}`,
         tl,
       };
     }
@@ -139,7 +166,7 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
       const stars = scene.rating ? `<div class="r">${Array.from({ length: scene.rating }, () => svgStar(c.brand.accent, Math.round(c.w * 0.045))).join("")}</div>` : "";
       return {
         html: `<div id="${id}" class="vp-quote">${stars}<div class="q">&#8220;${esc(scene.quote)}&#8221;</div><div class="a">${esc(scene.author)}</div></div>`,
-        css: `${base}#${id}{top:${Math.round(c.h * 0.26)}px;${cardCss}text-align:${align};}#${id} .r{display:flex;gap:6px;justify-content:${align === "left" ? "flex-start" : "center"};margin-bottom:${Math.round(c.w * 0.02)}px;}#${id} .q{font:${st.headW} ${qs}px/1.22 ${head};overflow-wrap:anywhere;}#${id} .a{font:600 ${as}px/1.2 ${body};color:${acc};margin-top:${Math.round(c.w * 0.025)}px;${up}}`,
+        css: `${base}#${id}{${vpos(c, Math.round(c.h * 0.26))}${cardCss}text-align:${align};}#${id} .r{display:flex;gap:6px;justify-content:${align === "left" ? "flex-start" : "center"};margin-bottom:${Math.round(c.w * 0.02)}px;}#${id} .q{font:${st.headW} ${qs}px/1.22 ${head};overflow-wrap:anywhere;}#${id} .a{font:600 ${as}px/1.2 ${body};color:${acc};margin-top:${Math.round(c.w * 0.025)}px;${up}}`,
         tl: inOut(`#${id}`, c, st),
       };
     }
@@ -152,7 +179,7 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
       scene.items.forEach((_x, j) => tl.push(`tl.fromTo("#${id}i${j}",{opacity:0,x:-40},{opacity:1,x:0,duration:.3,ease:"power3.out"},${f3(c.start + 0.3 + j * Math.min(0.45, (c.dur - 0.9) / scene.items.length))});`));
       return {
         html: `<div id="${id}" class="vp-list">${scene.title ? `<div class="t">${esc(scene.title)}</div>` : ""}${scene.items.map((x, j) => `<div class="i" id="${id}i${j}">${svgCheck(c.brand.accent === card ? ink : c.brand.accent, iconS)}<span>${esc(x)}</span></div>`).join("")}</div>`,
-        css: `${base}#${id}{top:${Math.round(c.h * 0.25)}px;${cardCss}}#${id} .t{font:${st.headW} ${ts}px/1.1 ${head};${up}margin-bottom:${Math.round(c.w * 0.03)}px;overflow-wrap:anywhere;}#${id} .i{display:flex;align-items:center;gap:24px;font:600 ${is}px/1.2 ${body};margin:${Math.round(c.w * 0.018)}px 0;opacity:0;}#${id} .i span{overflow-wrap:anywhere;}`,
+        css: `${base}#${id}{${vpos(c, Math.round(c.h * 0.25))}${cardCss}}#${id} .t{font:${st.headW} ${ts}px/1.1 ${head};${up}margin-bottom:${Math.round(c.w * 0.03)}px;overflow-wrap:anywhere;}#${id} .i{display:flex;align-items:center;gap:24px;font:600 ${is}px/1.2 ${body};margin:${Math.round(c.w * 0.018)}px 0;opacity:0;}#${id} .i span{overflow-wrap:anywhere;}`,
         tl,
       };
     }
@@ -178,7 +205,7 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
       const ctaInk = pickInk(c.brand.cta);
       return {
         html: `<div id="${id}" class="vp-cta"><div class="b"><span>${esc(scene.text)}</span>${svgArrow(ctaInk, Math.round(ts * 1.1))}</div>${scene.sub ? `<div class="s">${esc(scene.sub)}</div>` : ""}</div>`,
-        css: `${base}#${id}{top:${Math.round(c.h * 0.52)}px;text-align:center;}#${id} .b{display:inline-flex;align-items:center;gap:18px;max-width:100%;background:${c.brand.cta};color:${ctaInk};font:700 ${ts}px/1.15 ${body};${up}padding:${Math.round(ts * 0.55)}px ${Math.round(ts * 0.9)}px;border-radius:${st.radius >= 20 ? 999 : st.radius}px;box-shadow:0 14px 40px rgba(0,0,0,.45);}#${id} .b span{overflow-wrap:anywhere;}#${id} .s{margin-top:${Math.round(c.w * 0.03)}px;color:#fff;font:600 ${ss}px/1.2 ${body};text-shadow:0 3px 14px rgba(0,0,0,.75);}`,
+        css: `${base}#${id}{${vpos(c, Math.round(c.h * 0.52))}text-align:center;}#${id} .b{display:inline-flex;align-items:center;gap:18px;max-width:100%;background:${c.brand.cta};color:${ctaInk};font:700 ${ts}px/1.15 ${body};${up}padding:${Math.round(ts * 0.55)}px ${Math.round(ts * 0.9)}px;border-radius:${st.radius >= 20 ? 999 : st.radius}px;box-shadow:0 14px 40px rgba(0,0,0,.45);}#${id} .b span{overflow-wrap:anywhere;}#${id} .s{margin-top:${Math.round(c.w * 0.03)}px;color:#fff;font:600 ${ss}px/1.2 ${body};text-shadow:0 3px 14px rgba(0,0,0,.75);}`,
         tl: [...inOut(`#${id}`, c, st), `tl.to("#${id} .b",{scale:1.06,duration:.35,yoyo:true,repeat:${Math.max(1, Math.floor((c.dur - 0.8) / 0.35))},ease:"sine.inOut"},${f3(c.start + 0.5)});`],
       };
     }
@@ -188,14 +215,16 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
       const tg = scene.tagline ? fitFont(scene.tagline, maxW, Math.round(c.w * 0.045), Math.round(c.w * 0.032), 2, c.brand.font) : 0;
       const bgInk = pickInk(c.brand.primary), tAcc = accentOr(c.brand.accent, c.brand.primary);
       return {
-        html: `<div id="${id}" class="vp-outro"><div class="m">${esc(mark)}</div><div class="ln"></div>${scene.tagline ? `<div class="t">${esc(scene.tagline)}</div>` : ""}</div>`,
-        css: `#${id}{position:absolute;inset:0;z-index:690;visibility:hidden;opacity:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 ${sa.x0}px;background:radial-gradient(120% 80% at 50% 40%,${c.brand.primary},${c.brand.bg2});color:${bgInk};}#${id} .m{font:${st.headW} ${ms}px/1 ${head};letter-spacing:.02em;overflow-wrap:anywhere;}#${id} .ln{width:${Math.round(c.w * 0.18)}px;height:8px;background:${tAcc};margin:${Math.round(c.w * 0.035)}px 0;border-radius:4px;transform-origin:center;}#${id} .t{font:600 ${tg}px/1.25 ${body};${up}overflow-wrap:anywhere;}`,
+        html: `<div id="${id}" class="vp-outro"><div class="m">${esc(mark)}</div><div class="ln"></div>${scene.tagline ? `<div class="t">${esc(scene.tagline)}</div>` : ""}${c.ctaText ? `<div class="c">${esc(c.ctaText)}</div>` : ""}</div>`,
+        // Latar SOLID primary (revisi 2026-11-05): ink dipilih thd primary -> nama brand selalu ≥4.5:1 di seluruh layar.
+        css: `#${id}{position:absolute;inset:0;z-index:690;visibility:hidden;opacity:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 ${sa.x0}px;background:${c.brand.primary};color:${bgInk};}#${id} .c{margin-top:${Math.round(c.w * 0.06)}px;display:inline-block;max-width:100%;background:${c.brand.cta};color:${pickInk(c.brand.cta)};border:4px solid ${bgInk};font:700 ${c.ctaText ? fitFont(c.ctaText, maxW - Math.round(c.w * 0.1), Math.round(c.w * 0.052), Math.round(c.w * 0.036), 1, c.brand.font) : 0}px/1.15 ${body};padding:${Math.round(c.w * 0.028)}px ${Math.round(c.w * 0.06)}px;border-radius:999px;white-space:nowrap;}#${id} .m{font:${st.headW} ${ms}px/1 ${head};letter-spacing:.02em;overflow-wrap:anywhere;}#${id} .ln{width:${Math.round(c.w * 0.18)}px;height:8px;background:${tAcc};margin:${Math.round(c.w * 0.035)}px 0;border-radius:4px;transform-origin:center;}#${id} .t{font:600 ${tg}px/1.25 ${body};${up}overflow-wrap:anywhere;}`,
         tl: [
           `tl.set("#${id}",{visibility:"visible"},${f3(c.start)});`,
           `tl.fromTo("#${id}",{opacity:0},{opacity:1,duration:.35,ease:"power2.out"},${f3(c.start)});`,
           `tl.fromTo("#${id} .m",{opacity:0,scale:.82,y:24},{opacity:1,scale:1,y:0,duration:.7,ease:"power3.out"},${f3(c.start + 0.1)});`,
           `tl.fromTo("#${id} .ln",{scaleX:0},{scaleX:1,duration:.45,ease:"power2.inOut"},${f3(c.start + 0.45)});`,
           ...(scene.tagline ? [`tl.fromTo("#${id} .t",{opacity:0,y:20},{opacity:1,y:0,duration:.4,ease:"power2.out"},${f3(c.start + 0.65)});`] : []),
+          ...(c.ctaText ? [`tl.fromTo("#${id} .c",{opacity:0,y:24},{opacity:1,y:0,duration:.4,ease:"back.out(1.6)"},${f3(c.start + Math.min(0.8, c.dur * 0.35))});`] : []),
         ],
       };
     }

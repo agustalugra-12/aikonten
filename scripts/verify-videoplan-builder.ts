@@ -20,7 +20,9 @@ export function wordsFor(audio: number) {
 }
 export function mediaFor(domain: string, f = loadFixture(domain)): PlanMedia {
   return {
-    footage: Object.fromEntries(f.ctx.footageIds.map((id, i) => [id, { videoUrl: `https://r2.example/${id}.mp4`, durationSeconds: 8, mediaStart: i === 1 ? 2 : 0 }])),
+    // Metadata subjek (revisi 2026-11-05): footage hook dideskripsikan sesuai isi hook -> boleh jadi hero.
+    footage: Object.fromEntries(f.ctx.footageIds.map((id, i) => [id, { videoUrl: `https://r2.example/${id}.mp4`, durationSeconds: 8, mediaStart: i === 1 ? 2 : 0,
+      subject: { description: id === (f.valid.scenes as Array<{ footageRef?: string }>)[0].footageRef ? String((f.valid.scenes as Array<{ text?: string }>)[0].text) : id.replace(/-/g, " ") } }])),
     audioUrl: "https://r2.example/vo.mp3", audioDurationSeconds: f.ctx.audioDurationSeconds, words: wordsFor(f.ctx.audioDurationSeconds),
     musicUrl: "https://r2.example/m.mp3", brand: { primary: "#1B4332", accent: "#F4A261", cta: "#E63946", name: domain }, seed: `p-${domain}`,
   };
@@ -50,10 +52,10 @@ if (require.main === module) {
     const firstSrc = /<video id="bg0"[^>]*src="([^"]+)"/.exec(html)![1];
     assert.strictEqual(firstSrc, m.footage[b.heroRef!].videoUrl);
     assert.strictEqual(b.heroRef, (plan.scenes[0] as { footageRef?: string }).footageRef);
-    // VO mulai setelah hook; musik pakai volume plan; caption kata-per-kata tetap ada.
+    // VO mulai setelah hook; musik pakai volume plan; caption 1 baris (revisi) tetap ada.
     assert.ok(html.includes(`<audio id="vo" class="clip" data-start="${H.toFixed(3)}"`));
     assert.ok(html.includes(`id="bgm" class="clip" data-start="0" data-volume="${plan.music.volume}"`));
-    assert.ok(html.includes('class="capgroup"'));
+    assert.ok(html.includes('class="vpcl"') && !html.includes('class="capgroup"'));
     // Tak ada aset luar selain URL media yang diberikan (tanpa CDN).
     const srcs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((x) => x[1]);
     const allowed = new Set([...Object.values(m.footage).map((x) => x.videoUrl), m.audioUrl!, m.musicUrl!]);

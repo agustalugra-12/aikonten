@@ -5,9 +5,12 @@
 import { createHash } from "node:crypto";
 import { buildComposition, type HfClip, type HfCompositionInput, type HfWord } from "@/lib/render/hyperframesComposition";
 import type { Scene, VideoPlan } from "./videoPlan";
-import { flashLayer, renderScene, safeHex, type BrandColors, type Layer } from "./sceneLibrary";
+import { designBg, flashLayer, renderScene, safeHex, type BrandColors, type Layer } from "./sceneLibrary";
+import { applyGlossary, fixText, freeZone, zoneOverlap, MIN_HERO_SHARP, subjectScore, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
+import { captionLayer, hookLayer } from "./planText";
 
-export type PlanFootage = { videoUrl: string; durationSeconds: number; mediaStart?: number }; // mediaStart = awal segmen di sumber
+// mediaStart = awal segmen di sumber; subject = metadata isi (footage_bank/Pexels); analysis = ketajaman & letak subjek.
+export type PlanFootage = { videoUrl: string; durationSeconds: number; mediaStart?: number; subject?: FootageSubject; analysis?: ClipAnalysis };
 export type PlanMedia = {
   footage: Record<string, PlanFootage>;
   audioUrl: string | null;
@@ -20,6 +23,7 @@ export type PlanMedia = {
   seed: string;                      // projectId -> variasi deterministik per video
   beatSeconds?: number | null;       // periode beat musik (bila diketahui) utk snap cut
   sfxBase?: string | null;           // mis. "./sfx" - null = tanpa efek suara
+  glossary?: string[];               // istilah wajib benar di caption (nama brand otomatis ditambahkan)
 };
 export type SceneWindow = { scene: Scene; start: number; dur: number };
 
@@ -52,67 +56,134 @@ const hashInt = (s: string) => parseInt(createHash("sha256").update(s).digest("h
 const refOf = (s: Scene): string | undefined => ("footageRef" in s ? (s as { footageRef?: string }).footageRef : undefined);
 const startOf = (s: Scene): number | undefined => ("mediaStart" in s ? (s as { mediaStart?: number }).mediaStart : undefined);
 
-export type PlanBuild = { html: string; input: HfCompositionInput; windows: SceneWindow[]; clipScenes: string[]; heroRef: string | null };
+export type PlanBuild = { html: string; input: HfCompositionInput; windows: SceneWindow[]; clipScenes: string[]; heroRef: string | null; hookMode: "footage" | "design"; designScenes: string[]; framed: string[]; glossaryFixed: string[]; captionLines: Array<{ text: string; start: number; end: number; zone: Zone | null }> };
 
-export function buildCompositionFromPlan(plan: VideoPlan, m: PlanMedia): PlanBuild {
-  const { w, h } = DIM[plan.orientation];
-  const windows = planWindows(plan, m.audioDurationSeconds, m.words, m.beatSeconds);
+// Field teks adegan yg ikut dikoreksi glossary.
+function fixScene(s: Scene, terms: string[]): Scene {
+  const f = (x: unknown) => (typeof x === "string" ? fixText(x, terms) : x);
+  const o = { ...s } as Record<string, unknown>;
+  for (const k of ["text", "caption", "title", "label", "quote", "author", "sub", "tagline", "value"]) if (k in o) o[k] = f(o[k]);
+  if (Array.isArray(o.items)) o.items = (o.items as string[]).map((x) => fixText(x, terms));
+  for (const k of ["before", "after"]) if (o[k]) o[k] = { ...(o[k] as object), label: f((o[k] as { label: string }).label) };
+  return o as Scene;
+}
+
+export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBuild {
+  const { w, h } = DIM[plan0.orientation];
   const brand: BrandColors = {
     primary: safeHex(m.brand.primary, "#14213D"), bg2: safeHex(m.brand.bg2, "#0c1526"), accent: safeHex(m.brand.accent, "#FFD84D"),
     ink: safeHex(m.brand.ink, "#FFFFFF"), cta: safeHex(m.brand.cta, "#CC1F1F"), font: m.brand.font || "Poppins", mark: (m.brand.mark || m.brand.name || "").toUpperCase(),
   };
+  // Glossary: nama brand + istilah Brand Kit -> koreksi ejaan caption VO & teks adegan.
+  const terms = [m.brand.name, m.brand.mark, ...(m.glossary ?? [])].filter((x): x is string => !!x);
+  const g = applyGlossary(m.words, terms);
+  const words = g.words;
+  const plan: VideoPlan = { ...plan0, scenes: plan0.scenes.map((s) => fixScene(s, terms)) as VideoPlan["scenes"] };
+  const windows = planWindows(plan, m.audioDurationSeconds, words, m.beatSeconds);
 
-  // Hero-first: footage hook = klip-0. Hook tanpa footageRef -> footage pertama di plan (bila ada).
+  // Kecocokan footage per adegan: subjek adegan (atau teks hook) harus ada di metadata footage. Adegan
+  // tanpa subject & footage tanpa metadata (plan lama) tetap diterima, KECUALI hook (wajib terbukti cocok).
   const known = (r?: string) => (r && m.footage[r] ? r : undefined);
-  const firstRef = plan.scenes.map(refOf).map(known).find(Boolean)
-    ?? plan.scenes.flatMap((s) => (s.type === "before-after" ? [known(s.before.footageRef), known(s.after.footageRef)] : [])).find(Boolean);
-  const heroRef = known(refOf(windows[0].scene)) ?? firstRef ?? null;
+  const sharpOk = (r: string) => !m.footage[r].analysis || m.footage[r].analysis!.sharp >= MIN_HERO_SHARP;
+  const fits = (s: Scene, r: string | undefined, isHook: boolean): boolean => {
+    if (!r) return false;
+    const subj = s.subject || (isHook && s.type === "hook" ? s.text : "");
+    const meta = m.footage[r].subject;
+    if (isHook) return !!subj && subjectScore(subj, meta) > 0 && sharpOk(r);
+    if (!s.subject) return true;
+    return !meta || subjectScore(s.subject, meta) > 0;
+  };
+  const hook = windows[0].scene;
+  // Hero = footage hook bila cocok; kalau tidak, cari footage plan lain yg cocok dgn hook. Tak ada -> hook desain.
+  // Kandidat: footage hook dulu, lalu footage lain di plan, lalu seluruh footage tersedia; skor subjek tertinggi menang.
+  const cands = [...new Set([refOf(hook), ...plan.scenes.map(refOf), ...Object.keys(m.footage)].map(known).filter((x): x is string => !!x))];
+  const hookSubj = hook.subject || (hook.type === "hook" ? hook.text : "");
+  const heroRef = cands.filter((r) => fits(hook, r, true)).sort((a, b) => subjectScore(hookSubj, m.footage[b].subject) - subjectScore(hookSubj, m.footage[a].subject))[0] ?? null;
+  const hookMode: "footage" | "design" = heroRef ? "footage" : "design";
 
-  // Klip per adegan: panjang klip = jendela adegan (cut persis di batas). Footage dipakai ulang -> lanjut dari
-  // bagian berikutnya (bukan frame sama). Adegan tanpa footage -> klip sebelumnya diperpanjang.
+  // Klip per adegan (panjang = jendela adegan). Adegan desain: footage tak dipakai (klip sebelumnya
+  // diperpanjang di bawah latar desain). Jendela sebelum klip pertama ditanggung klip pertama (mulai t=0).
   const used = new Map<string, number>();
-  const clips: HfClip[] = [], transitions: string[] = [], clipScenes: string[] = [], flashes: number[] = [];
+  const clips: HfClip[] = [], transitions: string[] = [], clipScenes: string[] = [], clipRefs: string[] = [], flashes: number[] = [];
+  const designScenes: string[] = [];
+  let lead = 0;
   const push = (ref: string, dur: number, ms: number | undefined, trans: string, sceneId: string) => {
     const f = m.footage[ref];
     const base = f.mediaStart ?? 0;
+    const full = dur + (clips.length ? 0 : lead);
     let off = ms ?? used.get(ref) ?? 0;
-    if (off + dur > f.durationSeconds) off = Math.max(0, f.durationSeconds - dur); // jangan lewat ujung sumber
-    used.set(ref, off + dur);
-    clips.push({ videoUrl: f.videoUrl, durationSeconds: dur, mediaStart: base + off });
+    if (off + full > f.durationSeconds) off = Math.max(0, f.durationSeconds - full);
+    used.set(ref, off + full);
+    clips.push({ videoUrl: f.videoUrl, durationSeconds: full, mediaStart: base + off });
     transitions.push(clips.length === 1 ? "cut" : trans === "flash" ? "cut" : trans);
-    clipScenes.push(sceneId);
+    clipScenes.push(sceneId); clipRefs.push(ref);
   };
+  const clipAt: Array<string | null> = []; // footage yg tampil per jendela (null = desain)
   windows.forEach((win, i) => {
     const s = win.scene;
-    const isFlash = s.transition === "flash" && i > 0;
-    if (isFlash) flashes.push(win.start);
+    if (s.transition === "flash" && i > 0) flashes.push(win.start);
     if (s.type === "before-after") {
-      push(s.before.footageRef, win.dur / 2, s.before.mediaStart, s.transition, s.id);
-      push(s.after.footageRef, win.dur / 2, s.after.mediaStart, "slide", s.id);
-      return;
+      const ok = [s.before.footageRef, s.after.footageRef].every((r) => known(r));
+      if (ok) {
+        push(s.before.footageRef, win.dur / 2, s.before.mediaStart, s.transition, s.id);
+        push(s.after.footageRef, win.dur / 2, s.after.mediaStart, "slide", s.id);
+        clipAt.push(s.before.footageRef); return;
+      }
     }
     const ref = i === 0 ? heroRef ?? undefined : known(refOf(s));
-    if (ref) push(ref, win.dur, startOf(s), s.transition, s.id);
-    else if (clips.length) clips[clips.length - 1].durationSeconds += win.dur;
+    const ok = i === 0 ? !!heroRef : !!ref && fits(s, ref, false);
+    if (ref && !ok && i > 0) designScenes.push(s.id);
+    if (ref && ok) { push(ref, win.dur, startOf(s), s.transition, s.id); clipAt.push(ref); return; }
+    clipAt.push(null);
+    if (clips.length) clips[clips.length - 1].durationSeconds += win.dur; else lead += win.dur;
   });
-  if (!heroRef) clips.length = 0; // tanpa footage sama sekali -> faceless (background brand)
+  if (!clips.length) lead = 0; // tanpa footage sama sekali -> faceless
 
-  // Layer adegan (gaya per tone brand; variasi per video dari seed).
+  // Zona subjek per jendela (analisis frame): teks/kartu ditaruh di zona yg tak menimpa subjek.
+  const subOf = (i: number) => { const r = clipAt[i]; return r ? m.footage[r].analysis : undefined; };
+  const CARD = new Set(["stat", "testimonial", "feature-list", "footage-caption", "cta"]);
+  const cardZone = windows.map((win, i) => (CARD.has(win.scene.type) ? freeZone(subOf(i), win.scene.type === "cta" ? "bottom" : "top") : null));
+  // Caption di zona lain dari kartu; kalau zona itu menimpa subjek -> caption disembunyikan (null) selama kartu.
+  const capZone = windows.map((_w, i): Zone | null => {
+    const cz = cardZone[i];
+    if (!cz) return freeZone(subOf(i), "bottom");
+    const opp: Zone = cz === "top" ? "bottom" : "top";
+    return zoneOverlap(opp, subOf(i)) < 0.05 ? opp : null;
+  });
+  const winAt = (t: number) => { let k = 0; windows.forEach((x, i) => { if (t >= x.start - 1e-6) k = i; }); return k; };
+
   const seed = hashInt(m.seed);
   const layers: Layer[] = [];
   const busy: Array<[number, number]> = [];
+  const ctaScene = plan.scenes.find((s) => s.type === "cta");
+  // Hook: terbaca penuh di frame 0 (footage hero atau latar desain).
+  if (hook.type === "hook") layers.push(hookLayer({ text: hook.text, dur: windows[0].dur, zone: freeZone(heroRef ? m.footage[heroRef].analysis : undefined, "bottom"), w, h, tone: plan.brand.tone, brand, design: !heroRef || !clips.length }));
   windows.forEach((win, i) => {
-    if (win.scene.type === "hook" && !clips.length) return; // zoom hook butuh klip-0
-    const L = renderScene(win.scene, { idx: i, start: win.start, dur: win.dur, w, h, tone: plan.brand.tone, brand, variant: (seed >> i) & 1 });
+    if (i === 0) return;
+    const design = designScenes.includes(win.scene.id) || (!clips.length && win.scene.type !== "logo-outro");
+    const L = renderScene(win.scene, { idx: i, start: win.start, dur: win.dur, w, h, tone: plan.brand.tone, brand, variant: (seed >> i) & 1, place: cardZone[i] ?? undefined, design, ctaText: win.scene.type === "logo-outro" && ctaScene?.type === "cta" ? ctaScene.text : undefined });
+    if (design && win.scene.type !== "footage-caption") layers.push(designBg(`vpd${i}`, win.start, win.dur, brand));
     if (L) layers.push(L);
     if (!["hook", "footage-caption"].includes(win.scene.type)) busy.push([win.start, win.start + win.dur]);
+    if (win.scene.type === "cta") layers.push({ html: `<div id="vpDim${i}" class="vpdim"></div>`, css: `.vpdim{position:absolute;inset:0;z-index:330;background:rgba(6,10,18,.38);visibility:hidden;}`, tl: [`tl.set("#vpDim${i}",{visibility:"visible"},${win.start.toFixed(3)});`, `tl.set("#vpDim${i}",{visibility:"hidden"},${(win.start + win.dur).toFixed(3)});`] });
   });
-  // Keterbacaan (temuan hyperframes check render uji): nama brand (#mark, aksen) & teks hook putih gagal kontras di
-  // atas footage terang. Mode plan saja (jalur lama tak diubah): mark dlm pil gelap, scrim intro lebih pekat.
-  if (clips.length) layers.push({ html: "", tl: [], css: `#mark{left:50%;right:auto;transform:translateX(-50%);white-space:nowrap;background:rgba(8,10,14,.72);padding:10px 28px;border-radius:999px;text-shadow:none;}#introLayer{background:linear-gradient(180deg,rgba(6,12,24,.62) 0%,rgba(6,12,24,.56) 45%,rgba(6,12,24,.74) 100%);}` });
+  // Caption VO: 1 baris terpusat, zona bebas subjek/kartu; tak tampil di outro (tertutup layar brand).
+  const H = windows[0].dur, total = H + m.audioDurationSeconds;
+  const cap = captionLayer(words, { offset: H, total, w, h, brand, zoneAt: (t) => capZone[winAt(t)] });
+  layers.push(cap);
+  // Klip buram/resolusi rendah: tampil terbingkai (tanpa upscale berlebih & tanpa Ken Burns) di atas latar brand.
+  const framed: string[] = [];
+  clipRefs.forEach((r, k) => {
+    const a = m.footage[r].analysis;
+    if (!a || a.sharp >= MIN_HERO_SHARP || !a.srcW || !a.srcH) return;
+    const fw = Math.round(Math.min(w * 0.86, a.srcW * 1.35)), fh = Math.round((fw * a.srcH) / a.srcW);
+    framed.push(r);
+    layers.push({ html: "", tl: [], css: `#cw${k}{background:radial-gradient(120% 85% at 50% 30%,${brand.primary},${brand.bg2});}#bg${k}{width:${fw}px!important;height:${fh}px!important;left:${Math.round((w - fw) / 2)}px!important;top:${Math.round((h - fh) / 2)}px!important;transform:none!important;border-radius:28px;box-shadow:0 24px 60px rgba(0,0,0,.45);}` });
+  });
+  // Mode plan: intro lama dimatikan (hook pakai hookLayer), scrim layar penuh diperingan; nama brand dlm pil.
+  layers.push({ html: "", tl: [], css: `#introLayer{display:none;}#scrim{background:linear-gradient(180deg,rgba(6,12,24,.2) 0%,rgba(6,12,24,0) 22%,rgba(6,12,24,0) 70%,rgba(6,12,24,.28) 100%);}#mark{left:50%;right:auto;transform:translateX(-50%);white-space:nowrap;background:rgba(8,10,14,.72);padding:10px 28px;border-radius:999px;text-shadow:none;}` });
   const fl = flashLayer(clips.length ? flashes : []);
   if (fl) layers.push(fl);
-  // Efek suara (aset lokal hasil generate sendiri, lihat scripts/gen-sfx.sh): whoosh di transisi, hit di stat.
   if (m.sfxBase) {
     const sfx: string[] = [];
     windows.forEach((win, i) => {
@@ -125,13 +196,12 @@ export function buildCompositionFromPlan(plan: VideoPlan, m: PlanMedia): PlanBui
   const input: HfCompositionInput = {
     orientation: plan.orientation,
     brand: { primary: brand.primary, bg2: brand.bg2, accent: brand.accent, ink: brand.ink, cta: brand.cta, font: brand.font, mark: brand.mark },
-    hook: windows[0].scene.type === "hook" ? windows[0].scene.text : "",
-    introSeconds: windows[0].dur,
-    clips, audioUrl: m.audioUrl, audioDurationSeconds: m.audioDurationSeconds, words: m.words,
+    hook: "", introSeconds: H,
+    clips, audioUrl: m.audioUrl, audioDurationSeconds: m.audioDurationSeconds, words: [],
     musicUrl: plan.music.mood === "none" ? null : m.musicUrl ?? null, musicVolume: plan.music.volume,
-    look: m.brandLook || plan.look, pacing: plan.pacing, emphasisPhrases: m.emphasisPhrases || [],
-    cta: "", stats: null, stat: null, lowerThird: null, // CTA/stat/testimoni dari adegan, bukan overlay otomatis lama
+    look: m.brandLook || plan.look, pacing: plan.pacing, emphasisPhrases: [],
+    cta: "", stats: null, stat: null, lowerThird: null,
     transitions, tileMax: 99, busy, layers,
   };
-  return { html: buildComposition(input), input, windows, clipScenes, heroRef };
+  return { html: buildComposition(input), input, windows, clipScenes, heroRef, hookMode, designScenes, framed, glossaryFixed: g.fixed, captionLines: cap.lines.map(({ text, start, end, zone }) => ({ text, start, end, zone })) };
 }

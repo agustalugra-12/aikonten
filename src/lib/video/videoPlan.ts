@@ -14,7 +14,9 @@ export const SCENE_TYPES = ["hook", "footage-caption", "stat", "testimonial", "f
 
 export type SceneType = (typeof SCENE_TYPES)[number];
 export type Transition = (typeof TRANSITIONS)[number];
-type Base = { id: string; duration: number; transition: Transition };
+// subject = subjek VISUAL yg harus tampak di footage adegan (kata kunci naskah, mis. "makanan khas Bedugul").
+// Builder hanya memakai footage yg tag/deskripsinya cocok; tak cocok -> adegan desain (revisi 2026-11-05).
+type Base = { id: string; duration: number; transition: Transition; subject?: string };
 export type HookScene = Base & { type: "hook"; text: string; footageRef?: string; mediaStart?: number };
 export type FootageCaptionScene = Base & { type: "footage-caption"; footageRef: string; mediaStart?: number; caption?: string };
 export type StatScene = Base & { type: "stat"; value: string; label: string; chart?: number[]; footageRef?: string; mediaStart?: number };
@@ -46,6 +48,7 @@ export const LIMITS = {
   musicVolumeMax: 0.3,
   mediaStartMax: 3600,
   text: {
+    subject: { chars: 60, words: 8 },
     hook: { chars: 56, words: 7 }, caption: { chars: 60, words: 10 }, statValue: { chars: 16, words: 3 },
     statLabel: { chars: 40, words: 7 }, quote: { chars: 110, words: 20 }, author: { chars: 32, words: 5 },
     featureTitle: { chars: 36, words: 6 }, featureItem: { chars: 28, words: 5 }, baLabel: { chars: 18, words: 3 },
@@ -145,8 +148,9 @@ export function validateVideoPlan(input: unknown, ctx: ValidateCtx): ValidateRes
     if (i > 0 && t === "hook") err(`${p}.type`, "hook_only_first");
     if (t === "logo-outro" && i !== scenes.length - 1) err(`${p}.type`, "logo_outro_only_last");
 
-    const base = ["id", "type", "duration", "transition"];
+    const base = ["id", "type", "duration", "transition", "subject"];
     const T = LIMITS.text;
+    text(sc.subject, `${p}.subject`, T.subject, true);
     switch (t) {
       case "hook":
         strict(sc, p, [...base, "text", "footageRef", "mediaStart"]);
@@ -221,6 +225,6 @@ export function videoPlanPromptSpec(): string {
     `stat{value≤${T.statValue.chars}c,label≤${T.statLabel.chars}c,chart?:${LIMITS.chart.min}-${LIMITS.chart.max} angka,footageRef?} · testimonial{quote≤${T.quote.chars}c,author≤${T.author.chars}c,rating?1-5,footageRef?}`,
     `feature-list{title?≤${T.featureTitle.chars}c,items:${LIMITS.featureItems.min}-${LIMITS.featureItems.max}×≤${T.featureItem.chars}c,footageRef?} · before-after{before:{label≤${T.baLabel.chars}c,footageRef},after:{...}} (≥${LIMITS.beforeAfterMinSeconds}s)`,
     `logo-outro{tagline?≤${T.tagline.chars}c} (hanya terakhir) · cta{text≤${T.ctaText.chars}c,sub?≤${T.ctaSub.chars}c,footageRef?} (maks 1)`,
-    `Aturan: ${LIMITS.scenes.min}-${LIMITS.scenes.max} adegan; adegan pertama hook dgn transition "cut"; akhiri dgn cta atau logo-outro; footageRef HARUS dari daftar footage; total ${LIMITS.totalSeconds.min}-${LIMITS.totalSeconds.max}s ≈ durasi VO + hook.`,
+    `Aturan: ${LIMITS.scenes.min}-${LIMITS.scenes.max} adegan; adegan pertama hook dgn transition "cut"; akhiri dgn cta atau logo-outro; footageRef HARUS dari daftar footage DAN subjeknya cocok dgn isi adegan (isi subject tiap adegan; hook wajib footage yg menggambarkan isi hook, kalau tak ada yg cocok JANGAN isi footageRef -> adegan desain); total ${LIMITS.totalSeconds.min}-${LIMITS.totalSeconds.max}s ≈ durasi VO + hook.`,
   ].join("\n");
 }
