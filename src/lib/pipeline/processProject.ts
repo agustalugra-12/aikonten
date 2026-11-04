@@ -21,6 +21,7 @@ import { generateVoiceover, getAudioDurationSeconds } from "@/lib/ai/dubbing";
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/render/brandKit";
 import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
+import { runVideoPlanShadow, shadowEnabled, type FootageCandidate } from "@/lib/video/videoPlanDirector";
 import { renderViaScenes } from "@/lib/render/renderViaScenes";
 import { directFootageOrder, planFootageSufficiency, orderedRenderClips, ffmpegEffectIndex, safeFootageGuard, slugFromSourceUrl, type GuardMode, type ClipCandidate, type ClipForRender } from "@/lib/ai/footageDirector";
 import { editorialPreflight, hasRejectIssue } from "@/lib/ai/editorialQc";
@@ -1284,6 +1285,21 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     } catch (guardErr) {
       // observe aman: apa pun yg gagal di atas -> footage/urutan apa adanya, pipeline lanjut.
       autoFixLog.push({ step: "footage_guard", action: `error tak terduga: ${String((guardErr as Error)?.message || guardErr).slice(0, 140)} -> footage apa adanya`, result: "error" });
+    }
+
+    // Tahap 5 VideoPlan SHADOW (flag VIDEOPLAN_SHADOW_ENABLED=1, default OFF): AI Director menyusun VideoPlan
+    // dan hasilnya HANYA dicatat ke JSONL (lolos/gagal, alasan, latency, biaya). Tanpa await -> render, durasi,
+    // dan video lama identik; flag OFF -> fungsi langsung return tanpa call AI. Tak pernah throw ke pipeline.
+    if (shadowEnabled() && !isScenesEngine) {
+      const shadowFootage: FootageCandidate[] = [
+        ...brollClips.map((c, i): FootageCandidate => ({ id: `b${i}`, durationSeconds: c.durationSeconds, source: c.sourceUrl ? "stock" : "brand", label: c.sourceUrl ? slugFromSourceUrl(c.sourceUrl) : (photoClipTagByUrl.get(c.videoUrl) || []).join(" ") })),
+        ...selected.map((s, i): FootageCandidate => ({ id: `s${i}`, durationSeconds: Math.max(0.5, s.end - s.start), source: isStockFootage ? "stock" : "brand", label: isStockFootage ? slugFromSourceUrl(s.sourceUrl) : (brandVidTags.get(s.sourceUrl) || []).join(" ") })),
+      ];
+      void getAudioDurationSeconds(voiceoverBuffer).then((audioDurationSeconds) => runVideoPlanShadow({
+        projectId: id, brandName: brand?.name ?? "", brief: [angle, pillar].filter(Boolean).join(" · "), script: narrationText,
+        hookText, orientation: (isYoutubeShorts ? "portrait" : (brand?.videoOrientation ?? "portrait")) as "portrait" | "landscape" | "square",
+        brandLook: null, footage: shadowFootage, audioDurationSeconds, internal: !!pemilikBackstop?.unlimited,
+      })).catch((e) => console.error("[videoPlanShadow] diabaikan:", e));
     }
 
     const renderWithSubtitles = async (srtForRender: string, wordTimingsForRender: typeof wordTimings) => {
