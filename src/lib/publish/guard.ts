@@ -21,7 +21,7 @@ export function defaultGuardCfg(env: Record<string, string | undefined> = proces
   return {
     retryMaxAgeMs: numEnv(env.PUBLISH_RETRY_MAX_AGE_HOURS, 72) * H,
     scheduledGraceMs: numEnv(env.PUBLISH_SCHEDULED_GRACE_HOURS, 72) * H,
-    maxPerBrandPerCycle: numEnv(env.PUBLISH_MAX_PER_BRAND, 3),
+    maxPerBrandPerCycle: numEnv(env.PUBLISH_MAX_PER_BRAND, 1), // default 1 publish/brand/siklus (anti-burst, hemat Buffer)
     maxTotalPerCycle: numEnv(env.PUBLISH_MAX_TOTAL, 10),
   };
 }
@@ -41,7 +41,7 @@ export type SchedCand = { id: string; brandId: string; scheduledForMs: number; s
 export type SchedVerdict = { action: "publish" | "review" | "skip_flag" };
 
 // scheduled yang jatuh tempo: masih dalam grace -> publish; telat jauh (> grace) -> TINJAU (jangan burst
-// konten basi); skip_auto_publish -> skip. (Dipakai route utk set status "needs_review" bagi yg telat.)
+// konten basi); skip_auto_publish -> skip. (Route mengkarantina yang telat via skip_auto_publish.)
 export function scheduledEligibility(p: SchedCand, nowMs: number, cfg: GuardCfg): SchedVerdict {
   if (p.skipAutoPublish) return { action: "skip_flag" };
   if (nowMs - p.scheduledForMs > cfg.scheduledGraceMs) return { action: "review" };
@@ -65,4 +65,65 @@ export function applyQuota<T extends { id: string; brandId: string }>(cands: T[]
     selected.push(c);
   }
   return { selected, skippedQuota };
+}
+
+// === #6 Budget 30 hari (lindungi plan Buffer ~2000/bln). used30d = jumlah call Buffer 30hr (proxy: publish_logs). ===
+export type BudgetCfg = { monthly: number; reserve: number };
+export function defaultBudgetCfg(env: Record<string, string | undefined> = process.env): BudgetCfg {
+  return { monthly: numEnv(env.BUFFER_MONTHLY_BUDGET, 2000), reserve: numEnv(env.BUFFER_BUDGET_RESERVE, 150) };
+}
+export type BudgetVerdict = { remaining: number; allowNewPublish: boolean; allowRetry: boolean; allowNonEssential: boolean };
+// Prioritas: publish BARU jalan selama masih ada sisa; retry & call nonesensial (analytics/verify) BERHENTI
+// begitu sisa <= reserve -> sisakan anggaran utk konten baru, bukan dihabiskan retry/analytics.
+export function budgetVerdict(used30d: number, cfg: BudgetCfg): BudgetVerdict {
+  const remaining = cfg.monthly - used30d;
+  return { remaining, allowNewPublish: remaining > 0, allowRetry: remaining > cfg.reserve, allowNonEssential: remaining > cfg.reserve };
+}
+
+// === #8 Circuit breaker: token invalid / rate limit -> hentikan siklus + cooldown. ===
+export type BreakerReason = "token_invalid" | "rate_limit";
+export function classifyBufferError(message: string | null | undefined): BreakerReason | null {
+  const m = String(message || "").toLowerCase();
+  if (/unauthenticated|access token is not valid|invalid.*token|token.*invalid/.test(m)) return "token_invalid";
+  if (/too many requests|rate.?limit|\b429\b/.test(m)) return "rate_limit";
+  return null;
+}
+export type CooldownCfg = { tokenInvalidMs: number; rateLimitMs: number };
+export function defaultCooldownCfg(env: Record<string, string | undefined> = process.env): CooldownCfg {
+  return { tokenInvalidMs: numEnv(env.BUFFER_TOKEN_COOLDOWN_HOURS, 6) * H, rateLimitMs: numEnv(env.BUFFER_RATELIMIT_COOLDOWN_HOURS, 1) * H };
+}
+export function cooldownForReason(r: BreakerReason, cfg: CooldownCfg): number {
+  return r === "token_invalid" ? cfg.tokenInvalidMs : cfg.rateLimitMs;
+}
+export function isInCooldown(cooldownUntilMs: number | null | undefined, nowMs: number): boolean {
+  return cooldownUntilMs != null && nowMs < cooldownUntilMs;
+}
+
+// === #7 Kuota HARIAN per brand/akun (di atas kuota siklus). count24h dari publish_logs sukses 24 jam. ===
+export type DailyCfg = { maxPerBrandPerDay: number; maxPerAccountPerDay: number };
+export function defaultDailyCfg(env: Record<string, string | undefined> = process.env): DailyCfg {
+  return { maxPerBrandPerDay: numEnv(env.PUBLISH_MAX_PER_BRAND_DAY, 10), maxPerAccountPerDay: numEnv(env.PUBLISH_MAX_PER_ACCOUNT_DAY, 10) };
+}
+export function dailyBrandExceeded(brandCount24h: number, cfg: DailyCfg): boolean { return brandCount24h >= cfg.maxPerBrandPerDay; }
+
+// === #8 Jalankan siklus publish TERURUT; berhenti SEGERA pada breaker (token/rate), jangan coba kandidat lain. ===
+export type PublishOutcome = { ok: boolean; bufferError?: string | null };
+export async function runPublishCycle(
+  ordered: Array<{ id: string; brandId: string }>,
+  publishFn: (id: string) => Promise<PublishOutcome>,
+  opts: { nowMs: number; cooldownCfg: CooldownCfg },
+): Promise<{ published: string[]; failed: string[]; halted: BreakerReason | null; cooldownUntilMs: number | null }> {
+  const published: string[] = [];
+  const failed: string[] = [];
+  for (const c of ordered) {
+    const out = await publishFn(c.id);
+    if (out.ok) { published.push(c.id); continue; }
+    const reason = classifyBufferError(out.bufferError);
+    if (reason) {
+      // Circuit breaker: hentikan SELURUH siklus + pasang cooldown; JANGAN coba konten/akun lain.
+      return { published, failed, halted: reason, cooldownUntilMs: opts.nowMs + cooldownForReason(reason, opts.cooldownCfg) };
+    }
+    failed.push(c.id); // gagal non-breaker (mis. media hilang) -> catat, lanjut kandidat lain
+  }
+  return { published, failed, halted: null, cooldownUntilMs: null };
 }
