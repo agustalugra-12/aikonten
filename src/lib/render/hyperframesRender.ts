@@ -31,6 +31,10 @@ export type HyperframesRenderOpts = {
   pacing?: string | null;  // Fase 4 AI Director: fast|medium|calm
   musicUrl?: string | null; // Fase 6 musik latar (dari pickMusicTrack di processProject)
   emphasisPhrases?: string[]; // Fase A HyperFrames Pro - kinetic callouts (frasa kunci AI)
+  // feat/hero-order (2026-11-04): daftar klip terpadu lintas-sumber SUDAH terurut (hero di index 0),
+  // mediaStart dijaga. Kalau ADA -> dipakai apa adanya (menang atas brollClips/segments). TAK ADA ->
+  // jalur lama broll-dulu-segment (mode observe = IDENTIK produksi).
+  orderedClips?: Array<{ videoUrl: string; durationSeconds: number; mediaStart: number }>;
 };
 
 export async function renderViaHyperframes(
@@ -41,8 +45,13 @@ export async function renderViaHyperframes(
   // Broll (foto brand-derive + stok) dulu, lalu segment video bank (urutan 45fd784). Urutan/hero klip
   // sudah ditentukan pemanggil (footagePlan/applyFootageGuard di processProject).
   const clips: HfClip[] = [];
-  for (const b of opts.brollClips || []) clips.push({ videoUrl: b.videoUrl, durationSeconds: b.durationSeconds });
-  for (const s of opts.segments || []) clips.push({ videoUrl: s.sourceUrl, durationSeconds: Math.max(0.5, s.end - s.start), mediaStart: Math.max(0, s.start) });
+  if (opts.orderedClips && opts.orderedClips.length) {
+    // Daftar terpadu hero-first (feat/hero-order) -> hero = clips[0]; mediaStart dijaga per klip.
+    for (const c of opts.orderedClips) clips.push({ videoUrl: c.videoUrl, durationSeconds: c.durationSeconds, mediaStart: Math.max(0, c.mediaStart) });
+  } else {
+    for (const b of opts.brollClips || []) clips.push({ videoUrl: b.videoUrl, durationSeconds: b.durationSeconds });
+    for (const s of opts.segments || []) clips.push({ videoUrl: s.sourceUrl, durationSeconds: Math.max(0.5, s.end - s.start), mediaStart: Math.max(0, s.start) });
+  }
 
   // Audio TTS -> R2 URL (base64 dilarang HyperFrames; worker fetch via URL).
   const audioKey = buildAssetKey(opts.brandId, opts.projectId, "hf-voiceover.mp3");

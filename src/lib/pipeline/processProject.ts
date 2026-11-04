@@ -22,7 +22,7 @@ import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/render/brandKit";
 import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
 import { renderViaScenes } from "@/lib/render/renderViaScenes";
-import { directFootageOrder, planFootageSufficiency, applyFootageGuard, safeFootageGuard, slugFromSourceUrl, type GuardMode, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { directFootageOrder, planFootageSufficiency, orderedRenderClips, safeFootageGuard, slugFromSourceUrl, type GuardMode, type ClipCandidate, type ClipForRender } from "@/lib/ai/footageDirector";
 import { editorialPreflight, hasRejectIssue } from "@/lib/ai/editorialQc";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
@@ -712,6 +712,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // milik brand sendiri, tidak perlu jejak lisensi pihak ketiga).
     let brollClips: DestinationBrollClip[] = [];
     let heroFootageTags: string[] = []; // P3: tag footage HOOK (klip pertama) utk gerbang QC editorial
+    // feat/hero-order: daftar klip terpadu hero-first (non-observe). null = observe -> renderer pakai jalur
+    // lama broll+segment (IDENTIK produksi). Dipakai HyperFrames & fallback ffmpeg -> hero sama di keduanya.
+    let orderedRenderList: ClipForRender[] | null = null;
     const brandVidTags = new Map<string, string[]>();     // Part 5 wiring: tag video bank (brand) per sourceUrl
     const photoClipTagByUrl = new Map<string, string[]>(); // Part 5 wiring: tag foto asli per klip foto-derive (by videoUrl)
     // footageSource "internal" (2026-08-21, permintaan Agus - Harmoni Hills) - lewati
@@ -1260,14 +1263,14 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           result: guardMode === "observe" ? "observe_logonly" : "applied",
         });
         if (guardMode !== "observe") {
-          // ponytail: reorder DALAM masing-masing daftar (broll/segment) + set heroTags. Hero lintas-sumber ke
-          // posisi-0 perlu gabung-daftar klip; ditunda sampai ada brand mengaktifkan mode (default observe -> MATI di prod).
-          const applied = applyFootageGuard(guardMode, footagePlan, guardCands, (c) => c.key, heroFootageTags);
-          const bOrder = applied.order.filter((c) => c.key[0] === "b").map((c) => Number(c.key.slice(1)));
-          const sOrder = applied.order.filter((c) => c.key[0] === "s").map((c) => Number(c.key.slice(1)));
-          brollClips = bOrder.map((i) => brollClips[i]);
-          selected = sOrder.map((i) => selected[i]);
-          heroFootageTags = applied.heroTags;
+          // feat/hero-order: satukan broll+segment -> hero (plan) jadi klip-0 LINTAS SUMBER. Daftar terpadu
+          // ini dipakai HyperFrames & fallback ffmpeg (keduanya + QC melihat hero yang SAMA). brollClips/selected
+          // DIBIARKAN utuh (QC footage lain di bawah tak berubah). observe TIDAK masuk sini -> identik produksi.
+          // KEY b{i}/s{i} harus sama dgn guardCands supaya plan.order/heroKey cocok.
+          const brollForRender: ClipForRender[] = brollClips.map((c, i) => ({ key: `b${i}`, videoUrl: c.videoUrl, durationSeconds: c.durationSeconds, mediaStart: 0, source: c.sourceUrl ? "stock" : "brand" }));
+          const segForRender: ClipForRender[] = selected.map((s, i) => ({ key: `s${i}`, videoUrl: s.sourceUrl, durationSeconds: Math.max(0.5, s.end - s.start), mediaStart: Math.max(0, s.start), source: isStockFootage ? "stock" : "brand" }));
+          orderedRenderList = orderedRenderClips(brollForRender, segForRender, footagePlan, guardMode).clips;
+          heroFootageTags = footagePlan.heroTags; // QC cek hero = klip-0 render (ordered[0])
         }
       }
     } catch (guardErr) {
@@ -1328,6 +1331,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           pacing,                  // Fase 4 AI Director
           musicUrl,                // Fase 6 musik latar (sama dgn jalur ffmpeg)
           emphasisPhrases,         // Fase A HyperFrames Pro - kinetic callouts
+          orderedClips: orderedRenderList ?? undefined, // feat/hero-order: hero-first lintas sumber (null=observe -> jalur lama)
         });
         } catch (hfErr) {
           console.error("[processProject] HyperFrames render gagal, fallback ke ffmpeg:", hfErr);
@@ -1426,6 +1430,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         srtContent: srtForRender,
         wordTimings: wordTimingsForRender,
         brollClips: manifestInputs?.brollClips ?? brollClips,
+        // feat/hero-order: daftar terpadu hero-first (sama yg dipakai HyperFrames). null di observe -> urutan
+        // lama. manifestInputs (editor scene manual) MENANG -> jangan reorder susunan manual user.
+        orderedClips: manifestInputs ? undefined : (orderedRenderList ?? undefined),
         // AI Dubbing - GANTI TOTAL suara asli (lihat memory proyek, keputusan eksplisit
         // Agus). Audio-nya SUDAH digenerate di atas (perlu ada LEBIH DULU drpd subtitle
         // presisi dibangun) - di sini tinggal diteruskan, bukan generate baru lagi.

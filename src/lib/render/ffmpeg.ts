@@ -255,6 +255,10 @@ export async function renderFinalVideo(opts: {
   // sana supaya rollout-nya keputusan terpisah (per-brand/A-B), bukan memaksa SEMUA video.
   titleText?: string | null;
   brollClips?: Array<{ videoUrl: string; durationSeconds: number }>;
+  // feat/hero-order (2026-11-04): daftar klip terpadu lintas-sumber SUDAH terurut (hero di index 0),
+  // mediaStart dijaga (start = mediaStart). Kalau ADA -> menang atas segments/brollClips utk URUTAN klip
+  // (segments tetap dikirim utk gerbang "segments.length>0" & pemakaian lain). TAK ADA -> urutan lama.
+  orderedClips?: Array<{ videoUrl: string; durationSeconds: number; mediaStart: number }>;
   // Audio TTS SUDAH DIGENERATE sebelumnya (2026-08-06, permintaan Agus - "subtitle
   // presisi dgn dubbing") - caller (processProject.ts) generate TTS DULU, transkripsi
   // ulang (Whisper) utk subtitle presisi, BARU render di sini - jadi fungsi ini terima
@@ -366,10 +370,13 @@ export async function renderFinalVideo(opts: {
     // footage asli & broll Pexels hampir pasti beda resolusi/fps, WAJIB diseragamkan
     // dulu sblm concat (sama alasannya dgn Cloudinary versi lama: "Concatenated videos
     // sizes don't match" kalau tidak diseragamkan).
-    const allClips: Array<{ url: string; start: number; end: number }> = [
-      ...opts.segments.map((s) => ({ url: s.sourceUrl, start: s.start, end: s.end })),
-      ...(opts.brollClips || []).map((c) => ({ url: c.videoUrl, start: 0, end: c.durationSeconds })),
-    ];
+    const allClips: Array<{ url: string; start: number; end: number }> = opts.orderedClips && opts.orderedClips.length
+      // feat/hero-order: daftar terpadu hero-first (hero=allClips[0]); mediaStart dijaga (start=mediaStart).
+      ? opts.orderedClips.map((c) => ({ url: c.videoUrl, start: Math.max(0, c.mediaStart), end: Math.max(0, c.mediaStart) + c.durationSeconds }))
+      : [
+          ...opts.segments.map((s) => ({ url: s.sourceUrl, start: s.start, end: s.end })),
+          ...(opts.brollClips || []).map((c) => ({ url: c.videoUrl, start: 0, end: c.durationSeconds })),
+        ];
 
     const normalizedPaths: string[] = [];
     const normalizedDurations: number[] = [];

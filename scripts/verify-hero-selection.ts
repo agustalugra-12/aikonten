@@ -3,7 +3,7 @@
 // Mencakup syarat tes #7: mixed brand, klip stok pertama, skor 0, semua avoid, tag kosong,
 // Ankylosaurus, + fallback (plan deterministik = dipakai render & ffmpeg sama). + sinonim #4.
 import assert from "node:assert";
-import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, applyFootageGuard, safeFootageGuard, resolveDomain, categoryOf, matchedCategories, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, applyFootageGuard, safeFootageGuard, orderedRenderClips, resolveDomain, categoryOf, matchedCategories, type ClipCandidate, type ClipForRender } from "@/lib/ai/footageDirector";
 import { validateBrandKit } from "@/lib/render/brandKit";
 
 let n = 0;
@@ -331,6 +331,62 @@ const origTags = ["orig-hero"];
   assert.ok(p.dropped.some((d) => d.key === "s0" && d.reason === "no_basis"), "stok tanpa metadata -> no_basis");
   assert.ok(p.order.includes("s1"), "stok dgn slug relevan dipakai");
   ok("#3 selected stok: no metadata -> no_basis; ada slug -> dipakai");
+}
+
+// === feat/hero-order: hero lintas-sumber jadi klip-0 (unify broll+segment, jaga mediaStart) ===
+const BR = (key: string, ms = 0): ClipForRender => ({ key, videoUrl: `${key}.mp4`, durationSeconds: 3, mediaStart: ms, source: "brand" });
+const SG = (key: string, ms: number): ClipForRender => ({ key, videoUrl: `${key}.mp4`, durationSeconds: 4, mediaStart: ms, source: "brand" });
+// 30. VIDEO hero: segment relevan -> klip-0 lintas sumber; mediaStart segment DIJAGA.
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "brand", tags: ["meja"] },
+    { key: "s0", source: "brand", tags: ["pemandangan", "gunung", "teras"] },
+  ], "pemandangan teras gunung", "liburan teras gunung", { domain: "hospitality" });
+  assert.strictEqual(plan.heroKey, "s0", "hero = segment video relevan");
+  const ord = orderedRenderClips([BR("b0")], [SG("s0", 5)], plan, "hero-only");
+  assert.strictEqual(ord.clips[0].key, "s0", "video hero jadi klip-0");
+  assert.strictEqual(ord.clips[0].mediaStart, 5, "mediaStart segment dijaga saat dipindah");
+  assert.strictEqual(ord.clips.length, 2, "hero-only tak buang klip");
+  ok("#hero-order VIDEO hero -> klip-0, mediaStart dijaga");
+}
+// 31. FOTO hero: broll foto relevan -> klip-0.
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "brand", tags: ["pemandangan", "teras"] },
+    { key: "s0", source: "brand", tags: ["meja"] },
+  ], "pemandangan teras", "liburan teras", { domain: "hospitality" });
+  assert.strictEqual(plan.heroKey, "b0", "hero = foto broll relevan");
+  const ord = orderedRenderClips([BR("b0")], [SG("s0", 2)], plan, "hero-only");
+  assert.strictEqual(ord.clips[0].key, "b0", "foto hero jadi klip-0");
+  assert.strictEqual(ord.clips[0].mediaStart, 0, "foto mediaStart 0");
+  ok("#hero-order FOTO hero -> klip-0");
+}
+// 32. STOK hero: broll stok relevan (skor slug) -> klip-0.
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "stock", probe: "mountain terrace sunset view" },
+    { key: "s0", source: "brand", tags: ["meja"] },
+  ], "mountain terrace", "terrace mountain view", { domain: "hospitality" });
+  assert.strictEqual(plan.heroKey, "b0", "hero = stok relevan");
+  const ord = orderedRenderClips([BR("b0")], [SG("s0", 1)], plan, "full");
+  assert.strictEqual(ord.clips[0].key, "b0", "stok hero jadi klip-0 (full)");
+  ok("#hero-order STOK hero -> klip-0");
+}
+// 33. observe = urutan apa adanya (produksi); fallback ffmpeg & HyperFrames pakai DAFTAR SAMA.
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "brand", tags: ["meja"] },
+    { key: "s0", source: "brand", tags: ["pemandangan", "teras"] },
+  ], "pemandangan teras", "teras", { domain: "hospitality" });
+  const obs = orderedRenderClips([BR("b0")], [SG("s0", 5)], plan, "observe");
+  assert.deepStrictEqual(obs.clips.map((c) => c.key), ["b0", "s0"], "observe: broll-dulu-segment apa adanya");
+  assert.strictEqual(obs.changed, false, "observe: changed=false (identik produksi)");
+  // Determinisme -> renderViaHyperframes & renderFinalVideo (fallback) terima daftar IDENTIK.
+  const a = orderedRenderClips([BR("b0")], [SG("s0", 5)], plan, "full");
+  const b = orderedRenderClips([BR("b0")], [SG("s0", 5)], plan, "full");
+  assert.deepStrictEqual(a.clips, b.clips, "fallback: daftar deterministik = sama utk kedua renderer");
+  assert.strictEqual(a.clips[0].key, plan.heroKey, "fallback: hero = klip-0 (sama dgn render)");
+  ok("#hero-order observe identik + fallback daftar sama (hero=klip-0)");
 }
 
 console.log(`ALL_HERO_TESTS_PASS (${n} tes)`);
