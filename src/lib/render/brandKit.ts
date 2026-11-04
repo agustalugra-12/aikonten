@@ -117,6 +117,9 @@ export type BrandKit = {
   // Footage Guard (Tahap 2 HyperFrames, 2026-11-04). mode: "observe" = DEFAULT, hanya CATAT keputusan
   // guard ke log, footage TIDAK diubah. hero-only/full DITOLAK validator sementara (belum diuji di prod).
   footageGuardMode?: "observe";
+  // VideoPlan (Tahap 6, 2026-11-04): "off" = jalur lama buildComposition. "on" DITOLAK validator sampai ada
+  // approval Agus (Gerbang 3/4); pembacaannya via brandKitVideoPlanMode() yg juga hanya mengembalikan "off".
+  videoPlanMode?: "off";
   // Profil kategori footage per-brand (planHeroAndClips domain). unset = universal (ditandai unknown di log).
   footageDomain?: "animal" | "hospitality" | "laundry" | "business";
 };
@@ -304,6 +307,10 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
     if (o.footageGuardMode !== "observe") return { ok: false, error: "footageGuardMode harus 'observe' (hero-only/full belum tersedia)" };
     out.footageGuardMode = "observe";
   }
+  if ("videoPlanMode" in o && o.videoPlanMode !== undefined && o.videoPlanMode !== null) {
+    if (o.videoPlanMode !== "off") return { ok: false, error: "videoPlanMode harus 'off' (aktivasi VideoPlan menunggu approval)" };
+    out.videoPlanMode = "off";
+  }
   if ("footageDomain" in o && o.footageDomain !== undefined && o.footageDomain !== null) {
     const DOMAINS = ["animal", "hospitality", "laundry", "business"];
     if (!DOMAINS.includes(o.footageDomain as string)) return { ok: false, error: "footageDomain harus animal/hospitality/laundry/business" };
@@ -419,4 +426,10 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
     priceOverlayEnabled: bk.priceOverlay?.enabled === true,
     priceOverlayLabel: bk.priceOverlay?.label,
   };
+}
+
+// Mode VideoPlan per brand. Sementara SELALU "off" (aktivasi butuh approval + perubahan kode ini).
+// Brand Kit lama/rusak/berisi "on" hasil edit DB manual -> tetap "off" (aman).
+export function brandKitVideoPlanMode(_json: string | null | undefined): "off" {
+  return "off";
 }
