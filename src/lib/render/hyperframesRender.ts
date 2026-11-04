@@ -31,7 +31,6 @@ export type HyperframesRenderOpts = {
   pacing?: string | null;  // Fase 4 AI Director: fast|medium|calm
   musicUrl?: string | null; // Fase 6 musik latar (dari pickMusicTrack di processProject)
   emphasisPhrases?: string[]; // Fase A HyperFrames Pro - kinetic callouts (frasa kunci AI)
-  heroFromSegments?: boolean;  // Tahap 2 #3: hero dari video-segment (skor tertinggi) -> render segment DULU
 };
 
 export async function renderViaHyperframes(
@@ -39,12 +38,11 @@ export async function renderViaHyperframes(
 ): Promise<{ videoUrl: string; durationSeconds: number }> {
   // Footage: broll + segments (segment -> clip pakai durasi trim). Kosong = faceless
   // (generator pakai background brand beranimasi, tanpa footage).
+  // Broll (foto brand-derive + stok) dulu, lalu segment video bank (urutan 45fd784). Urutan/hero klip
+  // sudah ditentukan pemanggil (footagePlan/applyFootageGuard di processProject).
   const clips: HfClip[] = [];
-  const pushBroll = () => { for (const b of opts.brollClips || []) clips.push({ videoUrl: b.videoUrl, durationSeconds: b.durationSeconds }); };
-  const pushSegs = () => { for (const s of opts.segments || []) clips.push({ videoUrl: s.sourceUrl, durationSeconds: Math.max(0.5, s.end - s.start), mediaStart: Math.max(0, s.start) }); };
-  // Tahap 2 #3: kalau hero dari video-segment (skor tertinggi lintas sumber), render segment DULU;
-  // selain itu foto dulu (urutan lama dipertahankan - #6).
-  if (opts.heroFromSegments) { pushSegs(); pushBroll(); } else { pushBroll(); pushSegs(); }
+  for (const b of opts.brollClips || []) clips.push({ videoUrl: b.videoUrl, durationSeconds: b.durationSeconds });
+  for (const s of opts.segments || []) clips.push({ videoUrl: s.sourceUrl, durationSeconds: Math.max(0.5, s.end - s.start), mediaStart: Math.max(0, s.start) });
 
   // Audio TTS -> R2 URL (base64 dilarang HyperFrames; worker fetch via URL).
   const audioKey = buildAssetKey(opts.brandId, opts.projectId, "hf-voiceover.mp3");

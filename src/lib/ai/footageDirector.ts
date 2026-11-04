@@ -250,10 +250,21 @@ export function planFootageSufficiency(uniqueSeconds: number, targetSeconds: num
   return { uniqueSeconds, targetSeconds, repeatRatio: Number.isFinite(rr) ? Number(rr.toFixed(2)) : 0, status };
 }
 
-// SHIM TRANSISI (dipakai processProject 505081c sampai wiring planHeroAndClips penuh).
-// Memperlakukan kandidat sbg BRAND (konservatif). Akan dihapus saat wiring selesai.
-export type HeroCandidate = { key: string; tags: string[] };
-export function chooseHeroSource(cands: HeroCandidate[], hookText: string, script: string): string | null {
-  const p = planHeroAndClips(cands.map((c) => ({ key: c.key, source: "brand" as const, tags: c.tags })), hookText, script);
-  return p.heroKey;
+// Mode guard per-brand (Part 5-6 wiring). observe=DEFAULT (tak ubah footage, hanya catat untuk log);
+// hero-only=hero plan ditaruh PERTAMA tanpa buang reel; full=pakai plan.order (buang dropped)+heroTags plan.
+// Pure function: processProject memetakan footage-nya lewat ini, lalu tes membuktikan observe tak berubah.
+export type GuardMode = "observe" | "hero-only" | "full";
+export function applyFootageGuard<K>(
+  mode: GuardMode, plan: HeroPlan, originalOrder: K[], keyOf: (k: K) => string, originalHeroTags: string[],
+): { order: K[]; heroTags: string[]; changed: boolean } {
+  if (mode === "observe") return { order: originalOrder, heroTags: originalHeroTags, changed: false }; // identik 45fd784 + log
+  if (mode === "hero-only") {
+    const hero = plan.heroKey ? originalOrder.find((k) => keyOf(k) === plan.heroKey) : undefined;
+    if (!hero) return { order: originalOrder, heroTags: plan.heroTags, changed: false };
+    return { order: [hero, ...originalOrder.filter((k) => keyOf(k) !== plan.heroKey)], heroTags: plan.heroTags, changed: true };
+  }
+  // full: urut sesuai plan.order (klip dropped dibuang), map balik ke tipe asli K.
+  const byKey = new Map(originalOrder.map((k) => [keyOf(k), k] as const));
+  const order = plan.order.map((pk) => byKey.get(pk)).filter((k): k is K => k !== undefined);
+  return { order, heroTags: plan.heroTags, changed: true };
 }

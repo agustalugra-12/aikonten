@@ -22,7 +22,7 @@ import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/render/brandKit";
 import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
 import { renderViaScenes } from "@/lib/render/renderViaScenes";
-import { directFootageOrder, chooseHeroSource } from "@/lib/ai/footageDirector";
+import { directFootageOrder, planHeroAndClips, planFootageSufficiency, applyFootageGuard, slugFromSourceUrl, type GuardMode, type ClipCandidate } from "@/lib/ai/footageDirector";
 import { editorialPreflight, hasRejectIssue } from "@/lib/ai/editorialQc";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
@@ -712,8 +712,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // milik brand sendiri, tidak perlu jejak lisensi pihak ketiga).
     let brollClips: DestinationBrollClip[] = [];
     let heroFootageTags: string[] = []; // P3: tag footage HOOK (klip pertama) utk gerbang QC editorial
-    let photoHeroTags: string[] = [];   // Tahap 2 #3: tag hero kandidat FOTO (utk chooseHeroSource)
-    let videoHeroTags: string[] = [];   // Tahap 2 #3: tag hero kandidat VIDEO-SEGMENT
+    const brandVidTags = new Map<string, string[]>();     // Part 5 wiring: tag video bank (brand) per sourceUrl
+    const photoClipTagByUrl = new Map<string, string[]>(); // Part 5 wiring: tag foto asli per klip foto-derive (by videoUrl)
     // footageSource "internal" (2026-08-21, permintaan Agus - Harmoni Hills) - lewati
     // SEMUA pencarian Pexels/Pixabay, 100% footage bank brand sendiri.
     const internalOnly = (brand?.footageSource ?? "mixed") === "internal";
@@ -761,17 +761,15 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         .select({ fileUrl: footageBank.fileUrl, tags: footageBank.tags })
         .from(footageBank)
         .where(and(eq(footageBank.brandId, project.brandId), eq(footageBank.mediaType, "video")));
-      const vidTags = new Map<string, string[]>();
       for (const r of vidRows) {
         let t: string[] = [];
         try { const j = JSON.parse(r.tags); if (Array.isArray(j)) t = j.filter((x): x is string => typeof x === "string"); } catch { /* tag rusak -> kosong */ }
-        vidTags.set(r.fileUrl, t);
+        brandVidTags.set(r.fileUrl, t);
       }
-      selected = directFootageOrder(selected, (s) => s.sourceUrl, vidTags, hookText || "", project.script || "");
+      selected = directFootageOrder(selected, (s) => s.sourceUrl, brandVidTags, hookText || "", project.script || "");
       // heroFootageTags (P3 QC): kalau hero NYATA dari video (foto bank bakal kosong) pakai tag
       // video hero; blok foto di bawah MENIMPA dgn tag foto hero kalau ada foto (foto render duluan).
-      const vHeroTags = vidTags.get(selected[0]?.sourceUrl);
-      videoHeroTags = vHeroTags || []; // Tahap 2 #3: kandidat hero video-segment (utk chooseHeroSource)
+      const vHeroTags = brandVidTags.get(selected[0]?.sourceUrl);
       if (vHeroTags && vHeroTags.length) heroFootageTags = vHeroTags;
     }
     if (!isStockFootage) {
@@ -790,11 +788,11 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       }));
       const freshPhotos = directFootageOrder(freshPhotosRaw, (p) => p.fileUrl, photoTags, hookText || "", project.script || "");
       heroFootageTags = photoTags.get(freshPhotos[0]?.fileUrl) || []; // P3: tag klip hook (hero)
-      photoHeroTags = heroFootageTags; // Tahap 2 #3: kandidat hero foto (utk chooseHeroSource)
       for (const photo of freshPhotos.slice(0, 2)) {
         try {
           const clip = await imageToVideoClip(photo.fileUrl, project.brandId);
           brollClips.push(clip);
+          photoClipTagByUrl.set(clip.videoUrl, photoTags.get(photo.fileUrl) || []); // Part 5: tag foto asli utk kandidat guard
           // Catat foto ASLI-nya (bukan URL klip mp4 hasil generate) sbg "dipakai" -
           // supaya anti-monoton (getRecentlyUsedFootageUrls) juga berlaku ke foto ini
           // di project berikutnya, sama perlakuan dgn raw_footage/broll_used lain.
@@ -1224,6 +1222,44 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // Semua param LAIN (klip, motion, transisi, musik, overlay) TETAP sama persis antar
     // panggilan - retry ini murni soal subtitle, bukan pilih ulang footage/durasi (itu
     // ranah Fase 2b, sudah selesai di atas sblm render pertama ini).
+    // Part 5-6 wiring (2026-11-04): SATU rencana guard footage, dihitung SEKALI di sini -> dipakai
+    // render, fallback ffmpeg, dan editorialPreflight (semua di bawah / di dalam closure). Mode per-brand
+    // via brandKit.footageGuardMode: "observe" (DEFAULT) = hanya CATAT (hero/dropped/kecukupan/domain),
+    // footage TIDAK diubah -> identik 45fd784. "hero-only"/"full" hanya aktif kalau brand set mode-nya (#6).
+    // Domain configurable via brandKit.footageDomain (unset -> universal + ditandai unknown; JANGAN hardcode
+    // per-brand). Kandidat: broll ber-sourceUrl = STOK (skor via slug isi klip), sisanya = BRAND (tag asli).
+    let guardBk: Record<string, unknown> = {};
+    try { guardBk = brand?.brandKit ? JSON.parse(brand.brandKit) : {}; } catch { guardBk = {}; }
+    const guardMode: GuardMode = (["observe", "hero-only", "full"] as const).includes(guardBk.footageGuardMode as GuardMode)
+      ? (guardBk.footageGuardMode as GuardMode) : "observe";
+    const footageDomain = typeof guardBk.footageDomain === "string" ? guardBk.footageDomain : undefined;
+    const guardCands: ClipCandidate[] = [
+      ...brollClips.map((c, i): ClipCandidate => c.sourceUrl
+        ? { key: `b${i}`, source: "stock", probe: slugFromSourceUrl(c.sourceUrl) }
+        : { key: `b${i}`, source: "brand", tags: photoClipTagByUrl.get(c.videoUrl) || [] }),
+      ...selected.map((s, i): ClipCandidate => ({ key: `s${i}`, source: "brand", tags: brandVidTags.get(s.sourceUrl) || [] })),
+    ];
+    const footagePlan = planHeroAndClips(guardCands, hookText || "", project.script || "", { domain: footageDomain });
+    const uniqueFootageSeconds = brollClips.reduce((a, c) => a + (c.durationSeconds || 0), 0)
+      + selected.reduce((a, s) => a + Math.max(0.5, s.end - s.start), 0);
+    const footageSuff = planFootageSufficiency(uniqueFootageSeconds, durationConfig.target);
+    autoFixLog.push({
+      step: "footage_guard",
+      action: `mode=${guardMode} domain=${footagePlan.domain}(${footagePlan.domainKnown ? "known" : "unknown"}) hero=${footagePlan.heroKey ?? "none"} dropped=${footagePlan.dropped.length}${footagePlan.dropped.length ? "[" + footagePlan.dropped.map((d) => `${d.source}:${d.reason}`).join(",") + "]" : ""} footage=${footageSuff.status}(${uniqueFootageSeconds.toFixed(1)}s/${durationConfig.target}s)`,
+      result: guardMode === "observe" ? "observe_logonly" : "applied",
+    });
+    if (guardMode !== "observe") {
+      // ponytail: reorder DALAM masing-masing daftar (broll/segment) + set heroTags. Hero lintas-sumber ke
+      // posisi-0 (mis. hero segment saat masih ada broll) perlu gabung-daftar klip; ditunda sampai ada brand
+      // mengaktifkan mode ini (default observe -> jalur ini MATI di prod). Upgrade: unified clip list.
+      const applied = applyFootageGuard(guardMode, footagePlan, guardCands, (c) => c.key, heroFootageTags);
+      const bOrder = applied.order.filter((c) => c.key[0] === "b").map((c) => Number(c.key.slice(1)));
+      const sOrder = applied.order.filter((c) => c.key[0] === "s").map((c) => Number(c.key.slice(1)));
+      brollClips = bOrder.map((i) => brollClips[i]);
+      selected = sOrder.map((i) => selected[i]);
+      heroFootageTags = applied.heroTags;
+    }
+
     const renderWithSubtitles = async (srtForRender: string, wordTimingsForRender: typeof wordTimings) => {
       // Opsi C (2026-11-02): brand opt-in engine HyperFrames -> render di worker terpisah
       // (footage+kinetic caption+overlay di HTML, atau faceless bg) -> balik {videoUrl,durationSeconds}
@@ -1255,22 +1291,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         const HYPERFRAMES_MAX_SECONDS = 210;
         const estVideoSeconds = 3 + await getAudioDurationSeconds(voiceoverBuffer);
         if (estVideoSeconds <= HYPERFRAMES_MAX_SECONDS) {
-        // Tahap 2 #3 (keputusan Gerbang 1): pilih SUMBER hero skor TERTINGGI lintas foto vs
-        // video-segment. Video menang -> render segment DULU (heroFromSegments). Tak ada hero AMAN
-        // (ada footage ber-tag tapi semua avoid/salah-topik) -> JANGAN pakai klip pertama: render
-        // faceless (scene brand tanpa footage) + tandai footage kurang. Data kurang/tanpa tag ->
-        // heroKey null TANPA flag -> urutan LAMA dipertahankan (#6, aman). (#4: hero video-segment
-        // tag-nya lewat editorialPreflight P3 di bawah; cek isi-frame butuh vision = di luar ruang lingkup.)
-        const heroKey = chooseHeroSource(
-          [{ key: "photo", tags: photoHeroTags }, { key: "video", tags: videoHeroTags }],
-          hookText || "", project.script || "",
-        );
-        const heroFromSegments = heroKey === "video";
-        if (heroFromSegments) heroFootageTags = videoHeroTags; // #4: P3 cek hero NYATA (video-segment)
-        const noSafeHero = heroKey === null && (photoHeroTags.length > 0 || videoHeroTags.length > 0);
-        if (noSafeHero) {
-          autoFixLog.push({ step: "footage_hero", action: "tak ada hero footage aman (semua avoid/salah-topik) -> render faceless; footage brand perlu ditambah/di-review", result: "faceless_flag" });
-        }
+        // Footage (urutan + hero) sudah ditentukan oleh footagePlan/applyFootageGuard di atas (SATU rencana
+        // untuk render+fallback+QC). observe = tak diubah (identik 45fd784). renderViaHyperframes selalu
+        // broll-dulu-lalu-segment.
         try {
         return await renderViaHyperframes({
           projectId: id,
@@ -1279,8 +1302,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           brandName: brand?.name,
           brandKitRaw: brand?.brandKit,
           hookText,
-          brollClips: noSafeHero ? [] : brollClips,   // #3: tak ada hero aman -> faceless (tanpa footage)
-          segments: noSafeHero ? [] : selected,
+          brollClips,
+          segments: selected,
           voiceoverBuffer,
           wordTimings: wordTimingsForRender,
           cta: pickCtaText(id, ctaContext),
@@ -1290,7 +1313,6 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           pacing,                  // Fase 4 AI Director
           musicUrl,                // Fase 6 musik latar (sama dgn jalur ffmpeg)
           emphasisPhrases,         // Fase A HyperFrames Pro - kinetic callouts
-          heroFromSegments,        // Tahap 2 #3: hero dari video-segment (skor tertinggi) -> render duluan
         });
         } catch (hfErr) {
           console.error("[processProject] HyperFrames render gagal, fallback ke ffmpeg:", hfErr);

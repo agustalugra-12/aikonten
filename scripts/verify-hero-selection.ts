@@ -3,7 +3,7 @@
 // Mencakup syarat tes #7: mixed brand, klip stok pertama, skor 0, semua avoid, tag kosong,
 // Ankylosaurus, + fallback (plan deterministik = dipakai render & ffmpeg sama). + sinonim #4.
 import assert from "node:assert";
-import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, resolveDomain, categoryOf, matchedCategories, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, applyFootageGuard, resolveDomain, categoryOf, matchedCategories, type ClipCandidate } from "@/lib/ai/footageDirector";
 
 let n = 0;
 const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
@@ -254,6 +254,42 @@ const S = (key: string, probe: string): ClipCandidate => ({ key, source: "stock"
   assert.ok(p.order.includes("towels"), "towels (plural->towel laundry) dipakai");
   assert.strictEqual(p.faceless, false);
   ok("#1 towels(plural) + #2 steaming-shirt(unknown) laundry reel");
+}
+
+// === Part 5-6 wiring: applyFootageGuard per-mode (#7) ===
+// Plan acuan: dolphins=hero (relevan), buffalo=unknown reel, golf=forbidden -> dropped.
+const guardPlan = planHeroAndClips([
+  { key: "golf", source: "stock", probe: "man playing golf on course" },
+  { key: "buffalo", source: "stock", probe: "water buffalo grazing in open field" },
+  { key: "dolphins", source: "stock", probe: "dolphins swimming in blue water" },
+], "Dolphins wildlife", "dolphin animals nature", { domain: "animal" });
+const origOrder = ["golf", "buffalo", "dolphins"]; // urutan render asli
+const origTags = ["orig-hero"];
+// 23. observe: TIDAK mengubah order/heroTags, changed=false (identik 45fd784).
+{
+  const r = applyFootageGuard("observe", guardPlan, origOrder, (k) => k, origTags);
+  assert.deepStrictEqual(r.order, origOrder, "observe: order TIDAK berubah");
+  assert.deepStrictEqual(r.heroTags, origTags, "observe: heroTags TIDAK berubah");
+  assert.strictEqual(r.changed, false, "observe: changed=false");
+  ok("#7 observe tak ubah clips/heroTags (changed=false)");
+}
+// 24. hero-only: hero plan di depan, reel TIDAK dibuang, changed=true.
+{
+  const r = applyFootageGuard("hero-only", guardPlan, origOrder, (k) => k, origTags);
+  assert.strictEqual(r.order[0], guardPlan.heroKey, "hero-only: hero di posisi 0");
+  assert.strictEqual(r.order.length, origOrder.length, "hero-only: tak ada klip dibuang (reel utuh)");
+  assert.deepStrictEqual([...r.order].sort(), [...origOrder].sort(), "hero-only: anggota sama, hanya urutan");
+  assert.strictEqual(r.changed, true, "hero-only: changed=true");
+  ok("#7 hero-only: hero depan, reel utuh (fungsi murni)");
+}
+// 25. full: pakai plan.order (golf dropped dibuang), heroTags=plan, changed=true.
+{
+  const r = applyFootageGuard("full", guardPlan, origOrder, (k) => k, origTags);
+  assert.deepStrictEqual(r.order, guardPlan.order, "full: ikut plan.order");
+  assert.ok(!r.order.includes("golf"), "full: golf (forbidden) dibuang");
+  assert.strictEqual(r.order[0], guardPlan.heroKey, "full: hero di posisi 0");
+  assert.strictEqual(r.changed, true, "full: changed=true");
+  ok("#7 full: plan.order dipakai, dropped dibuang (fungsi murni)");
 }
 
 console.log(`ALL_HERO_TESTS_PASS (${n} tes)`);
