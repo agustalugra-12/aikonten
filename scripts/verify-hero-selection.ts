@@ -228,4 +228,32 @@ const S = (key: string, probe: string): ClipCandidate => ({ key, source: "stock"
   ok("#1 forbidden hanya stok; brand sport tetap dipakai");
 }
 
+// === BAGIAN v3 lanjut: plural umum (#1) + unknown-reel (#2) - kasus nyata golden set ===
+// 21. Animal: dolphins/ants (plural) dipakai; water buffalo (unknown) reel TAPI bukan hero; golf forbidden
+{
+  const p = planHeroAndClips([
+    { key: "buffalo", source: "stock", probe: "water buffalo grazing in open field" },
+    { key: "dolphins", source: "stock", probe: "dolphins swimming in blue water" },
+    { key: "ants", source: "stock", probe: "ants on a green leaf" },
+    { key: "golf", source: "stock", probe: "man playing golf on course" },
+  ], "Dolphins and ants wildlife", "dolphin ant animals nature", { domain: "animal" });
+  assert.ok(p.order.includes("buffalo"), "water buffalo (unknown) TETAP reel (#2)");
+  assert.ok(p.order.includes("dolphins"), "dolphins (plural->dolphin) dipakai (#1)");
+  assert.ok(p.order.includes("ants"), "ants (plural->ant) dipakai (#1)");
+  assert.ok(p.dropped.some((d) => d.key === "golf" && d.reason === "forbidden_category"), "golf -> forbidden");
+  assert.notStrictEqual(p.heroKey, "buffalo", "unknown TIDAK jadi hero (#2)");
+  ok("#1 plural dolphins/ants dipakai; #2 water buffalo reel-bukan-hero; golf forbidden");
+}
+// 22. Laundry: steaming shirt (unknown) reel; towels (plural->towel) dipakai
+{
+  const p = planHeroAndClips([
+    { key: "steam", source: "stock", probe: "person steaming a white shirt" },
+    { key: "towels", source: "stock", probe: "pile of blue towels on a cart" },
+  ], "Laundry pickup service", "washing clothes towel laundry", { domain: "laundry" });
+  assert.ok(p.order.includes("steam"), "steaming shirt (unknown) TETAP reel");
+  assert.ok(p.order.includes("towels"), "towels (plural->towel laundry) dipakai");
+  assert.strictEqual(p.faceless, false);
+  ok("#1 towels(plural) + #2 steaming-shirt(unknown) laundry reel");
+}
+
 console.log(`ALL_HERO_TESTS_PASS (${n} tes)`);

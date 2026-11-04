@@ -49,7 +49,16 @@ function tokens(text: string): string[] {
   return norm(text).split(/[^a-z0-9À-ɏ]+/).filter((w) => w.length >= 3);
 }
 // Token kanonik (sinonim) dari teks bebas - utk hook/script & basis klip.
-function canonTokens(text: string): string[] { return tokens(text).map(canon); }
+// Plural -> singular ringan (#1): dolphins->dolphin, towels->towel, ants->ant, boxes->box.
+// Jaga kata pendek & "ss" (bus, glass) tak terpotong salah.
+function singular(w: string): string {
+  if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) {
+    if (w.length > 4 && /(x|z|ch|sh|s)es$/.test(w)) return w.slice(0, -2);
+    return w.slice(0, -1);
+  }
+  return w;
+}
+function canonTokens(text: string): string[] { return tokens(text).map((w) => canon(singular(w))); }
 
 export type FootageScore = { avoid: boolean; relevance: number; hasTags: boolean };
 
@@ -118,7 +127,7 @@ const CATEGORY_LEXICON: Record<string, string[]> = {
 // Cocok keyword dgn TOKEN UTUH (bukan substring) supaya "vacation" tak dianggap "cat", "season"
 // bukan "sea", dll (BAGIAN 1 #2). Keyword multi-kata dicocokkan sbg frasa berbatas.
 function kwHits(text: string, kws: string[]): number {
-  const toks = new Set(tokens(text));
+  const toks = new Set(tokens(text).map(singular)); // #1 plural: dolphins cocok kw "dolphin"
   const low = " " + norm(text) + " ";
   let n = 0;
   for (const kw of kws) {
@@ -207,10 +216,15 @@ export function planHeroAndClips(cands: ClipCandidate[], hookText: string, scrip
       const cats = matchedCategories(basis.join(" "));
       const hitForbidden = [...forbidden].find((f) => cats.has(f));
       if (hitForbidden) { dropped.push({ key: c.key, source: c.source, reason: "forbidden_category", category: hitForbidden }); continue; }
-      // REEL: klip suasana boleh kalau DOMAIN COCOK (kategori reel) ATAU ada relevansi. Selain itu buang.
-      const domainMatch = reelCats.has(category);
-      if (!domainMatch && s.relevance === 0) { dropped.push({ key: c.key, source: c.source, reason: "off_topic", category }); continue; }
-      kept.push({ key: c.key, rel: s.relevance, hero: heroBasisTags(c), heroOK });
+      // #2: buang HANYA yg JELAS terlarang (di atas) atau JELAS tak cocok (kategori DIKENAL di luar
+      // domain & tak relevan). Klip UNKNOWN boleh jadi REEL (benefit of doubt) TAPI TIDAK hero.
+      if (category === "unknown") {
+        kept.push({ key: c.key, rel: s.relevance, hero: heroBasisTags(c), heroOK: false });
+      } else if (reelCats.has(category) || s.relevance > 0) {
+        kept.push({ key: c.key, rel: s.relevance, hero: heroBasisTags(c), heroOK });
+      } else {
+        dropped.push({ key: c.key, source: c.source, reason: "off_topic", category }); // kategori dikenal, di luar domain, tak relevan
+      }
     } else {
       // BAGIAN1 #1: FOOTAGE BRAND hanya `avoid` yg dibuang (TIDAK kena forbidden); selalu di reel. Hero kalau relevan kuat.
       kept.push({ key: c.key, rel: s.relevance, hero: heroBasisTags(c), heroOK });
