@@ -127,5 +127,9 @@ ok("ketajaman: analisis Laplacian membedakan tajam/buram; klip buram tak jadi he
     assert.ok(new RegExp(`tl\\.fromTo\\("#sc${last} \\.c"`).test(b.html), "pil CTA muncul di outro");
   }
 }
-ok("akhir: logo-outro latar solid brand (nama brand kontras ≥4.5 di 4 warna), CTA diulang sbg pil, caption tak menimpa");
+{
+  const b = buildCompositionFromPlan(plan([S.hookFood, S.room, { ...S.cta, duration: 3 }]), media());
+  assert.ok(b.html.includes('id="sc99"') && b.html.includes('<div class="c">Pesan via WhatsApp</div>') && b.html.includes(">PELANGI HOMESTAY</div>"), "plan berakhir CTA -> end card brand");
+}
+ok("akhir: logo-outro latar solid brand (nama brand kontras ≥4.5 di 4 warna), CTA diulang sbg pil, caption tak menimpa; plan berakhir CTA dapat end card brand");
 console.log(`ALL_VIDEOPLAN_REVISI_TESTS_PASS (${n} tes)`);

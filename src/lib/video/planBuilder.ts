@@ -123,7 +123,8 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     const s = win.scene;
     if (s.transition === "flash" && i > 0) flashes.push(win.start);
     if (s.type === "before-after") {
-      const ok = [s.before.footageRef, s.after.footageRef].every((r) => known(r));
+      const ok = [s.before.footageRef, s.after.footageRef].every((r) => known(r) && fits(s, r, false));
+      if (!ok) designScenes.push(s.id);
       if (ok) {
         push(s.before.footageRef, win.dur / 2, s.before.mediaStart, s.transition, s.id);
         push(s.after.footageRef, win.dur / 2, s.after.mediaStart, "slide", s.id);
@@ -167,6 +168,14 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     if (!["hook", "footage-caption"].includes(win.scene.type)) busy.push([win.start, win.start + win.dur]);
     if (win.scene.type === "cta") layers.push({ html: `<div id="vpDim${i}" class="vpdim"></div>`, css: `.vpdim{position:absolute;inset:0;z-index:330;background:rgba(6,10,18,.38);visibility:hidden;}`, tl: [`tl.set("#vpDim${i}",{visibility:"visible"},${win.start.toFixed(3)});`, `tl.set("#vpDim${i}",{visibility:"hidden"},${(win.start + win.dur).toFixed(3)});`] });
   });
+  // Plan berakhir dgn CTA tanpa logo-outro -> paruh akhir CTA ditutup end card brand (nama brand + pil CTA),
+  // supaya frame terakhir selalu bersih & nama brand terbaca.
+  const lastW = windows[windows.length - 1];
+  if (lastW.scene.type === "cta") {
+    const st = lastW.start + lastW.dur * 0.5, du = lastW.dur * 0.5;
+    const L = renderScene({ id: "endcard", type: "logo-outro", duration: du, transition: "crossfade" }, { idx: 99, start: st, dur: du, w, h, tone: plan.brand.tone, brand, variant: 0, ctaText: lastW.scene.text });
+    if (L) layers.push(L);
+  }
   // Caption VO: 1 baris terpusat, zona bebas subjek/kartu; tak tampil di outro (tertutup layar brand).
   const H = windows[0].dur, total = H + m.audioDurationSeconds;
   const cap = captionLayer(words, { offset: H, total, w, h, brand, zoneAt: (t) => capZone[winAt(t)] });

@@ -17,7 +17,8 @@
    "duration": 2.5,
    "transition": "cut",
    "text": "Kuliner Bedugul wajib dicoba",
-   "footageRef": "c1"
+   "footageRef": "c1",
+   "subject": "makanan kuliner Bedugul"
   },
   {
    "id": "dekat",
@@ -25,7 +26,8 @@
    "duration": 4.5,
    "transition": "crossfade",
    "footageRef": "c3",
-   "caption": "Dekat Pelangi Homestay"
+   "caption": "Dekat Pelangi Homestay",
+   "subject": "kamar homestay"
   },
   {
    "id": "menu",
@@ -37,7 +39,8 @@
     "Nasi Tempong Indra",
     "RM Mentari"
    ],
-   "footageRef": "c4"
+   "footageRef": "c4",
+   "subject": "makanan warung"
   },
   {
    "id": "tips",
@@ -46,7 +49,8 @@
    "transition": "zoom",
    "footageRef": "c0",
    "mediaStart": 1,
-   "caption": "Tips: datang pagi atau sore"
+   "caption": "Tips: datang pagi atau sore",
+   "subject": "restoran makan pagi"
   },
   {
    "id": "outro",

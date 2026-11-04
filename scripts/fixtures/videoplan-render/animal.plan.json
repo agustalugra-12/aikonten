@@ -17,7 +17,8 @@
    "duration": 2,
    "transition": "cut",
    "text": "This bird drinks BLOOD",
-   "footageRef": "c3"
+   "footageRef": "c3",
+   "subject": "burung minum darah"
   },
   {
    "id": "meet",
@@ -25,7 +26,8 @@
    "duration": 4,
    "transition": "zoom",
    "footageRef": "c2",
-   "caption": "Vampire finch, Galapagos"
+   "caption": "Vampire finch, Galapagos",
+   "subject": "burung finch"
   },
   {
    "id": "peck",
@@ -34,7 +36,8 @@
    "transition": "whip",
    "footageRef": "c1",
    "mediaStart": 2,
-   "caption": "Pecks larger seabirds"
+   "caption": "Pecks larger seabirds",
+   "subject": "burung laut"
   },
   {
    "id": "facts",
@@ -48,7 +51,8 @@
     "Lives where food is scarce"
    ],
    "footageRef": "c0",
-   "mediaStart": 3
+   "mediaStart": 3,
+   "subject": "burung laut"
   },
   {
    "id": "cta",

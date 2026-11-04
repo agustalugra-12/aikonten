@@ -17,7 +17,8 @@
    "duration": 2.2,
    "transition": "cut",
    "text": "Baju bersih tanpa keluar rumah",
-   "footageRef": "c0"
+   "footageRef": "c0",
+   "subject": "pakaian bersih"
   },
   {
    "id": "ba",
@@ -25,15 +26,15 @@
    "duration": 3.5,
    "transition": "whip",
    "before": {
-    "label": "Dijemput",
+    "label": "Cucian numpuk",
+    "footageRef": "c1"
+   },
+   "after": {
+    "label": "Dilipat rapi",
     "footageRef": "c2",
     "mediaStart": 3
    },
-   "after": {
-    "label": "Diantar rapi",
-    "footageRef": "c3",
-    "mediaStart": 5
-   }
+   "subject": "pakaian cucian"
   },
   {
    "id": "svc",
@@ -47,7 +48,8 @@
     "Warga Denpasar"
    ],
    "footageRef": "c1",
-   "mediaStart": 2
+   "mediaStart": 2,
+   "subject": "tas cucian pickup"
   },
   {
    "id": "cta",
