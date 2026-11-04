@@ -18,9 +18,12 @@ Proyek selesai bila kriteria ini terpenuhi:
 
 ## Aturan infra: lokasi build dan render (permanen, 2026-11-05)
 
+> **AI Content Pilot hanya memakai VPS Agustap Studio dan worker. Server Pelangi tidak boleh untuk build, render uji, generate, atau penyimpanan output.**
+
 Server Pelangi Homestay (PMS) tidak boleh dipakai untuk render, render uji, build berat, atau generate
 AI Content Pilot. Build dan render uji hanya di VPS Agustap Studio (checkout `~/kp-build`, bukan repo
-produksi) atau di VPS worker (render uji di worker butuh persetujuan). Render uji dibatasi cgroup, pendek,
+produksi) atau di VPS worker (render uji di worker butuh persetujuan). Output uji disimpan di VPS Agustap
+(`~/hf-test-output/`). Render uji dibatasi cgroup, pendek,
 memakai fixture, dan dibatalkan bila generate/render produksi sedang aktif. Detail perintah cek ada di
 AGENTS.md bagian INFRA RULE.
 
