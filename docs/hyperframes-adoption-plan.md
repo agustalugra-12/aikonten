@@ -16,6 +16,14 @@ Proyek selesai bila kriteria ini terpenuhi:
 - Tenant baru bisa memakai HyperFrames sesuai kuota.
 - Agus menonton hasilnya dan menyatakan selevel pelangi-pro.
 
+## Aturan infra: lokasi build dan render (permanen, 2026-11-05)
+
+Server Pelangi Homestay (PMS) tidak boleh dipakai untuk render, render uji, build berat, atau generate
+AI Content Pilot. Build dan render uji hanya di VPS Agustap Studio (checkout `~/kp-build`, bukan repo
+produksi) atau di VPS worker (render uji di worker butuh persetujuan). Render uji dibatasi cgroup, pendek,
+memakai fixture, dan dibatalkan bila generate/render produksi sedang aktif. Detail perintah cek ada di
+AGENTS.md bagian INFRA RULE.
+
 ## Aturan kerja mandiri
 
 Terminal boleh mengerjakan tahap yang sudah disetujui tanpa menunggu Agus, selama tetap dalam batas di bawah.
@@ -23,7 +31,7 @@ Terminal boleh mengerjakan tahap yang sudah disetujui tanpa menunggu Agus, selam
 **Boleh tanpa bertanya:**
 
 - Membaca kode, log, dan database secara read-only.
-- Mengubah kode di branch kerja, menjalankan `tsc`, tes, dan render lokal.
+- Mengubah kode di branch kerja, menjalankan `tsc`, tes, dan render uji di VPS Agustap Studio (lihat Aturan infra).
 - Commit serta push ke branch kerja `feat/hf-adoption`.
 - Memperbaiki tes yang gagal, maksimal 3 kali.
 
@@ -190,7 +198,11 @@ Gerbang persetujuan:
 4. Sebelum default engine berubah
 
 Boleh tanpa bertanya: baca read-only, ubah kode di branch feat/hf-adoption,
-tsc, tes, render lokal, commit, dan push ke branch itu.
+tsc, tes, commit, dan push ke branch itu.
+Build dan render uji HANYA di VPS Agustap Studio (~/kp-build) atau worker (worker
+butuh persetujuanku). DILARANG di server Pelangi Homestay. Sebelum render uji, cek
+tidak ada kontenpilot-ffmpeg-*/hyperframes/generate produksi aktif; kalau ada, tunggu.
+Render uji pendek, fixture lokal, dibatasi cgroup (1 core, 1.2 GB).
 Maksimal 3 percobaan untuk memperbaiki tes yang gagal.
 
 Wajib menunggu aku: deploy, restart, ubah worker VPS, merge ke saas-multitenant,
@@ -210,8 +222,10 @@ Perintah lanjutan setelah kamu menyetujui gerbang:
 
 ```text
 Gerbang [nomor] disetujui. Keputusan: [isi keputusan].
-Lanjutkan sampai gerbang berikutnya, ikuti docs/hyperframes-adoption-plan.md,
-lalu laporkan bukti tiap tahap dan berhenti.
+Lanjutkan sampai gerbang berikutnya, ikuti AGENTS.md (INFRA RULE) dan
+docs/hyperframes-adoption-plan.md, lalu laporkan bukti tiap tahap dan berhenti.
+Build/render uji hanya di VPS Agustap Studio (~/kp-build) atau worker, tidak di
+server Pelangi, dan tidak saat generate/render produksi aktif.
 ```
 
 ---
@@ -441,3 +455,13 @@ Sisa: caption terlalu cepat dibaca (craft line_unread, cadence builder lama), ko
 atas footage terang (warning), hook detik 0 belum ada teks (muncul 0.55 dtk), footage tak cocok topik
 (Pelangi kuliner vs kamar; animal stok bukan vampire finch), AI Director belum diuji dgn OpenAI nyata.
 Berikutnya: Gerbang 3 (Agus menilai video) sebelum shadow deploy / aktivasi satu brand.
+
+### Koreksi infra (2026-11-05)
+
+Render uji 3 fixture di checkpoint atas (v1 dan v2, 6 render) dijalankan di server Pelangi Homestay. Itu
+sekarang dilarang (aturan infra di atas). Hasilnya tetap dipakai sebagai bukti Gerbang 3; render uji
+berikutnya diulang di VPS Agustap Studio. Audit read-only 2026-11-05: tidak ada proses, timer, cron, atau
+layanan AI Content Pilot yang berjalan di server Pelangi; yang tersisa hanya berkas (arsip app lama, backup
+DB lama, cache HyperFrames/Chrome dan media fixture dari render uji). Ketergantungan app produksi ke server
+Pelangi: KB `WEB_PELANGI_INTERNAL_URL` (HTTP ringan ke backend web Pelangi, sah), serta `APP_URL` dan
+`AGENCY_PEER_URLS` yang masih menunjuk domain lama ber-DNS ke server Pelangi dan tidak dilayani lagi.
