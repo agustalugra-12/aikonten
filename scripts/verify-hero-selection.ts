@@ -3,7 +3,7 @@
 // Mencakup syarat tes #7: mixed brand, klip stok pertama, skor 0, semua avoid, tag kosong,
 // Ankylosaurus, + fallback (plan deterministik = dipakai render & ffmpeg sama). + sinonim #4.
 import assert from "node:assert";
-import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, resolveDomain, type ClipCandidate } from "@/lib/ai/footageDirector";
 
 let n = 0;
 const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
@@ -133,6 +133,68 @@ const S = (key: string, probe: string): ClipCandidate => ({ key, source: "stock"
   assert.strictEqual(out[0].url, "b");
   assert.strictEqual(out[out.length - 1].url, "a");
   ok("directFootageOrder hero-depan/toilet-belakang");
+}
+
+// === GUARD v3: domain, hero/reel, forbidden-wins, sufficiency ===
+// 12. #3 KATEGORI TERLARANG MENANG atas token match: golfer-mountain-view ditolak utk domain animal
+//     (walau "mountain" cocok script). Tanpa kategori, "mountain" bisa bikin false-accept.
+{
+  const p = planHeroAndClips([
+    S("golfmt", "golfer teeing off with mountain view"),  // sport -> forbidden utk animal
+    S("dino", "dinosaur skeleton fossil"),
+  ], "Ankylosaurus dinosaur", "dinosaur prehistoric mountain terrain", { domain: "animal" });
+  const golf = p.dropped.find((d) => d.key === "golfmt");
+  assert.ok(golf && golf.reason === "forbidden_category", "golfer-mountain ditolak via forbidden_category, bukan lolos: " + JSON.stringify(golf));
+  assert.strictEqual(p.heroKey, "dino", "hero = dinosaur");
+  ok("#3 kategori terlarang MENANG atas token match (golfer-mountain ditolak, domain animal)");
+}
+
+// 13. REEL ambient: klip hewan generik (relevansi rendah) utk domain animal -> TETAP dipakai di reel
+{
+  const p = planHeroAndClips([
+    S("generic", "a squirrel on a branch in forest"),     // animal/nature, rel rendah vs hook spesifik
+    S("relevan", "close up of pallas cat predator"),      // lebih relevan
+  ], "Extreme Predator Adaptations", "predator pallas cat survival cold", { domain: "animal" });
+  assert.strictEqual(p.faceless, false);
+  assert.ok(p.order.includes("generic"), "klip ambient hewan TETAP di reel (domain match), tak dibuang");
+  assert.strictEqual(p.heroKey, "relevan", "hero = yg relevan kuat, bukan ambient");
+  ok("reel ambient domain-match dipertahankan; hero = relevan kuat (#1)");
+}
+
+// 14. Domain TAK DIKENAL -> universal (forbidden kosong) + dicatat known=false
+{
+  const r = resolveDomain("gamelan");
+  assert.strictEqual(r.known, false);
+  assert.strictEqual(r.profile.key, "universal");
+  assert.strictEqual(resolveDomain("animal").known, true);
+  ok("domain tak dikenal -> universal + dicatat; dikenal -> profil");
+}
+
+// 15. #4 Pixabay slug kosong -> no_basis (bukan hero), dicatat
+{
+  const p = planHeroAndClips([{ key: "px", source: "stock", probe: slugFromSourceUrl("https://pixabay.com/videos/id-85674/") }], "dinosaur", "x", { domain: "animal" });
+  assert.strictEqual(p.faceless, true);
+  assert.strictEqual(p.dropped[0].reason, "no_basis", "pixabay tanpa isi -> no_basis");
+  ok("#4 Pixabay slug kosong -> no_basis, bukan hero");
+}
+
+// 16. #5 planFootageSufficiency: ok / repeat_ok / need_replacement / insufficient
+{
+  assert.strictEqual(planFootageSufficiency(30, 30).status, "ok");
+  assert.strictEqual(planFootageSufficiency(20, 30).status, "repeat_ok");   // 1.5x <= 2
+  assert.strictEqual(planFootageSufficiency(10, 30).status, "need_replacement"); // 3x > 2
+  assert.strictEqual(planFootageSufficiency(10, 30, true).status, "insufficient"); // stlh cari pengganti
+  assert.strictEqual(planFootageSufficiency(0, 30).status, "insufficient");
+  assert.strictEqual(planFootageSufficiency(20, 30).repeatRatio, 1.5);
+  ok("#5 planFootageSufficiency: ok/repeat_ok/need_replacement/insufficient + cap 2x");
+}
+
+// 17. Footage BRAND tetap hanya avoid yg dibuang (domain apa pun)
+{
+  const p = planHeroAndClips([B("b1", ["meja makan"]), B("b2", ["toilet"])], "liburan teras", "x", { domain: "hospitality" });
+  assert.deepStrictEqual(p.dropped.map((d) => d.reason), ["avoid"], "brand: hanya avoid dibuang");
+  assert.ok(p.order.includes("b1"), "brand skor rendah tetap dipakai");
+  ok("footage brand: hanya avoid dibuang (semua domain)");
 }
 
 console.log(`ALL_HERO_TESTS_PASS (${n} tes)`);

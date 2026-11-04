@@ -96,19 +96,65 @@ export function slugFromSourceUrl(url: string | null | undefined): string {
   try {
     const segs = new URL(String(url)).pathname.split("/").filter(Boolean);
     const last = segs[segs.length - 1] || "";
-    return last.replace(/[-_]+/g, " ").replace(/\b\d{4,}\b/g, " ").replace(/\s+/g, " ").trim();
+    const s = last.replace(/[-_]+/g, " ").replace(/\b\d{3,}\b/g, " ").replace(/\s+/g, " ").trim();
+    // Tanpa kata bermakna (>=3 huruf) = tak ada metadata ISI (mis Pixabay `id-85674`) -> kosong -> no_basis.
+    return s.split(" ").some((w) => w.length >= 3 && /[a-z]/.test(w)) ? s : "";
   } catch { return ""; }
 }
 
+// Leksikon KATEGORI (deterministik, bukan vision) - klasifikasi ISI klip dari slug/tag.
+// Dipakai utk (a) kategori TERLARANG per-domain (menang atas token match), (b) "domain match"
+// klip suasana (reel ambient boleh walau token-overlap rendah).
+const CATEGORY_LEXICON: Record<string, string[]> = {
+  sport: ["golf", "golfer", "frisbee", "soccer", "football", "basketball", "tennis", "gym", "fitness", "workout", "skate", "surfing", "bowling", "baseball"],
+  human_media: ["office", "meeting", "laptop", "typing", "podcast", "makeup", "influencer", "vlog", "editor", "workstation", "smartphone", "selfie", "placard", "presentation"],
+  animal: ["animal", "wildlife", "cat", "dog", "lizard", "iguana", "turtle", "tortoise", "fish", "shark", "bird", "bee", "butterfly", "dolphin", "whale", "insect", "ant", "spider", "snake", "lion", "tiger", "elephant", "monkey", "squirrel", "lynx", "fox", "deer", "jellyfish", "reptile", "frog", "crab", "octopus", "penguin", "dinosaur"],
+  nature: ["forest", "jungle", "ocean", "sea", "underwater", "reef", "coral", "mountain", "river", "lake", "waterfall", "sky", "sunset", "landscape", "plant", "flower", "tree", "desert", "snow", "ice", "canyon", "beach", "wave"],
+  food: ["food", "market", "fruit", "vegetable", "cooking", "meal", "restaurant", "kuliner", "dish", "chef", "coffee", "bakery", "street food"],
+  property: ["room", "bedroom", "hotel", "villa", "pool", "garden", "house", "interior", "terrace", "lobby", "resort", "homestay", "cottage", "balcony", "bed"],
+  laundry: ["laundry", "clothes", "washing", "ironing", "garment", "folding", "fabric", "detergent", "linen", "towel"],
+  business: ["business", "shop", "store", "product", "brand", "entrepreneur", "startup", "retail", "customer"],
+};
+// Kategori ISI dominan dari teks basis (slug/tag). "unknown" kalau tak ada kata cocok.
+function categoryOf(text: string): string {
+  const t = norm(text);
+  let best = "unknown", bestN = 0;
+  for (const [cat, kws] of Object.entries(CATEGORY_LEXICON)) {
+    let n = 0;
+    for (const kw of kws) if (t.includes(kw)) n++;
+    if (n > bestN) { bestN = n; best = cat; }
+  }
+  return best;
+}
+export type DomainProfile = { key: string; reelCategories: string[]; forbidden: string[] };
+// Profil domain CONFIGURABLE (bukan hardcode per-brand). reelCategories = kategori yg "nyambung"
+// (klip ambient boleh di reel). forbidden = kategori terlarang (menang atas token match).
+const DOMAIN_PROFILES: Record<string, DomainProfile> = {
+  animal: { key: "animal", reelCategories: ["animal", "nature"], forbidden: ["sport", "human_media"] },
+  hospitality: { key: "hospitality", reelCategories: ["property", "nature", "food"], forbidden: ["sport"] },
+  laundry: { key: "laundry", reelCategories: ["laundry", "property", "business"], forbidden: ["sport"] },
+  business: { key: "business", reelCategories: ["business", "human_media", "food", "property"], forbidden: [] },
+};
+// Domain tak dikenal -> HANYA larangan universal (kosong = andalkan avoid+relevansi), dan DICATAT (known=false).
+const UNIVERSAL_FORBIDDEN: string[] = [];
+export function resolveDomain(key: string | null | undefined): { profile: DomainProfile; known: boolean } {
+  const p = key ? DOMAIN_PROFILES[String(key)] : undefined;
+  if (p) return { profile: p, known: true };
+  return { profile: { key: "universal", reelCategories: [], forbidden: UNIVERSAL_FORBIDDEN }, known: false };
+}
+const HERO_MIN_RELEVANCE = 0.5; // ambang "relevan kuat" utk hero (skor ternormalisasi)
+
 export type ClipSource = "brand" | "stock";
 export type ClipCandidate = { key: string; source: ClipSource; tags?: string[]; description?: string; probe?: string };
-export type DropReason = "avoid" | "off_topic" | "no_basis";
+export type DropReason = "avoid" | "off_topic" | "no_basis" | "forbidden_category";
 export type HeroPlan = {
-  order: string[];     // SEMUA klip dipakai, urut: hero (relevansi tertinggi) dulu
+  order: string[];     // reel: hero (order[0]=relevan kuat) dulu, lalu klip suasana domain-match
   heroKey: string | null;
   heroTags: string[];  // basis hero -> QC cek hero yg SAMA dgn render & fallback (#5)
   faceless: boolean;   // true HANYA kalau nol klip aman (#6)
-  dropped: { key: string; source: ClipSource; reason: DropReason }[];
+  dropped: { key: string; source: ClipSource; reason: DropReason; category?: string }[];
+  domain: string;      // profil domain dipakai ("animal"/.../"universal")
+  domainKnown: boolean;
 };
 
 function clipBasis(c: ClipCandidate): string[] {
@@ -125,28 +171,51 @@ function heroBasisTags(c: ClipCandidate): string[] {
   return [];
 }
 
-export function planHeroAndClips(cands: ClipCandidate[], hookText: string, script: string): HeroPlan {
+export function planHeroAndClips(cands: ClipCandidate[], hookText: string, script: string, opts?: { domain?: string }): HeroPlan {
+  const { profile, known } = resolveDomain(opts?.domain);
+  const forbidden = new Set([...profile.forbidden, ...UNIVERSAL_FORBIDDEN]);
+  const reelCats = new Set(profile.reelCategories);
   const hookTokens = new Set(canonTokens(hookText));
   const scriptTokens = new Set(canonTokens(script));
   const dropped: HeroPlan["dropped"] = [];
-  const kept: { key: string; rel: number; hero: string[] }[] = [];
+  const kept: { key: string; rel: number; hero: string[]; heroOK: boolean }[] = [];
   for (const c of cands) {
     const basis = clipBasis(c);
     const s = scoreClipTags(basis, hookTokens, scriptTokens);
-    if (s.avoid) { dropped.push({ key: c.key, source: c.source, reason: "avoid" }); continue; } // #2: avoid SELALU di-drop
+    if (s.avoid) { dropped.push({ key: c.key, source: c.source, reason: "avoid" }); continue; } // avoid SELALU di-drop
+    const category = categoryOf(basis.join(" "));
+    // #3: kategori TERLARANG MENANG atas token match (mis golfer-mountain-view utk domain animal).
+    if (forbidden.has(category)) { dropped.push({ key: c.key, source: c.source, reason: "forbidden_category", category }); continue; }
+    const heroOK = s.relevance >= HERO_MIN_RELEVANCE; // hero wajib RELEVAN KUAT
     if (c.source === "stock") {
-      // #3: stok wajib lolos guard topik. Tanpa basis = tidak jelas = tidak dipakai.
-      if (!s.hasTags && basis.length === 0) { dropped.push({ key: c.key, source: c.source, reason: "no_basis" }); continue; }
-      if (s.relevance === 0) { dropped.push({ key: c.key, source: c.source, reason: "off_topic" }); continue; }
+      if (basis.length === 0) { dropped.push({ key: c.key, source: c.source, reason: "no_basis", category }); continue; } // #4 Pixabay: no slug -> no_basis
+      // REEL: klip suasana boleh kalau DOMAIN COCOK (kategori reel) ATAU ada relevansi. Selain itu buang.
+      const domainMatch = reelCats.has(category);
+      if (!domainMatch && s.relevance === 0) { dropped.push({ key: c.key, source: c.source, reason: "off_topic", category }); continue; }
+      kept.push({ key: c.key, rel: s.relevance, hero: heroBasisTags(c), heroOK });
+    } else {
+      // FOOTAGE BRAND: hanya avoid/forbidden yg dibuang; selain itu SELALU di reel. Hero kalau relevan kuat.
+      kept.push({ key: c.key, rel: s.relevance, hero: heroBasisTags(c), heroOK });
     }
-    // #2/#6: footage BRAND dipertahankan apa pun (selain avoid); relevansi hanya utk ranking.
-    kept.push({ key: c.key, rel: s.relevance, hero: heroBasisTags(c) });
   }
-  // Ranking stabil: relevansi desc, urutan asli sbg tie-break.
+  // Urut REEL: hero-eligible (relevan kuat) DULU, lalu relevansi, lalu urutan asli. hero = order[0].
   const withIdx = kept.map((k, i) => ({ ...k, i }));
-  withIdx.sort((a, b) => b.rel - a.rel || a.i - b.i);
-  if (!withIdx.length) return { order: [], heroKey: null, heroTags: [], faceless: true, dropped };
-  return { order: withIdx.map((x) => x.key), heroKey: withIdx[0].key, heroTags: withIdx[0].hero, faceless: false, dropped };
+  withIdx.sort((a, b) => (b.heroOK ? 1 : 0) - (a.heroOK ? 1 : 0) || b.rel - a.rel || a.i - b.i);
+  if (!withIdx.length) return { order: [], heroKey: null, heroTags: [], faceless: true, dropped, domain: profile.key, domainKnown: known };
+  return { order: withIdx.map((x) => x.key), heroKey: withIdx[0].key, heroTags: withIdx[0].hero, faceless: false, dropped, domain: profile.key, domainKnown: known };
+}
+
+// #5 Planner kecukupan footage (pure): keputusan cari-pengganti / repeat / footage-kurang.
+// targetSeconds = durasi video; uniqueSeconds = total detik footage UNIK yg aman (dari plan.order).
+export type FootageStatus = "ok" | "repeat_ok" | "need_replacement" | "insufficient";
+export function planFootageSufficiency(uniqueSeconds: number, targetSeconds: number, afterReplacement = false): { uniqueSeconds: number; targetSeconds: number; repeatRatio: number; status: FootageStatus } {
+  const rr = uniqueSeconds > 0 ? targetSeconds / uniqueSeconds : Infinity;
+  let status: FootageStatus;
+  if (uniqueSeconds <= 0) status = "insufficient";
+  else if (uniqueSeconds >= targetSeconds) status = "ok";
+  else if (rr <= 2) status = "repeat_ok";                              // boleh ulang <= 2x
+  else status = afterReplacement ? "insufficient" : "need_replacement"; // cari pengganti dulu; tetap kurang -> tandai
+  return { uniqueSeconds, targetSeconds, repeatRatio: Number.isFinite(rr) ? Number(rr.toFixed(2)) : 0, status };
 }
 
 // SHIM TRANSISI (dipakai processProject 505081c sampai wiring planHeroAndClips penuh).
