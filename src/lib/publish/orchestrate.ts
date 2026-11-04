@@ -336,9 +336,17 @@ async function publishProjectInner(projectId: string, opts?: { accountIds?: stri
   const finalStatus =
     succeededIds.size === 0 ? "failed" : succeededIds.size === accounts.length ? "published" : "partial";
 
+  // #2 (feat/publish-guard): simpan RINGKASAN alasan kalau belum sepenuhnya sukses -> project tak lagi
+  // "gagal diam-diam" (dulu errorMessage project NULL; alasan hanya tersebar di publishLogs).
+  let summary: string | null = null;
+  if (finalStatus !== "published") {
+    const reasons = [...new Set(finalLogs.filter((l) => l.status !== "success" && l.errorMessage).map((l) => String(l.errorMessage).slice(0, 120)))].slice(0, 3);
+    summary = `Publish ${finalStatus}: ${succeededIds.size}/${accounts.length} akun sukses` + (reasons.length ? ` — ${reasons.join(" | ")}` : "");
+  }
+
   await db
     .update(projects)
-    .set({ status: finalStatus, updatedAt: new Date() })
+    .set({ status: finalStatus, updatedAt: new Date(), ...(summary ? { errorMessage: summary } : {}) })
     .where(eq(projects.id, projectId));
 }
 

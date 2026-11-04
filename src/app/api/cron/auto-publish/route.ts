@@ -7,6 +7,7 @@ import { nowTimeStringWita, todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { publishProject } from "@/lib/publish/orchestrate";
 import { planMengizinkanAutoPosting } from "@/lib/billing/planGate";
 import { pastikanAkunBolehGenerate } from "@/lib/billing/statusGate";
+import { defaultGuardCfg, retryEligibility, scheduledEligibility, applyQuota, type GuardCfg } from "@/lib/publish/guard";
 
 // Manual Per-Post Scheduling (2026-08-25, PRD §26) - TERPISAH dari loop slot per-brand
 // di bawah (itu utk brand.publishMode="auto" recurring, ini utk 1 draft spesifik yang
@@ -14,22 +15,42 @@ import { pastikanAkunBolehGenerate } from "@/lib/billing/statusGate";
 // brand-nya). Dicek SETIAP kali cron ini jalan (siklus sama dgn retryPartialPublishes,
 // ~10-15 menit, lihat kontenpilot-auto-publish.timer) - toleransi keterlambatan alami
 // dari cadence cron itu sendiri, tidak perlu TOLERANCE_MINUTES terpisah spt slot brand.
-async function publishScheduledProjects(): Promise<Array<{ projectId: string; brandId: string }>> {
+async function publishScheduledProjects(cfg: GuardCfg, nowMs: number): Promise<{ published: Array<{ projectId: string; brandId: string }>; review: number; skippedFlag: number; skippedQuota: number; failed: number }> {
   const now = new Date();
   const due = await db
     .select()
     .from(projects)
     .where(and(eq(projects.status, "scheduled"), lte(projects.scheduledFor, now)));
-  const published: Array<{ projectId: string; brandId: string }> = [];
+  // feat/publish-guard: dalam grace -> kandidat publish; telat JAUH -> TINJAU (status needs_review, jangan
+  // burst konten basi); skip_auto_publish -> dilewati.
+  const candidates: typeof due = [];
+  let review = 0, skippedFlag = 0;
   for (const p of due) {
+    const v = scheduledEligibility({ id: p.id, brandId: p.brandId, scheduledForMs: p.scheduledFor ? new Date(p.scheduledFor).getTime() : nowMs, skipAutoPublish: !!p.skipAutoPublish }, nowMs, cfg);
+    if (v.action === "publish") candidates.push(p);
+    else if (v.action === "skip_flag") skippedFlag++;
+    else {
+      // Telat jauh -> KARANTINA dari auto-publish via skip_auto_publish=1 (tanpa ubah enum status):
+      // keluar dari pemilihan otomatis (scheduledEligibility -> skip_flag di siklus berikut), tetap terlihat
+      // di Draft/Review utk ditinjau/di-jadwal-ulang manual. Bukan langsung terbit.
+      review++;
+      await db.update(projects).set({ skipAutoPublish: true, errorMessage: `Scheduled terlambat > ${Math.round(cfg.scheduledGraceMs / 3600000)} jam — masuk tinjauan, tidak auto-terbit`, updatedAt: new Date() }).where(eq(projects.id, p.id));
+    }
+  }
+  const { selected, skippedQuota } = applyQuota(candidates.map((p) => ({ id: p.id, brandId: p.brandId })), cfg);
+  const selSet = new Set(selected.map((s) => s.id));
+  const published: Array<{ projectId: string; brandId: string }> = [];
+  let failed = 0;
+  for (const p of candidates.filter((c) => selSet.has(c.id))) {
     try {
       await publishProject(p.id);
       published.push({ projectId: p.id, brandId: p.brandId });
     } catch (err) {
+      failed++;
       console.error(`[cron/auto-publish] gagal publish scheduled project ${p.id}:`, err);
     }
   }
-  return published;
+  return { published, review, skippedFlag, skippedQuota: skippedQuota.length, failed };
 }
 
 // Retry publish "partial" (2026-08-07, permintaan Agus - "yang berhasil di uploud ke
@@ -47,7 +68,7 @@ async function publishScheduledProjects(): Promise<Array<{ projectId: string; br
 // pulih dlm hari yg sama begitu API-nya normal lagi.
 const RETRY_BACKOFF_HOURS = 2;
 
-async function retryPartialPublishes(): Promise<Array<{ projectId: string; brandId: string }>> {
+async function retryPartialPublishes(cfg: GuardCfg, nowMs: number): Promise<{ retried: Array<{ projectId: string; brandId: string }>; skippedAge: number; skippedFlag: number; skippedQuota: number; failed: number }> {
   const backoffCutoff = new Date(Date.now() - RETRY_BACKOFF_HOURS * 60 * 60 * 1000);
   const toRetry = await db
     .select()
@@ -73,16 +94,31 @@ async function retryPartialPublishes(): Promise<Array<{ projectId: string; brand
   const failedIdsWithPublishAttempt = new Set(logsForFailed.map((l) => l.projectId));
   const toRetryFailed = failedWithAttempt.filter((p) => failedIdsWithPublishAttempt.has(p.id));
 
+  // feat/publish-guard: saring USIA + skip_auto_publish SEBELUM kuota -> konten lama tidak auto-terbit;
+  // skip_auto_publish dihormati. Lalu kuota per-brand + total -> backlog besar TIDAK burst dalam 1 siklus.
+  let skippedAge = 0, skippedFlag = 0;
+  const eligible = [...toRetry, ...toRetryFailed].filter((p) => {
+    const v = retryEligibility({ id: p.id, brandId: p.brandId, createdAtMs: new Date(p.createdAt).getTime(), skipAutoPublish: !!p.skipAutoPublish }, nowMs, cfg);
+    if (!v.ok) { if (v.reason === "age") skippedAge++; else skippedFlag++; }
+    return v.ok;
+  });
+  eligible.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // utamakan yg lebih baru
+  const { selected, skippedQuota } = applyQuota(eligible.map((p) => ({ id: p.id, brandId: p.brandId })), cfg);
+  const selSet = new Set(selected.map((s) => s.id));
   const retried: Array<{ projectId: string; brandId: string }> = [];
-  for (const p of [...toRetry, ...toRetryFailed]) {
+  let failed = 0;
+  for (const p of eligible.filter((e) => selSet.has(e.id))) {
     try {
       await publishProject(p.id);
       retried.push({ projectId: p.id, brandId: p.brandId });
     } catch (err) {
+      failed++;
       console.error(`[cron/auto-publish] gagal retry project ${p.id}:`, err);
+      // #2: ringkas alasan ke project (best-effort; orchestrate juga set saat finalStatus != published).
+      try { await db.update(projects).set({ errorMessage: `Retry publish gagal: ${String((err as Error)?.message || err).slice(0, 160)}`, updatedAt: new Date() }).where(eq(projects.id, p.id)); } catch { /* best-effort */ }
     }
   }
-  return retried;
+  return { retried, skippedAge, skippedFlag, skippedQuota: skippedQuota.length, failed };
 }
 
 // Cron #3 - utk brand publishMode="auto", SEBARKAN publish sepanjang hari sesuai berapa
@@ -114,8 +150,10 @@ export async function POST(req: NextRequest) {
   const unauthorized = verifyCronSecret(req);
   if (unauthorized) return unauthorized;
 
-  const retriedPartial = await retryPartialPublishes();
-  const publishedScheduled = await publishScheduledProjects();
+  const guardCfg = defaultGuardCfg();
+  const nowMs = Date.now();
+  const retry = await retryPartialPublishes(guardCfg, nowMs);
+  const scheduled = await publishScheduledProjects(guardCfg, nowMs);
 
   const nowWita = nowTimeStringWita();
   const nowMinutes = timeStringToMinutes(nowWita);
@@ -203,5 +241,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, nowWita, results, retriedPartial, publishedScheduled });
+  // feat/publish-guard #3: ringkasan jumlah (dipublish / dilewati-usia / dilewati-kuota / tinjau / gagal).
+  const slotPublished = results.reduce((a, r) => a + (r.published || 0), 0);
+  const counts = {
+    published: retry.retried.length + scheduled.published.length + slotPublished,
+    skipped_age: retry.skippedAge,
+    skipped_quota: retry.skippedQuota + scheduled.skippedQuota,
+    skipped_flag: retry.skippedFlag + scheduled.skippedFlag,
+    scheduled_review: scheduled.review,
+    failed: retry.failed + scheduled.failed,
+  };
+  console.log("[cron/auto-publish] counts:", JSON.stringify(counts));
+  return NextResponse.json({ ok: true, nowWita, counts, results, retriedPartial: retry.retried, publishedScheduled: scheduled.published });
 }
