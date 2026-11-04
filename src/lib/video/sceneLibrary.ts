@@ -28,8 +28,8 @@ export function contrast(a: string, b: string): number {
   return (x + 0.05) / (y + 0.05);
 }
 export const safeHex = (h: string | undefined, d: string) => (h && /^#[0-9a-f]{6}$/i.test(h) ? h : d);
-// Teks di atas bg: putih atau hampir-hitam, mana yang kontrasnya lebih tinggi (selalu ≥ 4.5 utk bg solid).
-export const pickInk = (bg: string) => (contrast("#FFFFFF", bg) >= contrast("#111111", bg) ? "#FFFFFF" : "#111111");
+// Teks di atas bg: putih atau hampir-hitam, mana yang kontrasnya lebih tinggi (selalu ≥ 4.58 utk bg solid apa pun).
+export const pickInk = (bg: string) => (contrast("#FFFFFF", bg) >= contrast("#000000", bg) ? "#FFFFFF" : "#000000"); // hitam MURNI: min teoretis 4.58 utk warna apa pun
 // Aksen dipakai sbg warna teks hanya bila kontrasnya cukup; kalau tidak, jatuh ke ink.
 const accentOr = (accent: string, bg: string) => (contrast(accent, bg) >= 4.5 ? accent : pickInk(bg));
 
@@ -37,14 +37,14 @@ const accentOr = (accent: string, bg: string) => (contrast(accent, bg) >= 4.5 ? 
 // Lebar rata-rata glyph (em) per font untuk estimasi wrap. Font tak dikenal -> Poppins (fallback lokal).
 export const FONT_WIDTH: Record<string, number> = { Poppins: 0.6, "Archivo Black": 0.7, Oswald: 0.47, "Playfair Display": 0.56 };
 export const fontStack = (f: string) => `"${FONT_WIDTH[f] ? f : "Poppins"}","Poppins",Arial,sans-serif`;
-// Ukuran font yang muat di maxW dalam ≤ lines baris; kata terpanjang wajib muat 1 baris.
+// Ukuran font terbesar (≤ base) yang muat di maxW dalam ≤ lines baris (wrap greedy = estLines) dan kata
+// terpanjang muat 1 baris. Tak muat sampai min -> min (CSS overflow-wrap:anywhere jadi pengaman terakhir).
 export function fitFont(text: string, maxW: number, base: number, min: number, lines: number, font: string): number {
   const cw = FONT_WIDTH[font] ?? FONT_WIDTH.Poppins;
-  const t = text.trim();
-  const longest = Math.max(1, ...t.split(/\s+/).map((x) => x.length));
-  const byLen = (maxW * lines) / (Math.max(1, t.length) * cw * 1.08); // 1.08 = sisa ruang wrap
-  const byWord = maxW / (longest * cw);
-  return Math.max(min, Math.floor(Math.min(base, byLen, byWord)));
+  const longest = Math.max(1, ...text.trim().split(/\s+/).map((x) => x.length));
+  let size = Math.floor(Math.min(base, maxW / (longest * cw)));
+  while (size > min && estLines(text, size, maxW, font) > lines) size--;
+  return Math.max(min, size);
 }
 export function estLines(text: string, size: number, maxW: number, font: string): number {
   const cw = (FONT_WIDTH[font] ?? FONT_WIDTH.Poppins) * size;

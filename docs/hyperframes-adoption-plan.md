@@ -405,3 +405,21 @@ Perbaikan v3 (plural+unknown-reel) sudah kurangi false-reject besar. Masih: perl
 ### Rollback
 - `git revert 4dc326d` (atau checkout 45fd784) + rebuild -> kembali ke prod sekarang.
 - Per-brand: hapus `brandKit.footageGuardMode` -> otomatis observe (nol-ubah). Tanpa redeploy.
+
+## CHECKPOINT — feat/hf-videoplan (2026-11-04 malam)
+
+Branch `feat/hf-videoplan` dari origin/saas-multitenant (0806f0f) + merge feat/hero-order (e436ba9) = 8e2ab7b.
+Semua default OFF; pipeline produksi tidak memakai builder baru. Tidak ada deploy/merge/restart.
+
+| Tahap | Commit | Isi | Tes |
+| --- | --- | --- | --- |
+| Persiapan | 8e2ab7b | merge hero-order (konflik onQueueEvent+orderedClips, keduanya dipertahankan) | hero 37/37, queue 5/5, hf-queue 10/10 |
+| 4 Kontrak | f4724c6 | `src/lib/video/videoPlan.ts` + fixture 4 domain (valid + 14 mutasi rusak) | verify-videoplan 7/7 |
+| 5 Shadow | fa7f510 | `videoPlanDirector.ts`, flag `VIDEOPLAN_SHADOW_ENABLED` (OFF), log `data/videoplan-shadow.jsonl` | verify-videoplan-shadow 6/6 (AI tiruan) |
+| 6 Builder | 551114c | `planBuilder.ts`, field opsional buildComposition, `brandKit.videoPlanMode` (on ditolak) | verify-videoplan-builder 8/8, golden 4/4 |
+| 7 Adegan | (commit ini) | `sceneLibrary.ts` 8 adegan, gaya per tone, SFX sintesis `scripts/gen-sfx.sh` | verify-scene-library 5/5 |
+
+Berikutnya: Tahap 8 (QC pre-render `hyperframes check` + keputusan render/ulang/fallback/tolak + metrik +
+skrip review frame), lalu verifikasi akhir (render uji 3 video 15–20 dtk dari fixture, HANYA di luar jam
+generate produksi 23:00–02:30 WIB). Belum diverifikasi: AI Director dgn OpenAI nyata (tak ada key di
+lingkungan uji), render nyata adegan baru, overflow nyata di browser.
