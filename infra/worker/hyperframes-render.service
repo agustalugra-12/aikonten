@@ -1,23 +1,18 @@
-# /etc/systemd/system/hyperframes-render.service  (SNAPSHOT infra - jalan di WORKER VPS; di APP box DISABLED)
-# PENTING: di APP box unit ini DISABLED dengan sengaja - kalau jalan di app box ia menyerobot :3400 dan
-# mematikan tunnel (hf-tunnel) -> request app jadi 401. Unit ini AKTIF hanya di worker VPS.
-# Secret TIDAK di unit ini: ada di EnvironmentFile service.env (HYPERFRAMES_RENDER_SECRET + kredensial R2) -
-# file itu TIDAK disalin ke repo (lihat infra/README.md).
 [Unit]
-Description=HyperFrames Render Service (isolated, Node 24)
+Description=HyperFrames Render Service (worker 4-core)
 After=network.target
 
 [Service]
 Type=simple
-User=admin
-WorkingDirectory=/home/admin/hyperframes-render
-EnvironmentFile=/home/admin/hyperframes-render/service.env
-Environment=PATH=/home/admin/.nvm/versions/node/v24.19.0/bin:/usr/local/bin:/usr/bin:/bin
-Environment=PUPPETEER_CACHE_DIR=/home/admin/.cache/puppeteer
-ExecStart=/home/admin/.nvm/versions/node/v24.19.0/bin/node /home/admin/hyperframes-render/server.mjs
+User=root
+WorkingDirectory=/root/hyperframes-render
+EnvironmentFile=/root/hyperframes-render/service.env
+Environment=PATH=/root/.nvm/versions/node/v24.22.2/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
+ExecStart=/root/.nvm/versions/node/v24.22.2/bin/node /root/hyperframes-render/server.mjs
 Restart=on-failure
 RestartSec=3
-MemoryMax=2G
+MemoryMax=5G
 
 [Install]
 WantedBy=multi-user.target

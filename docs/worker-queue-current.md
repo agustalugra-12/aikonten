@@ -1,45 +1,58 @@
-# Worker Render — alur, timeout, restart, rollback (KEADAAN SEKARANG, 2026-11-04)
+# Worker Render — alur, timeout, restart, rollback (WORKER AKTIF, 2026-11-04)
 
-Dokumentasi apa adanya dari kode/infra yang berjalan (`infra/worker/`, `src/lib/render/hyperframesClient.ts`).
-Belum ada perubahan perilaku — ini baseline untuk Gerbang 2.
+Diambil **read-only langsung dari worker VPS** (bukan salinan app box, yang ternyata STALE). Bukti & beda di §0.
 
-## 1. Alur antrean (queue)
-1. `processProject` memanggil `renderViaHyperframes` → `hyperframesClient.renderComposition(html)`.
-2. Client POST `http://127.0.0.1:3400/render`, header `x-render-secret`, body `{html, meta}`.
-3. Request lewat **tunnel autossh** (`hf-tunnel.service`, app box) ke worker VPS `server.mjs` `:3400`.
-4. Worker **men-serialisasi** render: `serial(fn)` merantai tiap render ke promise `tail` →
-   **1 render berjalan sekali waktu** (hindari 2 Chromium barengan di box 2-core). Render berikut
-   `await prev` dulu. **Tidak ada antrean eksplisit/berprioritas — murni FIFO rantai promise.**
-5. Worker jalankan `npx hyperframes@0.8.230 render` (Chromium + ffmpeg) → ambil MP4 terakhir di `renders/`.
-6. MP4 dibalas → app unggah ke R2 → `processProject` lanjut.
+## 0. Bukti worker aktif + perbedaan dari snapshot lama (app box)
+| Bukti (read-only worker) | Nilai |
+|---|---|
+| nproc | **4** |
+| MemTotal | **8144156 kB (~8 GB)** |
+| systemd unit | `active (running)`, desc "HyperFrames Render Service (worker 4-core)" |
+| Node | **v24.22.2** |
+| server.mjs sha256 | `66a89a7eb5fe6604d37659a6104a94841ca80251a3dd072e92f3bf47412e04bb` |
 
-## 2. Timeout (NILAI NYATA)
-| Lapis | Nilai | Sumber | Perilaku saat lewat |
-|---|---|---|---|
-| Worker render | **15 menit** (`RENDER_TIMEOUT_MS = 15*60*1000`) | `server.mjs:20` | `execFile` bunuh proses `npx` → 500 ke client |
-| Client deadline | **28 menit** (`HYPERFRAMES_RENDER_DEADLINE_MS`) | `hyperframesClient.ts` | AbortController + timer → Error → **fallback ffmpeg** (`processProject`) |
-| Routing proaktif | video est **> 210 dtk** | `processProject` | skip HyperFrames, **ffmpeg langsung** (hindari pasti-timeout) |
+(Hostname worker diverifikasi langsung; tidak dicatat di repo publik ini.)
 
-Catatan: client 28min > worker 15min → normalnya worker gagal/timeout lebih dulu dan client menerima error
-(fallback). Client deadline adalah jaring pengaman kalau worker **menggantung tanpa membalas sama sekali**.
+**server.mjs AKTIF vs snapshot app-box lama** (`ac82c0f7…`, 106 baris → aktif `66a89a7e…`, 107 baris):
+| Hal | Snapshot lama (app box, SALAH) | Worker AKTIF |
+|---|---|---|
+| `RENDER_TIMEOUT_MS` | 15 menit | **25 menit** |
+| perintah render | `npx … render` | `npx … render --workers {cpus().length} --video-frame-format jpg --sdr` |
+| bind | hardcoded `127.0.0.1` | `HF_BIND` env (default 127.0.0.1) |
+| import | — | `+ cpus` dari `node:os` |
+| path | `/home/admin/hyperframes-render` | `/root/hyperframes-render` |
+| unit MemoryMax | 2G | **5G** |
+| User | admin | root |
 
-## 3. Masalah antrean yang DIKETAHUI (jadi sasaran Gerbang 2)
-- **Antre makan deadline:** render yang menunggu di belakang `tail` tetap menghitung deadline client 28min.
-  Kalau render di depan lambat/menggantung, render belakang bisa habis deadline **sebelum mulai**.
-- **Timeout tetap pegang slot:** render yang menggantung baru melepas slot saat `execFile` timeout 15min.
-  Selama itu SEMUA render lain blok (serial), walau sebenarnya sudah tak berguna.
-- **Tak ada kuota per tenant:** satu tenant yang mengirim banyak render memonopoli worker serial.
-- **Tak ada retry:** error sekali → langsung fallback ffmpeg (tak ada percobaan ulang singkat untuk
-  kegagalan transient spt tunnel sesaat putus).
+Catatan: komentar kode di baris 22 server.mjs MASIH tertulis "box 2-core/3.8GB" — itu **stale**; hardware
+nyata 4-core/8GB (nproc/MemTotal di atas). `--sdr` = kunci jalur SDR cepat (~4.8fps) vs HDR layered (~0.6fps timeout).
+
+## 1. Alur antrean (queue) — SEKARANG
+1. `processProject` → `renderViaHyperframes` → `hyperframesClient.renderComposition(html)`.
+2. Client POST `http://127.0.0.1:3400/render` (header `x-render-secret`), via tunnel autossh ke worker `:3400`.
+3. Worker **men-serialisasi**: `serial(fn)` merantai tiap render ke promise `tail` → **1 render sekali waktu**.
+   FIFO murni, **tanpa job id, tanpa /status, tanpa /cancel** → waktu antre TIDAK terlihat oleh app.
+4. Worker: `npx hyperframes render --workers N --sdr` → MP4 terakhir di `renders/` → balas.
+5. App unggah MP4 ke R2 → lanjut. (Worker TIDAK menyentuh R2.)
+
+## 2. Timeout (NILAI NYATA worker aktif)
+| Lapis | Nilai | Perilaku saat lewat |
+|---|---|---|
+| Worker render (`execFile` `npx`) | **25 menit** | proses `npx` dibunuh → 500 ke client. **Tapi tak ada endpoint cancel** → jika serial, render berikut tetap antre sampai ini. |
+| Client deadline | **28 menit** (`HYPERFRAMES_RENDER_DEADLINE_MS`) | AbortController → Error → fallback ffmpeg. **Abort hanya di sisi client**; proses render di worker TETAP jalan sampai 25min. |
+| Routing proaktif | est **> 210 dtk** | skip HyperFrames → ffmpeg langsung. |
+
+## 3. Masalah yang DIKETAHUI (sasaran Gerbang 2)
+- **Antre makan deadline & tak terlihat:** serial FIFO tanpa job id/status; render belakang bisa habis deadline 28min sebelum mulai; app tak tahu posisi antre.
+- **Timeout tak membatalkan worker:** client abort TIDAK menghentikan proses render di worker; slot worker tetap dipakai sampai 25min.
+- **Tak ada kuota per tenant:** satu tenant memonopoli worker serial.
+- **Retry bisa render ganda:** tanpa idempotency, retry/submit ulang bisa memicu 2 render untuk konten sama.
 
 ## 4. Restart
-- Worker: di worker VPS `sudo systemctl restart hyperframes-render` (Restart=on-failure, RestartSec=3, MemoryMax=2G).
-- Tunnel: di app box `sudo systemctl restart hf-tunnel` (Restart=always, RestartSec=5, autossh re-dial).
-- Verifikasi tunnel hidup: `ss -ltnp | grep :3400` harus proses **ssh** (bukan node lokal — kalau node, berarti
-  `hyperframes-render.service` keliru jalan di app box dan menyerobot :3400 → matikan).
+- Worker VPS: `systemctl restart hyperframes-render` (Restart=on-failure, RestartSec=3, MemoryMax=5G).
+- Tunnel (app box): `systemctl restart hf-tunnel` (autossh re-dial). Verifikasi: `ss -ltnp | grep :3400` harus **ssh**.
 
-## 5. Rollback worker (keadaan sekarang)
-- Worker stateless (tak ada DB); rollback = `git`/rsync versi `server.mjs` sebelumnya di worker VPS + restart.
-- Pin versi `hyperframes@0.8.230` di `server.mjs` → render deterministik; naikkan versi = keputusan terpisah.
-- App-side: matikan jalur worker tanpa redeploy dengan set brand `brandKit.renderEngine` != `hyperframes`
-  (default `ffmpeg`), atau set env `HYPERFRAMES_RENDER_URL` kosong → client gagal cepat → fallback ffmpeg.
+## 5. Rollback worker (sekarang)
+- Worker stateless; rollback = kembalikan `server.mjs` versi sebelumnya (hash tercatat) + restart.
+- `hyperframes@0.8.230` dipin → render deterministik.
+- App-side kill-switch tanpa redeploy: `brandKit.renderEngine`≠`hyperframes` (→ffmpeg) atau `HYPERFRAMES_RENDER_URL` kosong (→gagal cepat→fallback).

@@ -1,48 +1,59 @@
-# Rancangan antrean worker — Tahap 3 (2026-11-04, PRE-Gerbang 2, BELUM diwire)
+# Rancang ulang antrean worker — Tahap 3 (2026-11-04, berbasis WORKER AKTIF, PRE-Gerbang 2, BELUM diwire)
 
-Sasaran: (3) waktu antre jangan menghabiskan deadline render; render timeout jangan terus pegang slot.
-(4) retry terbatas + kuota per tenant. Helper murni di `src/lib/render/workerQueue.ts` (teruji mock,
-**belum dipanggil** `processProject` — nol dampak prod). Wiring = pekerjaan PASCA-Gerbang 2.
+Berdasarkan worker nyata (4-core/8GB, Node 24.22.2, render **serial** `serial()`, `RENDER_TIMEOUT_MS 25min`,
+`--workers N --sdr`, **tanpa job-id/status/cancel**). Helper murni di `src/lib/render/workerQueue.ts`
+(teruji mock, **belum dipanggil** `processProject` — nol dampak prod). Wiring = PASCA-Gerbang 2.
 
-## (3a) Anggaran deadline terbagi — `splitRenderBudget`
-Masalah: deadline 28min dihitung sejak submit, termasuk waktu antre. Render yang mulai telat bisa doomed.
-Rancangan: catat `queueWaitedMs` (sejak enqueue sampai dapat slot). Sebelum mulai render:
-`remaining = totalDeadlineMs - queueWaitedMs`. Kalau `remaining < minRenderMs` → **jangan mulai**
-(`proceed=false`) → langsung fallback ffmpeg (hemat slot + pasti-gagal dihindari). Kalau cukup →
-`renderDeadlineMs = remaining` (deadline render = sisa, bukan 28min penuh lagi).
+## Masalah → rancangan
 
-## (3b) Slot dilepas saat timeout — `runWithSlotTimeout`
-Masalah: render menggantung baru lepas slot pada timeout worker 15min. Rancangan sisi-klien: bungkus
-panggilan worker dengan timeout KERAS `slotTimeoutMs` (≤ renderDeadlineMs) + `AbortController`. Saat lewat:
-abort request + **panggil `onRelease()` segera** (lepas kuota/slot logis) + return `{ok:false, reason:"timeout"}`.
-Render berikut tak menunggu 15min. (Worker tetap punya timeout sendiri; ini lapis klien agar slot logis bebas.)
+### (3-1) Waktu antre harus DIKETAHUI — job id + status / antre di app
+Worker sekarang FIFO buta (serial, tak ada id/status). Dua opsi, **kita pilih antre di APP** (tak perlu ubah
+worker untuk ini):
+- **Antre di app (`FairScheduler`)**: app yang memegang antrean + konkurensi ke worker. Posisi antre terlihat
+  (`waitingCount`, `runningCount`) → `estimateWaitMs({aheadInQueue, running, maxConcurrent, avgRenderMs})`
+  memberi perkiraan tunggu SEBELUM mengirim ke worker. Kalau perkiraan > sisa budget → fallback ffmpeg
+  (tak mengantre sia-sia).
+- **Job id + status (opsional, perlu worker)**: `makeJobId(tenant, projectId, contentHash)`; worker balas id +
+  endpoint `GET /status/:id`. Berguna kalau nanti antre pindah ke worker/multi-instance. Didokumentasikan,
+  tak wajib untuk Gerbang 2.
 
-## (4a) Retry terbatas — `nextRetryDelayMs`
-Hanya untuk kegagalan **transient** (tunnel putus sesaat, 502/ECONNRESET), BUKAN timeout render (mahal).
-Exponential backoff `baseMs * 2^attempt`, di-cap `capMs`, maksimum `maxAttempts`. Habis → `null` → fallback ffmpeg.
-Default usul: `maxAttempts=2`, `baseMs=1500`, `capMs=8000`. Timeout/5xx-render → **tanpa retry** (langsung fallback).
+### (3-2) Timeout harus MEMBATALKAN proses render worker, bukan hanya client
+Sekarang: client Abort tak menghentikan proses di worker (tetap jalan sampai 25min → tahan slot serial).
+Rancangan: `runWithSlotTimeout(fn, slotMs, { onTimeout })`. Saat timeout → abort client **lalu panggil
+`onTimeout()`** = `POST /cancel/:jobId` ke worker untuk mengakhiri proses render (kill child `npx`).
+**Perubahan worker yang diperlukan (gated, butuh akses VPS — BUKAN sekarang):** server.mjs simpan child proc
+per jobId; endpoint `/cancel/:id` → `child.kill("SIGTERM")`; `serial()` lepas slot saat dibatalkan. Sampai itu
+ada, `onTimeout` minimal mencatat + abort client (perilaku aman, fallback ffmpeg tetap jalan).
 
-## (4b) Kuota per tenant — `TenantQuota`
-Masalah: worker serial dimonopoli satu tenant. Rancangan limiter in-memory (per instance app):
-- `maxConcurrentPerTenant` (usul 1) — 1 render berjalan per tenant; kelebihan ditolak → fallback, bukan antre lama.
-- `maxGlobalQueue` (usul 3–4) — batas total render in-flight; penuh → `global_full` → fallback cepat.
-`tryAcquire(tenantId)` saat submit; `release(tenantId)` di `finally` (sukses/gagal/timeout). Anti-starvation:
-karena concurrent-per-tenant dibatasi, tak ada tenant yang menahan seluruh antrean.
+### (3-3) Kuota per tenant harus MENGANTRE ADIL, bukan langsung fallback
+Ganti reject-saat-contention dengan `FairScheduler` (round-robin by **served-count**: tenant paling sedikit
+dilayani menang; tie → urutan kedatangan). Job **menunggu giliran** (fair, anti-monopoli worker serial), bukan
+ditolak. Fallback HANYA kalau `estimateWaitMs > budget` (tunggu pasti melampaui deadline).
 
-## Interaksi dengan fallback ffmpeg
-Semua jalur "tak bisa/ tak layak render worker" bermuara ke fallback ffmpeg yang SUDAH ada di `processProject`:
-`proceed=false` (budget habis), `reason:"timeout"`/`"error"`, retry habis (`null`), kuota penuh
-(`tenant_limit`/`global_full`). Fallback = perilaku aman existing (observe/engine ffmpeg tetap jalan).
+### (3-4) Hindari render GANDA saat retry
+`makeJobId` deterministik dari (tenant, projectId, contentHash). `InFlightRegistry.run(jobId, start)`: kalau
+jobId sedang in-flight → kembalikan promise yang SAMA (`deduped:true`), **tak men-start render kedua**. Retry
+transient memakai jobId sama → aman (tak dobel). Timeout render **tidak** di-retry (`isRetriable` → false;
+mahal + cenderung berulang) → langsung fallback.
+
+## Kebijakan retry
+`nextRetryDelayMs(attempt, {maxAttempts, baseMs, capMs})` exponential backoff di-cap; habis → `null` → fallback.
+Hanya transient (ECONNRESET/5xx/tunnel) via `isRetriable`. Default usul: `maxAttempts=2, baseMs=1500, capMs=8000`.
+
+## Interaksi fallback ffmpeg (aman, sudah ada di processProject)
+Bermuara ke fallback ffmpeg existing: `proceed=false` (budget), `estimateWaitMs>budget`, `reason:"timeout"/"error"`,
+retry habis (`null`). Nol perubahan perilaku observe/engine ffmpeg.
 
 ## Rencana wiring PASCA-Gerbang 2 (belum dikerjakan)
-1. `hyperframesClient`: terima `tenantId` + `enqueuedAt`; `TenantQuota.tryAcquire` sebelum POST; hitung
-   `queueWaitedMs`; `splitRenderBudget`; `runWithSlotTimeout(renderDeadlineMs)`; retry transient; `release` di finally.
-2. `processProject`: map kegagalan → fallback ffmpeg (sudah ada); catat sebab ke `autoFixLog`.
-3. Worker `server.mjs` (opsional, perlu akses VPS + Gerbang): turunkan `RENDER_TIMEOUT_MS` agar < slot klien,
-   atau tambah endpoint `/cancel`. **Perlu persetujuan — mengubah VPS.**
+1. App: 1 `FairScheduler` global (maxConcurrent=1, sesuai worker serial; naikkan bila worker diparalelkan).
+   `hyperframesClient` diberi `tenantId` + `makeJobId`; `InFlightRegistry` bungkus submit; `estimateWaitMs` vs
+   budget → antre atau fallback; `runWithSlotTimeout` dengan `onTimeout` = POST `/cancel/:id`.
+2. Worker (GATED, ubah VPS): endpoint `/cancel/:id` + simpan child per id + (opsional) `/status/:id` + id balik.
+3. `processProject`: map hasil → fallback ffmpeg (sudah ada) + catat sebab ke `autoFixLog`.
 
 ## Risiko
-- Limiter in-memory per-instance (bukan lintas-instance). Cukup krn app saat ini 1 instance; kalau scale-out
-  perlu store bersama (Redis) — dicatat, bukan sekarang.
-- Slot klien dilepas saat timeout TAPI worker mungkin masih sibuk render lama (serial) → render berikut masih
-  bisa antre di worker. Mitigasi penuh butuh `/cancel` di worker (perlu Gerbang + akses VPS).
+- Antre/registry **in-memory per-instance** — cukup utk 1 instance app sekarang; multi-instance perlu store
+  bersama (Redis) + id/status di worker. Dicatat, bukan sekarang.
+- `/cancel` belum ada di worker → sampai ditambah (gated), timeout hanya abort client; proses worker lama masih
+  menahan slot serial sampai 25min. Mitigasi penuh = langkah worker di atas (perlu Gerbang + akses VPS).
+- `maxConcurrent` harus cocok dengan kapasitas worker serial (1). Salah set → kelebihan antre/timeout.

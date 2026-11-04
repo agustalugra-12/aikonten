@@ -14,12 +14,17 @@ VPS dilakukan saat membuat snapshot ini.**
 |---|---|---|
 | hf-tunnel.service | IP/host worker | `<WORKER_HOST>` (asli di systemd app box) |
 | hf-tunnel.service | port SSH worker | `<WORKER_SSH_PORT>` |
-| hf-tunnel.service | kunci privat SSH | `/home/admin/.ssh/hf_worker` (hanya PATH; isi kunci tak disalin) |
-| hyperframes-render.service | `service.env` | tak disalin — berisi `HYPERFRAMES_RENDER_SECRET` + kredensial R2 |
-| app (.env) | `HYPERFRAMES_RENDER_SECRET`, `HYPERFRAMES_RENDER_URL` | tak disalin |
+| hf-tunnel.service | kunci privat SSH | `<SSH_KEY_PATH>` (hanya PATH; isi kunci tak disalin) |
+| hyperframes-render.service | `service.env` | tak disalin — keys: `HF_BIND`, `HF_PORT`, `HYPERFRAMES_RENDER_SECRET` (TANPA kredensial R2 — R2 upload di sisi app) |
+| app (.env) | `HYPERFRAMES_RENDER_SECRET`, `HYPERFRAMES_RENDER_URL`, kredensial R2 | tak disalin |
+
+## Sumber snapshot (2026-11-04)
+Diambil **langsung dari worker VPS** (read-only, via tunnel key), BUKAN dari salinan app box (salinan app box
+ternyata STALE/berbeda). Bukti & perbedaan: `docs/worker-queue-current.md`.
 
 ## Topologi singkat
 App (`:3200`, Node 20) → `hyperframesClient.ts` POST `http://127.0.0.1:3400/render` (+header `x-render-secret`)
-→ tunnel autossh (`hf-tunnel.service`) → worker VPS `server.mjs` (`:3400`, Node 24) → `npx hyperframes render`
-(Chromium headless + ffmpeg) → MP4 → balik ke app → app unggah ke R2. Detail alur/timeout/restart/rollback:
-`docs/worker-queue-current.md`. Rancangan perbaikan antrean: `docs/worker-queue-design.md`.
+→ tunnel autossh (`hf-tunnel.service`, app box) → worker VPS `server.mjs` (`:3400`, Node 24.22.2, 4-core/8GB)
+→ `npx hyperframes render --workers N --video-frame-format jpg --sdr` (Chromium + ffmpeg) → MP4 → balik ke app
+→ **app** unggah ke R2. Detail alur/timeout/restart/rollback: `docs/worker-queue-current.md`.
+Rancangan perbaikan antrean: `docs/worker-queue-design.md`.

@@ -4,7 +4,7 @@
 // tidak bergantung ke sini sampai di-wire opt-in (Tahap 4). Bind 127.0.0.1 saja + secret header.
 import http from "node:http";
 import { mkdtemp, cp, writeFile, readFile, rm, readdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { tmpdir, cpus } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
@@ -17,7 +17,7 @@ const PORT = Number(process.env.HF_PORT || 3400);
 const SECRET = process.env.HYPERFRAMES_RENDER_SECRET || "";
 const BASE_DIR = path.join(__dirname, "base");
 const HF = "hyperframes@0.8.230"; // pin versi (sama dgn yg diuji Tahap 0)
-const RENDER_TIMEOUT_MS = 15 * 60 * 1000;
+const RENDER_TIMEOUT_MS = 25 * 60 * 1000;
 
 // Serialisasi render: 1 render sekali jalan (box 2-core/3.8GB - hindari 2 Chrome barengan).
 let tail = Promise.resolve();
@@ -53,7 +53,7 @@ async function renderHtmlToMp4(html, meta) {
     if (meta && typeof meta === "object") {
       await writeFile(path.join(dir, "meta.json"), JSON.stringify(meta), "utf8");
     }
-    await execFileAsync("npx", ["--yes", HF, "render"], {
+    await execFileAsync("npx", ["--yes", HF, "render", "--workers", String(cpus().length), "--video-frame-format", "jpg", "--sdr"], {
       cwd: dir,
       timeout: RENDER_TIMEOUT_MS,
       maxBuffer: 64 * 1024 * 1024,
@@ -103,4 +103,5 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "127.0.0.1", () => console.log(`[hf-render] listening 127.0.0.1:${PORT}`));
+const BIND = process.env.HF_BIND || "127.0.0.1";
+server.listen(PORT, BIND, () => console.log(`[hf-render] listening ${BIND}:${PORT}`));

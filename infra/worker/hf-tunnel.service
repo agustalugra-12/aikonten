@@ -9,8 +9,8 @@ Wants=network-online.target
 [Service]
 User=admin
 Environment=AUTOSSH_GATETIME=0
-# <WORKER_SSH_PORT> = port SSH worker; <WORKER_HOST> = IP/host worker; kunci privat di /home/admin/.ssh/hf_worker (JANGAN commit isi kunci).
-ExecStart=/usr/bin/autossh -M 0 -N -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -i /home/admin/.ssh/hf_worker -p <WORKER_SSH_PORT> -L 127.0.0.1:3400:127.0.0.1:3400 root@<WORKER_HOST>
+# <WORKER_SSH_PORT> = port SSH worker; <WORKER_HOST> = IP/host worker; kunci privat di <SSH_KEY_PATH> (JANGAN commit isi kunci).
+ExecStart=/usr/bin/autossh -M 0 -N -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -i <SSH_KEY_PATH> -p <WORKER_SSH_PORT> -L 127.0.0.1:3400:127.0.0.1:3400 root@<WORKER_HOST>
 Restart=always
 RestartSec=5
 
