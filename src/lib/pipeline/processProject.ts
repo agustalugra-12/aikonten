@@ -1328,6 +1328,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           pacing,                  // Fase 4 AI Director
           musicUrl,                // Fase 6 musik latar (sama dgn jalur ffmpeg)
           emphasisPhrases,         // Fase A HyperFrames Pro - kinetic callouts
+          // Gerbang 2 (flag HYPERFRAMES_QUEUE_ENABLED): catat antre/render/retry/fallback ke autoFixLog.
+          // Flag off -> renderComposition tak pernah panggil ini -> log sama spt produksi.
+          onQueueEvent: (step, action, result) => autoFixLog.push({ step, action, result }),
         });
         } catch (hfErr) {
           console.error("[processProject] HyperFrames render gagal, fallback ke ffmpeg:", hfErr);

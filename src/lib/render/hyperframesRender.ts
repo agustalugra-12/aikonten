@@ -1,6 +1,7 @@
 // Orchestrator render Opsi C (2026-11-02): dari input pipeline -> komposisi HyperFrames ->
 // worker -> MP4 di R2. Return {videoUrl, durationSeconds} SAMA bentuk dgn renderFinalVideo
 // (ffmpeg) supaya downstream processProject (quality check, media_assets) tak berubah.
+import { createHash } from "node:crypto";
 import { buildComposition, type HfClip, type HfWord } from "./hyperframesComposition";
 import { renderComposition } from "./hyperframesClient";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
@@ -31,6 +32,7 @@ export type HyperframesRenderOpts = {
   pacing?: string | null;  // Fase 4 AI Director: fast|medium|calm
   musicUrl?: string | null; // Fase 6 musik latar (dari pickMusicTrack di processProject)
   emphasisPhrases?: string[]; // Fase A HyperFrames Pro - kinetic callouts (frasa kunci AI)
+  onQueueEvent?: (step: string, action: string, result: string) => void; // Gerbang 2: log antre/render/retry/fallback (flag-gated)
 };
 
 export async function renderViaHyperframes(
@@ -81,7 +83,12 @@ export async function renderViaHyperframes(
     lowerThird: opts.lowerThird ? { title: opts.lowerThird.name, subtitle: opts.lowerThird.tagline, atSeconds: 1.2, durationSeconds: 4 } : null,
   });
 
-  const mp4 = await renderComposition(html, { id: opts.projectId, name: opts.projectId });
+  // Gerbang 2: queueOpts selalu diteruskan; renderComposition abaikan kalau flag HYPERFRAMES_QUEUE_ENABLED off
+  // (jalur lama IDENTIK). contentHash dari HTML = idempotency key (retry/submit-ulang tak render ganda).
+  const contentHash = createHash("sha256").update(html).digest("hex").slice(0, 16);
+  const mp4 = await renderComposition(html, { id: opts.projectId, name: opts.projectId }, undefined, {
+    tenantId: opts.brandId, projectId: opts.projectId, contentHash, log: opts.onQueueEvent,
+  });
   const videoKey = buildAssetKey(opts.brandId, opts.projectId, "final.mp4");
   const videoUrl = await uploadBuffer(videoKey, mp4, "video/mp4");
   return { videoUrl, durationSeconds: Math.round(INTRO_SECONDS + audioDurationSeconds) };

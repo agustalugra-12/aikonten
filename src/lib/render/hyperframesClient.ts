@@ -1,34 +1,47 @@
 // Client ke worker render HyperFrames (Opsi C, 2026-11-02). POST komposisi HTML -> MP4 Buffer.
 // URL via tunnel (hf-tunnel.service): default http://127.0.0.1:3400. Secret header.
-// Deadline total sisi-klien (2026-11-03): worker bisa HANG (koneksi terbuka tapi tak pernah balas)
-// -> dulu `req.setTimeout(0)` bikin request menggantung TAK TERBATAS (pipeline + worker serial macet,
-// C fallback tak terpicu krn bukan error/response). Sekarang deadline 28min (> RENDER_TIMEOUT_MS
-// worker 25min, jadi worker SEHAT sempat balas 500 duluan lewat jalur normal) -> abort + reject
-// error jelas -> fallback ffmpeg di processProject jalan. Timer selalu dibersihkan saat sukses/gagal.
+// Deadline total sisi-klien (2026-11-03): worker bisa HANG -> deadline 28min (> RENDER_TIMEOUT_MS worker
+// 25min) -> abort + reject -> fallback ffmpeg di processProject. Timer selalu dibersihkan.
+//
+// Gerbang 2 (2026-11-04, feat/worker-queue): antrean app-side di BELAKANG flag HYPERFRAMES_QUEUE_ENABLED.
+// FLAG OFF (default) -> jalur lama postRender apa adanya (IDENTIK produksi). FLAG ON -> fair-queue per tenant
+// (antre adil, bukan langsung fallback) + idempotency (anti render ganda) + slot-timeout + retry transient.
 import http from "node:http";
+import { FairScheduler, InFlightRegistry, makeJobId, runWithSlotTimeout, nextRetryDelayMs, isRetriable, isQueueTimeout } from "./workerQueue";
 
 const RENDER_URL = process.env.HYPERFRAMES_RENDER_URL || "http://127.0.0.1:3400";
 const SECRET = process.env.HYPERFRAMES_RENDER_SECRET || "";
 const RENDER_DEADLINE_MS = Number(process.env.HYPERFRAMES_RENDER_DEADLINE_MS) || 28 * 60 * 1000;
+// Timeout render worker (server.mjs RENDER_TIMEOUT_MS). Deadline client WAJIB > ini supaya worker SEHAT
+// sempat balas 500 duluan, dan (selama /cancel belum ada) slot tak dianggap bebas sebelum timeout worker lewat.
+const WORKER_RENDER_TIMEOUT_MS = Number(process.env.HYPERFRAMES_WORKER_TIMEOUT_MS) || 25 * 60 * 1000;
+const RETRY_CFG = { maxAttempts: 2, baseMs: 1500, capMs: 8000 };
+// Dibaca saat CALL (bukan module-load) -> testable toggle; prod set via systemd env.
+const queueEnabled = () => process.env.HYPERFRAMES_QUEUE_ENABLED === "1" || process.env.HYPERFRAMES_QUEUE_ENABLED === "true";
+const queueTimeoutMs = () => Number(process.env.HYPERFRAMES_QUEUE_TIMEOUT_MS) || 5 * 60 * 1000;
 
-export async function renderComposition(
-  html: string,
-  meta?: { id?: string; name?: string },
-  opts?: { deadlineMs?: number; url?: string }, // override utk tes (deadline pendek / server tiruan)
-): Promise<Buffer> {
-  const deadlineMs = opts?.deadlineMs ?? RENDER_DEADLINE_MS;
-  const u = new URL(opts?.url || RENDER_URL);
+// Singleton per-proses: render SATU per satu (serial, cocok worker) + registry in-flight (dedup).
+const scheduler = new FairScheduler(Number(process.env.HYPERFRAMES_MAX_CONCURRENT) || 1);
+const inFlight = new InFlightRegistry<Buffer>();
+
+type QueueLog = (step: string, action: string, result: string) => void;
+export type RenderQueueOpts = { tenantId: string; projectId: string; contentHash: string; log?: QueueLog };
+
+// POST mentah ke worker (jalur lama, dipakai flag-off & di dalam antrean). Tag error deadline __renderTimeout
+// supaya renderWithRetry TIDAK me-retry timeout render (mahal, cenderung berulang).
+function postRender(html: string, meta: { id?: string; name?: string } | undefined, opts: { deadlineMs: number; url?: string; signal?: AbortSignal }): Promise<Buffer> {
+  const deadlineMs = opts.deadlineMs;
+  const u = new URL(opts.url || RENDER_URL);
   const payload = JSON.stringify({ html, meta: meta || { id: "app", name: "app" } });
   return new Promise<Buffer>((resolve, reject) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // Selesai SEKALI + selalu bersihkan timer (sukses/gagal/deadline) -> tak ada timer gantung.
     const done = (err: Error | null, buf?: Buffer) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      if (err) reject(err);
-      else resolve(buf as Buffer);
+      if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
+      if (err) reject(err); else resolve(buf as Buffer);
     };
     const req = http.request(
       {
@@ -36,11 +49,7 @@ export async function renderComposition(
         port: Number(u.port || 80),
         path: "/render",
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "content-length": Buffer.byteLength(payload),
-          "x-render-secret": SECRET,
-        },
+        headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload), "x-render-secret": SECRET },
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -55,13 +64,79 @@ export async function renderComposition(
       }
     );
     req.on("error", (e) => done(e));
-    // Deadline total (worker-hang guard): worker diam/tak balas -> reject jelas + tutup socket.
-    // Error 'close'/ECONNRESET yg menyusul setelah destroy di-abaikan (settled sudah true).
+    function onAbort() { done(new Error("render dibatalkan (abort)")); req.destroy(); }
+    if (opts.signal) { if (opts.signal.aborted) { onAbort(); return; } opts.signal.addEventListener("abort", onAbort); }
     timer = setTimeout(() => {
-      done(new Error(`HyperFrames render timeout sisi-klien ${Math.round(deadlineMs / 1000)}s (worker tak merespons) - fallback ffmpeg`));
+      done(Object.assign(new Error(`HyperFrames render timeout sisi-klien ${Math.round(deadlineMs / 1000)}s (worker tak merespons) - fallback ffmpeg`), { __renderTimeout: true }));
       req.destroy();
     }, deadlineMs);
     req.write(payload);
     req.end();
   });
+}
+
+// Render + retry transient (502/ECONNRESET/tunnel). Timeout render TIDAK di-retry (req6). Habis -> throw (fallback).
+async function renderWithRetry(signal: AbortSignal, deadlineMs: number, url: string | undefined, html: string, meta: { id?: string; name?: string } | undefined, log?: QueueLog): Promise<Buffer> {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await postRender(html, meta, { deadlineMs, url, signal });
+    } catch (e) {
+      if ((e as { __renderTimeout?: boolean })?.__renderTimeout) { log?.("render_queue", "timeout render -> TIDAK di-retry", "no_retry"); throw e; }
+      if (!isRetriable("error", e)) throw e;
+      const delay = nextRetryDelayMs(attempt, RETRY_CFG);
+      if (delay === null) { log?.("render_queue", `retry habis (${attempt}x) -> fallback`, "retry_exhausted"); throw e; }
+      log?.("render_queue", `transient: ${String((e as Error)?.message || e).slice(0, 80)} -> retry#${attempt} +${delay}ms`, "retry");
+      await new Promise((r) => setTimeout(r, delay));
+      attempt++;
+    }
+  }
+}
+
+export async function renderComposition(
+  html: string,
+  meta?: { id?: string; name?: string },
+  opts?: { deadlineMs?: number; url?: string }, // override utk tes (deadline pendek / server tiruan)
+  queueOpts?: RenderQueueOpts,                    // Gerbang 2: aktif hanya kalau flag ON + param ini ada
+): Promise<Buffer> {
+  // FLAG OFF atau tanpa queueOpts -> jalur lama (IDENTIK produksi).
+  if (!queueEnabled() || !queueOpts) {
+    return postRender(html, meta, { deadlineMs: opts?.deadlineMs ?? RENDER_DEADLINE_MS, url: opts?.url });
+  }
+  const { tenantId, projectId, contentHash, log } = queueOpts;
+  // Deadline render: PRODUKSI (opts.deadlineMs tak di-set) WAJIB > timeout worker 25min (req3) -> worker
+  // sehat sempat balas + slot tak dianggap bebas sebelum timeout worker lewat (req6, selama /cancel belum ada).
+  // opts.deadlineMs = override UJI (deadline pendek) -> bypass floor; produksi tak pernah set.
+  const renderDeadlineMs = opts?.deadlineMs ?? Math.max(RENDER_DEADLINE_MS, WORKER_RENDER_TIMEOUT_MS + 60 * 1000);
+  const jobId = makeJobId(tenantId, projectId, contentHash);
+  const res = inFlight.run(jobId, () => scheduleAndRender(tenantId, renderDeadlineMs, opts?.url, html, meta, log));
+  if (res.deduped) log?.("render_queue", `job ${jobId} sudah in-flight -> pakai hasil sama`, "dedup");
+  return res.promise;
+}
+
+async function scheduleAndRender(tenantId: string, renderDeadlineMs: number, url: string | undefined, html: string, meta: { id?: string; name?: string } | undefined, log?: QueueLog): Promise<Buffer> {
+  try {
+    return await scheduler.schedule(
+      tenantId,
+      async () => {
+        const t0 = Date.now();
+        // runWithSlotTimeout: TANPA onTimeout (/cancel belum ada) -> slot ditahan sampai worker balas atau
+        // renderDeadlineMs (>25min worker) lewat -> tak ada render kedua menimpa worker yg masih sibuk (req6).
+        // Batas slot = renderDeadlineMs + grace supaya deadline postRender (__renderTimeout) menang DULUAN
+        // secara bersih (hindari race abort ganda); slot-timeout murni jaring pengaman terakhir.
+        const slot = await runWithSlotTimeout<Buffer>(
+          (signal) => renderWithRetry(signal, renderDeadlineMs, url, html, meta, log),
+          renderDeadlineMs + 2000,
+        );
+        log?.("render_queue", `render ${Date.now() - t0}ms`, slot.ok ? "ok" : slot.reason);
+        if (slot.ok) return slot.value;
+        throw slot.error;
+      },
+      { queueTimeoutMs: queueTimeoutMs(), onDequeue: (waitedMs) => log?.("render_queue", `antre ${waitedMs}ms`, "dequeued") },
+    );
+  } catch (e) {
+    if (isQueueTimeout(e)) log?.("render_queue", `antre > ${queueTimeoutMs()}ms -> fallback ffmpeg`, "queue_timeout");
+    else log?.("render_queue", `gagal: ${String((e as Error)?.message || e).slice(0, 120)} -> fallback ffmpeg`, "fallback");
+    throw e; // -> renderViaHyperframes catch -> processProject fallback ffmpeg (perilaku aman existing)
+  }
 }

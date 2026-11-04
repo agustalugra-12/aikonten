@@ -58,7 +58,9 @@ export async function runWithSlotTimeout<T>(
         reject(Object.assign(new Error(`slot timeout ${timeoutMs}ms`), { __slotTimeout: true }));
       }, timeoutMs);
     });
-    const value = await Promise.race([fn(ac.signal), timeout]);
+    const fnPromise = fn(ac.signal);
+    fnPromise.catch(() => { /* kalau timeout menang duluan, rejection fn yg menyusul jangan jadi unhandled */ });
+    const value = await Promise.race([fnPromise, timeout]);
     return { ok: true, value };
   } catch (e) {
     return { ok: false, reason: (e as { __slotTimeout?: boolean })?.__slotTimeout ? "timeout" : "error", error: e };
@@ -83,23 +85,25 @@ export function isRetriable(reason: "timeout" | "error", err: unknown): boolean 
 // (kuota per tenant ADIL - antre, bukan langsung fallback) Scheduler round-robin lintas tenant + batas
 // konkurensi global. Job MENUNGGU giliran (fair), tak ditolak saat contention biasa. waitingCount ->
 // waktu antre diketahui. Fallback = keputusan pemanggil via estimateWaitMs > budget (sebelum schedule).
+type SchedEntry = { start: () => void; cancelled: boolean };
 export class FairScheduler {
-  private queues = new Map<string, Array<() => void>>(); // tenant -> antrean callback "mulai" (FIFO per tenant)
+  private queues = new Map<string, SchedEntry[]>();      // tenant -> antrean entri (FIFO per tenant)
   private order: string[] = [];                          // tenant dikenal (urutan kedatangan, utk tie-break)
   private served = new Map<string, number>();            // berapa kali tiap tenant sudah dilayani (fairness)
   private running = 0;
   constructor(private readonly maxConcurrent: number) {}
   runningCount(): number { return this.running; }
+  private liveCount(q: SchedEntry[] | undefined): number { let s = 0; for (const e of q ?? []) if (!e.cancelled) s++; return s; }
   waitingCount(tenantId?: string): number {
-    if (tenantId) return this.queues.get(tenantId)?.length ?? 0;
-    let s = 0; for (const q of this.queues.values()) s += q.length; return s;
+    if (tenantId) return this.liveCount(this.queues.get(tenantId));
+    let s = 0; for (const q of this.queues.values()) s += this.liveCount(q); return s;
   }
-  // Fair: dari tenant yg PUNYA job menunggu, pilih yg PALING SEDIKIT dilayani (tie -> urutan kedatangan).
-  // -> tak ada tenant memonopoli worker serial (anti-starvation), beda dgn FIFO polos.
+  // Fair: dari tenant yg PUNYA entri HIDUP menunggu, pilih yg PALING SEDIKIT dilayani (tie -> urutan
+  // kedatangan) -> tak ada tenant memonopoli worker serial (anti-starvation), beda dgn FIFO polos.
   private nextTenant(): string | undefined {
     let best: string | undefined; let bestServed = Infinity;
     for (const t of this.order) {
-      if ((this.queues.get(t)?.length ?? 0) === 0) continue;
+      if (this.liveCount(this.queues.get(t)) === 0) continue;
       const c = this.served.get(t) ?? 0;
       if (c < bestServed) { best = t; bestServed = c; }
     }
@@ -109,18 +113,37 @@ export class FairScheduler {
     while (this.running < this.maxConcurrent) {
       const tenant = this.nextTenant();
       if (!tenant) break;
-      const startNext = (this.queues.get(tenant) as Array<() => void>).shift() as () => void;
+      const q = this.queues.get(tenant) as SchedEntry[];
+      let entry: SchedEntry | undefined;
+      while (q.length) { const e = q.shift() as SchedEntry; if (!e.cancelled) { entry = e; break; } } // buang entri cancelled (queue-timeout)
+      if (!entry) continue;
       this.served.set(tenant, (this.served.get(tenant) ?? 0) + 1);
       this.running++;
-      startNext();
+      entry.start();
     }
   }
-  schedule<T>(tenantId: string, task: () => Promise<T>): Promise<T> {
+  // opts.queueTimeoutMs: kalau job tak dapat giliran dalam waktu itu -> cancel + reject {__queueTimeout}
+  // (pemanggil fallback ffmpeg). opts.onDequeue(waitedMs): dipanggil saat mulai jalan (catat waktu antre).
+  schedule<T>(tenantId: string, task: () => Promise<T>, opts?: { queueTimeoutMs?: number; onDequeue?: (waitedMs: number) => void }): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const start = () => { task().then(resolve, reject).finally(() => { this.running--; this.pump(); }); };
+      const enqueuedAt = Date.now();
+      let qTimer: ReturnType<typeof setTimeout> | undefined;
+      const entry: SchedEntry = { cancelled: false, start: () => { /* diisi di bawah */ } };
+      entry.start = () => {
+        if (qTimer) clearTimeout(qTimer);
+        try { opts?.onDequeue?.(Date.now() - enqueuedAt); } catch { /* log tak boleh ganggu render */ }
+        task().then(resolve, reject).finally(() => { this.running--; this.pump(); });
+      };
+      if (opts?.queueTimeoutMs != null) {
+        qTimer = setTimeout(() => {
+          if (!entry.cancelled) { entry.cancelled = true; reject(Object.assign(new Error(`queue timeout ${opts.queueTimeoutMs}ms`), { __queueTimeout: true })); }
+        }, opts.queueTimeoutMs);
+      }
       if (!this.queues.has(tenantId)) { this.queues.set(tenantId, []); this.order.push(tenantId); }
-      (this.queues.get(tenantId) as Array<() => void>).push(start);
+      (this.queues.get(tenantId) as SchedEntry[]).push(entry);
       this.pump();
     });
   }
 }
+
+export function isQueueTimeout(err: unknown): boolean { return (err as { __queueTimeout?: boolean })?.__queueTimeout === true; }
