@@ -260,38 +260,13 @@ async function publishProjectInner(projectId: string, opts?: { accountIds?: stri
       createdAt: new Date(),
     });
 
-    // Verifikasi async status publish SUNGGUHAN via Buffer (2026-08-13, bug NYATA -
-    // lihat catatan lengkap di bufferAuth.ts verifyPublishSucceeded) - createPost()
-    // "success" cuma berarti Buffer MENERIMA request, publish beneran bisa gagal
-    // belakangan (status "error") tanpa sinyal apa pun ke kita. HANYA relevan utk jalur
-    // Buffer (native publisher lain sudah sinkron/terkonfirmasi langsung) - tidak
-    // di-await (background, sama pola dgn checkAndHandleDuplicate di buffer.ts).
-    //
-    // Skip utk Instagram (2026-09-02, optimasi jatah Buffer 30 hari - brand Laundry In
-    // Bali kena RATE_LIMIT_EXCEEDED window 30d) - komentar bufferAuth.ts sendiri sudah
-    // catat BUKTI nyata "Instagram biasa 'sent' dlm hitungan detik", beda dari TikTok
-    // yang terbukti (insiden nyata 2026-08-13) bisa "sending" 15-17 menit & kadang
-    // berakhir "error" diam-diam. Coverage TikTok TIDAK dikurangi sama sekali - cuma
-    // hapus polling yang costnya nyata tapi manfaatnya sudah terbukti nol utk Instagram.
-    const BUFFER_VERIFY_SKIP_PLATFORMS = new Set(["instagram"]);
-    if (
-      account.publishVia === "buffer" &&
-      result.success &&
-      result.platformPostId &&
-      !BUFFER_VERIFY_SKIP_PLATFORMS.has(account.platform)
-    ) {
-      const { verifyPublishSucceeded } = await import("./bufferAuth");
-      verifyPublishSucceeded({
-        postId: result.platformPostId,
-        publishLogId: logId,
-        projectId,
-        brandName,
-        platformLabel: `${account.platform} (@${account.username})`,
-        token: account.accessToken,
-      }).catch((err) => {
-        console.error("[orchestrate] Gagal verifikasi status publish:", err);
-      });
-    }
+    // Verifikasi status publish (feat/publish-guard 2026-11-04): TIDAK lagi polling per-post di sini
+    // (dulu verifyPublishSucceeded background per post -> salah satu sumber ~19 call Buffer/konten). Baris
+    // publishLogs yang BARU di-insert di atas (punya platform_post_id + status + published_at) sudah
+    // PERSISTEN di DB -> di-rekonsiliasi oleh SWEEP per-channel (src/lib/publish/sweep.ts: 1 query `posts`
+    // per channel/token) yang memverifikasi status + mendeteksi duplikat SEKALIGUS, dan mengirim notifikasi
+    // duplikat/error dari sana. Tahan restart (sumbernya DB, bukan setTimeout in-memory). Instagram tetap
+    // ikut sweep yang sama -> nol call ekstra per-post.
 
     notifyResults.push({
       platform: `${account.platform} (@${account.username})`,
