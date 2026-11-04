@@ -29,6 +29,8 @@ export type PublishInput = {
   // platform bukan youtube (lihat orchestrate.ts).
   youtubeTitle?: string;
   youtubeCategoryId?: string;
+  // Ledger Buffer per brand (feat/publish-guard) - diisi orchestrate.ts.
+  brandId?: string;
 };
 
 export type PublishResult = {

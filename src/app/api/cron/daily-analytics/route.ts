@@ -5,6 +5,8 @@ import { socialAccounts, analytics } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { getAggregatedMetrics } from "@/lib/publish/bufferAuth";
 import { newId } from "@/lib/ids";
+import { ledgerReady, missingLedgerTables, getTokenCooldownUntil, countCalls30d } from "@/lib/publish/ledger";
+import { budgetVerdict, defaultBudgetCfg } from "@/lib/publish/guard";
 
 // Cron - isi snapshot harian tabel `analytics` (2026-08-19, PRD "AI Content Intelligence"
 // §25-34 Analytics/Reporting, permintaan Agus). Tabel ini SUDAH ADA di schema sejak lama
@@ -30,6 +32,13 @@ export async function POST(req: NextRequest) {
   const unauthorized = verifyCronSecret(req);
   if (unauthorized) return unauthorized;
 
+  // Analytics = call NON-esensial: pakai budget terpisah (berhenti di reserve) agar publish tetap prioritas.
+  // Ledger belum dimigrasi -> berhenti jelas (konsisten dgn publish), bukan jalan tanpa tercatat.
+  if (!ledgerReady()) {
+    return NextResponse.json({ ok: false, error: `LEDGER_NOT_MIGRATED: ${missingLedgerTables().join(", ")}` }, { status: 503 });
+  }
+  const budgetCfg = defaultBudgetCfg();
+  const nowMs = Date.now();
   const accounts = await db.select().from(socialAccounts).where(eq(socialAccounts.connected, true));
   const today = new Date();
   const dateRecorded = today.toISOString().slice(0, 10); // YYYY-MM-DD
@@ -41,12 +50,21 @@ export async function POST(req: NextRequest) {
     if (acc.publishVia !== "buffer" || !acc.bufferChannelId) {
       continue; // akun native (mis. YouTube langsung) belum ada sumber metrik harian
     }
+    if (await getTokenCooldownUntil(acc.accessToken, nowMs)) {
+      results.push({ accountId: acc.id, username: acc.username, ok: false, error: "dilewati: token Buffer cooldown" });
+      continue;
+    }
+    if (!budgetVerdict(await countCalls30d(acc.accessToken, nowMs), budgetCfg).allowNonEssential) {
+      results.push({ accountId: acc.id, username: acc.username, ok: false, error: "dilewati: budget Buffer di reserve (publish diprioritaskan)" });
+      continue;
+    }
     try {
       const metrics = await getAggregatedMetrics(
         acc.bufferChannelId,
         windowStart.toISOString(),
         today.toISOString(),
-        acc.accessToken
+        acc.accessToken,
+        { brandId: acc.brandId }
       );
       const views = metrics.find((m) => m.type === "views")?.value ?? null;
       const reactions = metrics.find((m) => m.type === "reactions")?.value ?? null;

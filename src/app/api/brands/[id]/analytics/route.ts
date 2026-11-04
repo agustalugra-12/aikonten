@@ -56,7 +56,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           acc.bufferChannelId,
           startDate.toISOString(),
           now.toISOString(),
-          acc.accessToken
+          acc.accessToken,
+          { brandId: acc.brandId }
         );
         await db
           .update(socialAccounts)

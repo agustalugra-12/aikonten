@@ -1,6 +1,7 @@
 import type { Publisher, PublishInput, PublishResult } from "./types";
 import { resizeImageForTiktok } from "@/lib/render/cloudinary";
-import { checkAndHandleDuplicate } from "./bufferAuth";
+import { checkAndHandleDuplicate, bufferGraphQL } from "./bufferAuth";
+import { sweepEnabled } from "./sweep";
 
 // Publish generik lewat Buffer - awalnya cuma dipakai utk TikTok (API TikTok langsung
 // perlu audit resmi, lihat PRD diskusi), tapi Agus juga mau pakai Buffer utk Instagram
@@ -15,7 +16,6 @@ import { checkAndHandleDuplicate } from "./bufferAuth";
 // INTROSPEKSI GraphQL ke API asli (bukan tebak dari dokumentasi publik yg ternyata
 // beda), termasuk tes nyata mode saveToDraft:true (hasil status "draft", TIDAK
 // terpublish ke akun asli) lalu dihapus lagi via deletePost.
-const BUFFER_API_URL = "https://api.buffer.com";
 
 const CREATE_POST_MUTATION = `
   mutation($input: CreatePostInput!) {
@@ -33,7 +33,7 @@ const CREATE_POST_MUTATION = `
 `;
 
 export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<PublishResult> => {
-  const { videoUrl, imageUrls, caption, bufferChannelId, platform, brandName, youtubeTitle, youtubeCategoryId } = input;
+  const { videoUrl, imageUrls, caption, bufferChannelId, platform, brandName, youtubeTitle, youtubeCategoryId, brandId } = input;
   // Token PER-AKUN (2026-08-06, permintaan Agus - brand "laundry in bali" punya akun
   // Buffer sendiri, terpisah dari akun Buffer Pelangi) - accessToken di sini datang dari
   // socialAccounts.accessToken (diisi saat channel disambungkan, lihat social-accounts/
@@ -92,32 +92,27 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
             ? { youtube: { title: (youtubeTitle || "Video").slice(0, 100), categoryId: youtubeCategoryId || "22", isAiGenerated: true } }
             : undefined;
 
-    const res = await fetch(BUFFER_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${bufferToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        query: CREATE_POST_MUTATION,
-        variables: {
-          input: {
-            channelId: bufferChannelId,
-            text: caption,
-            assets,
-            metadata,
-            mode: "shareNow",
-            schedulingType: "automatic",
-            needsApproval: false,
-            saveToDraft: false,
-          },
+    // Lewat bufferGraphQL -> call createPost TERCATAT di ledger (token/brand/channel). Perilaku error sama spt
+    // dulu: HTTP !ok / errors GraphQL -> throw.
+    const data = await bufferGraphQL<{ createPost: { __typename: string; message?: string; post?: { id: string; status: string } } }>(
+      CREATE_POST_MUTATION,
+      {
+        input: {
+          channelId: bufferChannelId,
+          text: caption,
+          assets,
+          metadata,
+          mode: "shareNow",
+          schedulingType: "automatic",
+          needsApproval: false,
+          saveToDraft: false,
         },
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.errors) throw new Error(JSON.stringify(data.errors || data));
-
-    const result = data.data.createPost;
+      },
+      bufferToken,
+      "createPost",
+      { brandId: brandId ?? null, channelId: bufferChannelId }
+    );
+    const result = data.createPost;
     if (result.__typename !== "PostActionSuccess") {
       throw new Error(result.message || result.__typename);
     }
@@ -127,18 +122,21 @@ export const publishViaBuffer: Publisher = async (input: PublishInput): Promise<
     // (bug di sisi mereka, bukan kode kita). Tidak di-await supaya publishProject()
     // tidak nunggu bermenit-menit per akun - proses Node tetap hidup (systemd, bukan
     // serverless) jadi background task ini tetap selesai setelah response balik.
-    checkAndHandleDuplicate({
+    // Flag OFF (default) = jalur lama PERSIS (cek duplikat per-post). Flag ON = duplikat ditangani sweep
+    // dari pending DB (lihat sweepRunner.ts); fungsi ini TIDAK dihapus, hanya tidak dipanggil di jalur itu.
+    if (!sweepEnabled() && result.post) checkAndHandleDuplicate({
       channelId: bufferChannelId,
       keepPostId: result.post.id,
       text: caption,
       brandName: brandName || "Brand",
       platformLabel: platform || "Buffer",
       token: bufferToken,
+      brandId: brandId ?? null,
     }).catch((err) => {
       console.error("[buffer] Gagal cek duplikat:", err);
     });
 
-    return { success: true, platformPostId: result.post.id };
+    return { success: true, platformPostId: result.post?.id };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }

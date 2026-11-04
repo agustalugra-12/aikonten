@@ -7,6 +7,8 @@ import { sendTelegramNotification, formatPublishSummaryNotification } from "./te
 import { ensureFreshYoutubeAccessToken } from "./youtubeAuth";
 import { tryAcquireLock, releaseLock, projectPublishLockKey, LockBusyError } from "@/lib/concurrency/locks";
 import { adaptCaptionForPlatform, type Platform } from "@/lib/ai/platformAdaptation";
+import { afterBufferPublish } from "./sweepRunner";
+import { assertLedgerReady } from "./ledger";
 
 // Publish - dulu dipanggil OTOMATIS begitu artefak AI selesai (full-auto, tanpa jeda
 // approval), TAPI sejak 2026-08-04 (permintaan Agus - mau bisa cek draft dulu) ini
@@ -246,6 +248,7 @@ async function publishProjectInner(projectId: string, opts?: { accountIds?: stri
       thumbnailUrl: thumbnail?.fileUrl,
       youtubeTitle,
       youtubeCategoryId,
+      brandId: project.brandId,
     });
 
     await db.insert(publishLogs).values({
@@ -260,13 +263,28 @@ async function publishProjectInner(projectId: string, opts?: { accountIds?: stri
       createdAt: new Date(),
     });
 
-    // Verifikasi status publish (feat/publish-guard 2026-11-04): TIDAK lagi polling per-post di sini
-    // (dulu verifyPublishSucceeded background per post -> salah satu sumber ~19 call Buffer/konten). Baris
-    // publishLogs yang BARU di-insert di atas (punya platform_post_id + status + published_at) sudah
-    // PERSISTEN di DB -> di-rekonsiliasi oleh SWEEP per-channel (src/lib/publish/sweep.ts: 1 query `posts`
-    // per channel/token) yang memverifikasi status + mendeteksi duplikat SEKALIGUS, dan mengirim notifikasi
-    // duplikat/error dari sana. Tahan restart (sumbernya DB, bukan setTimeout in-memory). Instagram tetap
-    // ikut sweep yang sama -> nol call ekstra per-post.
+    // Verifikasi status publish Buffer (createPost "success" = request DITERIMA, bukan tayang). Lewat
+    // afterBufferPublish: flag BUFFER_SWEEP_ENABLED OFF (default) = verifikasi LAMA persis (verifyPublishSucceeded
+    // background, skip Instagram); ON = pending persisten di DB yg diverifikasi sweep (tahan restart).
+    if (account.publishVia === "buffer" && result.success && result.platformPostId && account.bufferChannelId) {
+      try {
+        await afterBufferPublish({
+          publishLogId: logId,
+          projectId,
+          socialAccountId: account.id,
+          brandId: project.brandId,
+          brandName,
+          platform: account.platform,
+          platformLabel: `${account.platform} (@${account.username})`,
+          channelId: account.bufferChannelId,
+          token: accessToken,
+          platformPostId: result.platformPostId,
+          postText: outCaption,
+        });
+      } catch (err) {
+        console.error("[orchestrate] Gagal menjadwalkan verifikasi publish:", err);
+      }
+    }
 
     notifyResults.push({
       platform: `${account.platform} (@${account.username})`,
@@ -343,6 +361,9 @@ async function publishProjectInner(projectId: string, opts?: { accountIds?: stri
 // otomatis "skip bersih" lewat jalur itu tanpa perlu ubah kode di sana (busy = akan
 // dicoba lagi di siklus cron 15-menit berikutnya, bukan hilang).
 export async function publishProject(projectId: string, opts?: { accountIds?: string[]; captionOverride?: string }): Promise<void> {
+  // Deploy aman: tabel ledger belum dimigrasi -> BERHENTI dengan error jelas SEBELUM status project diubah
+  // (bukan lanjut dengan budget=0 / ledger diam-diam gagal tercatat).
+  assertLedgerReady();
   const lockKey = projectPublishLockKey(projectId);
   if (!tryAcquireLock(lockKey)) {
     throw new LockBusyError(

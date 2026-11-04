@@ -101,7 +101,7 @@ async function syncProjectPerformance(projectId: string): Promise<void> {
         continue;
       }
     } else {
-      metrics = await getPostMetrics(log.platformPostId, account?.accessToken);
+      metrics = await getPostMetrics(log.platformPostId, account?.accessToken, { brandId: account?.brandId ?? null, channelId: account?.bufferChannelId ?? null });
     }
     if (!metrics) continue;
     anyMetricsFound = true;

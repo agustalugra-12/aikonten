@@ -1,0 +1,9 @@
+[Unit]
+Description=Sweep verifikasi publish Buffer tiap 20 menit (endpoint no-op kalau flag OFF / tak ada pending)
+
+[Timer]
+OnCalendar=*:0/20
+Persistent=false
+
+[Install]
+WantedBy=timers.target

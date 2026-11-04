@@ -2,18 +2,47 @@
 // LOGIKA keputusan tetap murni di guard.ts (budgetVerdict/isInCooldown) -> testable tanpa DB.
 import { createHash } from "node:crypto";
 import { and, eq, gte, count } from "drizzle-orm";
-import { db } from "@/db";
+import { db, sqlite } from "@/db";
 import { bufferCallLedger, bufferTokenState } from "@/db/schema";
 import { newId } from "@/lib/ids";
+import { LEDGER_TABLES } from "./ledgerSchema";
 
-export type BufferCallKind = "createPost" | "sweep" | "analytics" | "channels" | "tokenCheck" | "delete";
+export type BufferCallKind = "createPost" | "duplicateCheck" | "verify" | "sweep" | "analytics" | "channels" | "tokenCheck" | "delete";
 
-// Fingerprint token: HASH stabil (JANGAN simpan/t tampilkan token mentah). Token kosong -> "env" (token global).
+// Fingerprint dari token yang BENAR-BENAR dipakai (akun tanpa token sendiri = BUFFER_ACCESS_TOKEN env), supaya
+// gate, ledger, dan cooldown selalu sepakat untuk token yang sama. Hash -> token mentah tak pernah disimpan.
+// Rotasi token env => fingerprint baru => budget mulai bersih (baseline alami, log gagal lama tak ikut).
+export function resolveBufferTokenValue(token: string | null | undefined): string {
+  return (token && token.trim()) || process.env.BUFFER_ACCESS_TOKEN || "";
+}
 export function tokenFingerprint(token: string | null | undefined): string {
-  return createHash("sha256").update(token && token.trim() ? token.trim() : "env").digest("hex").slice(0, 16);
+  return createHash("sha256").update(resolveBufferTokenValue(token) || "no-token").digest("hex").slice(0, 16);
 }
 
-// Tulis 1 baris ledger per call Buffer. best-effort: kegagalan ledger TIDAK boleh menggagalkan publish.
+// #8 Deploy aman: tabel ledger belum dimigrasi -> publish BERHENTI dengan error jelas (bukan diam-diam budget=0).
+export class LedgerNotReadyError extends Error {
+  constructor(missing: string[]) {
+    super(`LEDGER_NOT_MIGRATED: tabel ${missing.join(", ")} belum ada. Jalankan scripts/migrate-publish-ledger.ts (backup -> migrate -> build -> restart). Publish dihentikan.`);
+    this.name = "LedgerNotReadyError";
+  }
+}
+let ledgerReadyCache = false; // hanya cache hasil POSITIF (sekali ada, tabel tak hilang); negatif dicek ulang.
+export function missingLedgerTables(): string[] {
+  const rows = sqlite.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${LEDGER_TABLES.map(() => "?").join(",")})`).all(...LEDGER_TABLES) as { name: string }[];
+  const have = new Set(rows.map((r) => r.name));
+  return LEDGER_TABLES.filter((t) => !have.has(t));
+}
+export function ledgerReady(): boolean {
+  if (ledgerReadyCache) return true;
+  ledgerReadyCache = missingLedgerTables().length === 0;
+  return ledgerReadyCache;
+}
+export function assertLedgerReady(): void {
+  if (!ledgerReady()) throw new LedgerNotReadyError(missingLedgerTables());
+}
+
+// Tulis 1 baris ledger per call Buffer (dipanggil SEBELUM fetch -> percobaan yang gagal pun terhitung).
+// best-effort: kegagalan ledger tidak menggagalkan call (gate publish sudah memastikan tabel ada).
 export async function recordBufferCall(kind: BufferCallKind, token: string | null | undefined, brandId: string | null, channelId: string | null, nowMs: number): Promise<void> {
   try {
     await db.insert(bufferCallLedger).values({ id: newId("bcl"), tokenFp: tokenFingerprint(token), brandId, channelId, kind, createdAt: new Date(nowMs) });

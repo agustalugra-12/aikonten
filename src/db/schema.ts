@@ -983,13 +983,14 @@ export const llmBalances = sqliteTable("llm_balances", {
 
 // Ledger PERSISTEN call Buffer (feat/publish-guard, 2026-11-04) - 1 baris per call API Buffer: token
 // fingerprint (HASH, bukan token mentah) / brand / channel / jenis. Sumber BUDGET 30hr (bukan publish_logs
-// -> log gagal lama TIDAK ikut; ledger fresh = baseline, token baru tak langsung terblokir).
+// -> log gagal lama TIDAK ikut; ledger fresh = baseline, token baru tak langsung terblokir). DDL nyata:
+// src/lib/publish/ledgerSchema.ts + scripts/migrate-publish-ledger.ts (BUKAN drizzle-kit migrate).
 export const bufferCallLedger = sqliteTable("buffer_call_ledger", {
   id: text("id").primaryKey(),
   tokenFp: text("token_fp").notNull(),
   brandId: text("brand_id"),
   channelId: text("channel_id"),
-  kind: text("kind", { enum: ["createPost", "sweep", "analytics", "channels", "tokenCheck", "delete"] }).notNull(),
+  kind: text("kind", { enum: ["createPost", "duplicateCheck", "verify", "sweep", "analytics", "channels", "tokenCheck", "delete"] }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -999,4 +1000,23 @@ export const bufferTokenState = sqliteTable("buffer_token_state", {
   cooldownUntil: integer("cooldown_until", { mode: "timestamp" }),
   reason: text("reason"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+// Pending verifikasi publish Buffer PERSISTEN (dipakai sweep saat BUFFER_SWEEP_ENABLED=1) - menggantikan
+// setTimeout in-memory (hilang saat restart). 1 baris per post Buffer sukses yg perlu dicek status + duplikat.
+export const bufferPendingChecks = sqliteTable("buffer_pending_checks", {
+  id: text("id").primaryKey(),
+  publishLogId: text("publish_log_id").notNull(),
+  projectId: text("project_id").notNull(),
+  socialAccountId: text("social_account_id").notNull(),
+  brandId: text("brand_id"),
+  channelId: text("channel_id").notNull(),
+  tokenFp: text("token_fp").notNull(),
+  platform: text("platform"),
+  platformPostId: text("platform_post_id").notNull(),
+  postText: text("post_text").notNull(),
+  dupHandled: integer("dup_handled", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  doneAt: integer("done_at", { mode: "timestamp" }),
+  result: text("result"),
 });

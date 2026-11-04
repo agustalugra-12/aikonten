@@ -2,26 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyCronSecret } from "@/lib/cron/verify";
 import { db } from "@/db";
 import { brands, projects, publishLogs } from "@/db/schema";
-import { eq, and, gte, lt, lte, inArray, desc, count } from "drizzle-orm";
+import { eq, and, gte, lt, lte, inArray, desc } from "drizzle-orm";
 import { nowTimeStringWita, todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { publishProject } from "@/lib/publish/orchestrate";
 import { planMengizinkanAutoPosting } from "@/lib/billing/planGate";
 import { pastikanAkunBolehGenerate } from "@/lib/billing/statusGate";
-import { defaultGuardCfg, retryEligibility, scheduledEligibility, applyQuota, defaultBudgetCfg, budgetVerdict, defaultCooldownCfg, defaultDailyCfg, dailyBrandExceeded, classifyBufferError, isInCooldown, runPublishCycle, type GuardCfg, type CooldownCfg, type PublishOutcome } from "@/lib/publish/guard";
+import { defaultGuardCfg, retryEligibility, scheduledEligibility, applyQuota, defaultCooldownCfg, classifyBufferError, runPublishCycle, type GuardCfg, type CooldownCfg, type PublishOutcome } from "@/lib/publish/guard";
+import { makeGateCache, tripBreakerForProject, type BrandGate } from "@/lib/publish/publishGate";
+import { assertLedgerReady, LedgerNotReadyError } from "@/lib/publish/ledger";
 
-// Circuit-breaker cooldown (in-memory per-proses; reset saat app restart - cukup krn 1 instance). Saat
-// token invalid / rate limit kena, siklus BERIKUTNYA dilewati sampai waktu ini -> cegah retry storm.
-let bufferCooldownUntil: number | null = null;
-
-// #5 Catat call Buffer per jenis / brand / token-ref (structured log; TANPA menampilkan token).
-function logBufferCall(kind: string, brandId: string, extra?: Record<string, unknown>): void {
-  console.log(`[buffer-call] ${JSON.stringify({ kind, brandId, ...extra })}`);
-}
+// Budget & breaker PER TOKEN (feat/publish-guard): publishGate.ts membaca ledger (countCalls30d), cooldown
+// PERSISTEN buffer_token_state, dan kuota harian/bulanan per brand. Tidak ada lagi budget dari publish_logs
+// maupun cooldown global in-memory. Semua call Buffer dicatat ledger di bufferGraphQL (bufferAuth.ts).
+type Gate = (brandId: string) => Promise<BrandGate>;
 
 // Outcome publishProject dari publish_logs TERBARU project (publishProject jarang throw utk error Buffer -
 // dia catat per-akun lalu set status). Dipakai runPublishCycle utk deteksi breaker (token/rate).
-async function publishOutcomeOf(projectId: string, brandId: string): Promise<PublishOutcome> {
-  logBufferCall("createPost", brandId, { projectId });
+async function publishOutcomeOf(projectId: string): Promise<PublishOutcome> {
   try {
     await publishProject(projectId);
   } catch (err) {
@@ -39,7 +36,7 @@ async function publishOutcomeOf(projectId: string, brandId: string): Promise<Pub
 // brand-nya). Dicek SETIAP kali cron ini jalan (siklus sama dgn retryPartialPublishes,
 // ~10-15 menit, lihat kontenpilot-auto-publish.timer) - toleransi keterlambatan alami
 // dari cadence cron itu sendiri, tidak perlu TOLERANCE_MINUTES terpisah spt slot brand.
-async function publishScheduledProjects(cfg: GuardCfg, nowMs: number): Promise<{ published: Array<{ projectId: string; brandId: string }>; review: number; skippedFlag: number; skippedQuota: number; failed: number }> {
+async function publishScheduledProjects(cfg: GuardCfg, nowMs: number, gate: Gate): Promise<{ published: Array<{ projectId: string; brandId: string }>; review: number; skippedFlag: number; skippedQuota: number; skippedGate: number; failed: number }> {
   const now = new Date();
   const due = await db
     .select()
@@ -61,11 +58,15 @@ async function publishScheduledProjects(cfg: GuardCfg, nowMs: number): Promise<{
       await db.update(projects).set({ skipAutoPublish: true, errorMessage: `Scheduled terlambat > ${Math.round(cfg.scheduledGraceMs / 3600000)} jam — masuk tinjauan, tidak auto-terbit`, updatedAt: new Date() }).where(eq(projects.id, p.id));
     }
   }
-  const { selected, skippedQuota } = applyQuota(candidates.map((p) => ({ id: p.id, brandId: p.brandId })), cfg);
+  // Gate per token/brand (cooldown persisten, budget ledger, kuota harian/bulanan). Scheduled = publish BARU.
+  let skippedGate = 0;
+  const gated: typeof candidates = [];
+  for (const p of candidates) { if ((await gate(p.brandId)).allowNew) gated.push(p); else skippedGate++; }
+  const { selected, skippedQuota } = applyQuota(gated.map((p) => ({ id: p.id, brandId: p.brandId })), cfg);
   const selSet = new Set(selected.map((s) => s.id));
   const published: Array<{ projectId: string; brandId: string }> = [];
   let failed = 0;
-  for (const p of candidates.filter((c) => selSet.has(c.id))) {
+  for (const p of gated.filter((c) => selSet.has(c.id))) {
     try {
       await publishProject(p.id);
       published.push({ projectId: p.id, brandId: p.brandId });
@@ -74,7 +75,7 @@ async function publishScheduledProjects(cfg: GuardCfg, nowMs: number): Promise<{
       console.error(`[cron/auto-publish] gagal publish scheduled project ${p.id}:`, err);
     }
   }
-  return { published, review, skippedFlag, skippedQuota: skippedQuota.length, failed };
+  return { published, review, skippedFlag, skippedQuota: skippedQuota.length, skippedGate, failed };
 }
 
 // Retry publish "partial" (2026-08-07, permintaan Agus - "yang berhasil di uploud ke
@@ -92,7 +93,7 @@ async function publishScheduledProjects(cfg: GuardCfg, nowMs: number): Promise<{
 // pulih dlm hari yg sama begitu API-nya normal lagi.
 const RETRY_BACKOFF_HOURS = 2;
 
-async function retryPartialPublishes(cfg: GuardCfg, nowMs: number, cooldownCfg: CooldownCfg): Promise<{ retried: Array<{ projectId: string; brandId: string }>; skippedAge: number; skippedFlag: number; skippedQuota: number; failed: number; halted: "token_invalid" | "rate_limit" | null; cooldownUntilMs: number | null }> {
+async function retryPartialPublishes(cfg: GuardCfg, nowMs: number, cooldownCfg: CooldownCfg, gate: Gate): Promise<{ retried: Array<{ projectId: string; brandId: string }>; skippedAge: number; skippedFlag: number; skippedQuota: number; skippedGate: number; failed: number; halted: "token_invalid" | "rate_limit" | null; haltedToken: string | null }> {
   const backoffCutoff = new Date(Date.now() - RETRY_BACKOFF_HOURS * 60 * 60 * 1000);
   const toRetry = await db
     .select()
@@ -127,25 +128,20 @@ async function retryPartialPublishes(cfg: GuardCfg, nowMs: number, cooldownCfg: 
     return v.ok;
   });
   eligible.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // utamakan yg lebih baru
-  // #7 kuota HARIAN per brand (di atas kuota 1/brand/siklus): brand yg sudah capai cap harian dilewati.
-  const dailyCfg = defaultDailyCfg();
-  const since24h = new Date(nowMs - 24 * 60 * 60 * 1000);
-  const dailyRows = await db
-    .select({ brandId: projects.brandId })
-    .from(publishLogs)
-    .innerJoin(projects, eq(projects.id, publishLogs.projectId))
-    .where(and(eq(publishLogs.status, "success"), gte(publishLogs.createdAt, since24h)));
-  const dailyByBrand = new Map<string, number>();
-  for (const r of dailyRows) dailyByBrand.set(r.brandId, (dailyByBrand.get(r.brandId) ?? 0) + 1);
-  const eligibleAfterDaily = eligible.filter((e) => !dailyBrandExceeded(dailyByBrand.get(e.brandId) ?? 0, dailyCfg));
+  // Gate per token/brand: cooldown persisten, budget ledger (retry berhenti di reserve), kuota harian/bulanan.
+  let skippedGate = 0;
+  const eligibleAfterDaily: typeof eligible = [];
+  for (const e of eligible) { if ((await gate(e.brandId)).allowRetry) eligibleAfterDaily.push(e); else skippedGate++; }
   const brandOf = new Map(eligibleAfterDaily.map((e) => [e.id, e.brandId]));
   const { selected, skippedQuota } = applyQuota(eligibleAfterDaily.map((p) => ({ id: p.id, brandId: p.brandId })), cfg);
   // Circuit breaker: berhenti SEGERA pada token-invalid/rate-limit (jangan storm akun/konten lain).
-  const cyc = await runPublishCycle(selected, (id) => publishOutcomeOf(id, brandOf.get(id) ?? ""), { nowMs, cooldownCfg });
+  const cyc = await runPublishCycle(selected, (id) => publishOutcomeOf(id), { nowMs, cooldownCfg });
+  // Cooldown PERSISTEN hanya utk token akun yang gagal (isolasi token; tahan restart).
+  const haltedToken = cyc.halted && cyc.haltedAt ? await tripBreakerForProject(cyc.haltedAt, cyc.halted, nowMs, cooldownCfg) : null;
   return {
     retried: cyc.published.map((id) => ({ projectId: id, brandId: brandOf.get(id) ?? "" })),
-    skippedAge, skippedFlag, skippedQuota: skippedQuota.length, failed: cyc.failed.length,
-    halted: cyc.halted, cooldownUntilMs: cyc.cooldownUntilMs,
+    skippedAge, skippedFlag, skippedQuota: skippedQuota.length, skippedGate, failed: cyc.failed.length,
+    halted: cyc.halted, haltedToken,
   };
 }
 
@@ -178,31 +174,26 @@ export async function POST(req: NextRequest) {
   const unauthorized = verifyCronSecret(req);
   if (unauthorized) return unauthorized;
 
+  // Deploy aman: tabel ledger belum dimigrasi -> BERHENTI jelas (503), tidak publish apa pun.
+  try {
+    assertLedgerReady();
+  } catch (e) {
+    if (e instanceof LedgerNotReadyError) {
+      console.error("[cron/auto-publish]", e.message);
+      return NextResponse.json({ ok: false, error: e.message }, { status: 503 });
+    }
+    throw e;
+  }
   const guardCfg = defaultGuardCfg();
   const cooldownCfg = defaultCooldownCfg();
-  const budgetCfg = defaultBudgetCfg();
   const nowMs = Date.now();
+  const gate = makeGateCache(nowMs);
 
-  // #8 Circuit breaker: kalau masih cooldown (token invalid / rate limit baru kena), LEWATI siklus total.
-  if (isInCooldown(bufferCooldownUntil, nowMs)) {
-    return NextResponse.json({ ok: true, skipped: "buffer_cooldown", cooldownUntil: bufferCooldownUntil });
-  }
-
-  // #6 Budget 30 hari: hitung call createPost 30hr (proxy publish_logs) -> verdict. Retry & call nonesensial
-  // berhenti saat sisa <= reserve; publish baru tetap diprioritaskan selama masih ada sisa.
-  const since30d = new Date(nowMs - 30 * 24 * 60 * 60 * 1000);
-  const [{ c: used30d }] = await db.select({ c: count() }).from(publishLogs).where(gte(publishLogs.createdAt, since30d));
-  const budget = budgetVerdict(used30d, budgetCfg);
-
-  const retry = budget.allowRetry
-    ? await retryPartialPublishes(guardCfg, nowMs, cooldownCfg)
-    : { retried: [] as Array<{ projectId: string; brandId: string }>, skippedAge: 0, skippedFlag: 0, skippedQuota: 0, failed: 0, halted: null as "token_invalid" | "rate_limit" | null, cooldownUntilMs: null as number | null };
-  if (retry.halted && retry.cooldownUntilMs) bufferCooldownUntil = retry.cooldownUntilMs; // pasang cooldown
-
-  // Scheduled due (publish BARU) diprioritaskan; tapi kalau breaker baru trip, jangan lanjut.
-  const scheduled = (budget.allowNewPublish && !retry.halted)
-    ? await publishScheduledProjects(guardCfg, nowMs)
-    : { published: [] as Array<{ projectId: string; brandId: string }>, review: 0, skippedFlag: 0, skippedQuota: 0, failed: 0 };
+  const retry = await retryPartialPublishes(guardCfg, nowMs, cooldownCfg, gate);
+  // Breaker baru trip -> hentikan siklus ini (jangan coba konten/akun lain); token itu cooldown persisten.
+  const scheduled = !retry.halted
+    ? await publishScheduledProjects(guardCfg, nowMs, gate)
+    : { published: [] as Array<{ projectId: string; brandId: string }>, review: 0, skippedFlag: 0, skippedQuota: 0, skippedGate: 0, failed: 0 };
 
   const nowWita = nowTimeStringWita();
   const nowMinutes = timeStringToMinutes(nowWita);
@@ -216,8 +207,14 @@ export async function POST(req: NextRequest) {
 
   // Slot publish BARU per-brand: hormati breaker + budget (publish baru diprioritaskan, tapi berhenti juga
   // kalau breaker trip atau budget habis supaya tak ikut menghabiskan limit Buffer).
-  const slotEnabled = budget.allowNewPublish && !retry.halted && !isInCooldown(bufferCooldownUntil, nowMs);
-  for (const brand of (slotEnabled ? autoBrands : [])) {
+  let slotHalted: string | null = null;
+  for (const brand of (retry.halted ? [] : autoBrands)) {
+    if (slotHalted) break;
+    const g = await gate(brand.id);
+    if (!g.allowNew) {
+      results.push({ brandId: brand.id, name: brand.name, slot: "-", published: 0, skipped: `gate:${g.reason}` });
+      continue;
+    }
     // Automation dimatikan (2026-11-02) - skip auto-publish slot baru utk brand ini.
     // (retry partial & jadwal manual di atas TIDAK terpengaruh - itu penyelesaian kerja lama.)
     if (brand.automationPaused) {
@@ -284,14 +281,15 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    const out = await publishOutcomeOf(toPublish.id, brand.id);
+    const out = await publishOutcomeOf(toPublish.id);
     if (out.ok) {
       results.push({ brandId: brand.id, name: brand.name, slot: recentSlot, published: 1 });
     } else {
       const reason = classifyBufferError(out.bufferError);
       if (reason) {
         // #8 breaker: token invalid / rate limit -> pasang cooldown + HENTIKAN slot loop (jangan coba brand lain).
-        bufferCooldownUntil = nowMs + (reason === "token_invalid" ? cooldownCfg.tokenInvalidMs : cooldownCfg.rateLimitMs);
+        await tripBreakerForProject(toPublish.id, reason, nowMs, cooldownCfg);
+        slotHalted = reason;
         results.push({ brandId: brand.id, name: brand.name, slot: recentSlot, published: 0, skipped: `breaker:${reason}` });
         break;
       }
@@ -308,9 +306,9 @@ export async function POST(req: NextRequest) {
     skipped_flag: retry.skippedFlag + scheduled.skippedFlag,
     scheduled_review: scheduled.review,
     failed: retry.failed + scheduled.failed,
-    halted: retry.halted,                       // #8 breaker reason (token_invalid/rate_limit) atau null
+    skipped_gate: retry.skippedGate + scheduled.skippedGate,
+    halted: retry.halted ?? slotHalted,         // breaker reason (token_invalid/rate_limit) atau null
   };
-  const budgetInfo = { used30d, remaining: budget.remaining, allowNewPublish: budget.allowNewPublish, allowRetry: budget.allowRetry };
-  console.log("[cron/auto-publish] counts:", JSON.stringify({ ...counts, budget: budgetInfo, cooldownUntil: bufferCooldownUntil }));
-  return NextResponse.json({ ok: true, nowWita, counts, budget: budgetInfo, cooldownUntil: bufferCooldownUntil, results, retriedPartial: retry.retried, publishedScheduled: scheduled.published });
+  console.log("[cron/auto-publish] counts:", JSON.stringify(counts));
+  return NextResponse.json({ ok: true, nowWita, counts, results, retriedPartial: retry.retried, publishedScheduled: scheduled.published });
 }

@@ -120,7 +120,7 @@ export async function runPublishCycle(
   ordered: Array<{ id: string; brandId: string }>,
   publishFn: (id: string) => Promise<PublishOutcome>,
   opts: { nowMs: number; cooldownCfg: CooldownCfg },
-): Promise<{ published: string[]; failed: string[]; halted: BreakerReason | null; cooldownUntilMs: number | null }> {
+): Promise<{ published: string[]; failed: string[]; halted: BreakerReason | null; haltedAt: string | null; cooldownUntilMs: number | null }> {
   const published: string[] = [];
   const failed: string[] = [];
   for (const c of ordered) {
@@ -129,9 +129,9 @@ export async function runPublishCycle(
     const reason = classifyBufferError(out.bufferError);
     if (reason) {
       // Circuit breaker: hentikan SELURUH siklus + pasang cooldown; JANGAN coba konten/akun lain.
-      return { published, failed, halted: reason, cooldownUntilMs: opts.nowMs + cooldownForReason(reason, opts.cooldownCfg) };
+      return { published, failed, halted: reason, haltedAt: c.id, cooldownUntilMs: opts.nowMs + cooldownForReason(reason, opts.cooldownCfg) };
     }
     failed.push(c.id); // gagal non-breaker (mis. media hilang) -> catat, lanjut kandidat lain
   }
-  return { published, failed, halted: null, cooldownUntilMs: null };
+  return { published, failed, halted: null, haltedAt: null, cooldownUntilMs: null };
 }

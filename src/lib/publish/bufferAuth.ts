@@ -1,4 +1,15 @@
-const BUFFER_API_URL = "https://api.buffer.com";
+import { recordBufferCall, type BufferCallKind } from "./ledger";
+
+// URL dibaca saat call (default API asli) -> tes memakai server GraphQL tiruan via BUFFER_API_URL.
+const bufferApiUrl = () => process.env.BUFFER_API_URL || "https://api.buffer.com";
+// Delay polling jalur lama (default TETAP 5m+10m verify, 3m duplikat) - env hanya utk tes.
+function envDelays(name: string, def: number[]): number[] {
+  const v = process.env[name];
+  if (!v) return def;
+  const arr = v.split(",").map(Number).filter((n) => Number.isFinite(n) && n >= 0);
+  return arr.length ? arr : def;
+}
+export type BufferCallCtx = { brandId?: string | null; channelId?: string | null };
 
 // Token PER-BRAND (2026-08-06, permintaan Agus - brand baru "laundry in bali" punya
 // akun/token Buffer SENDIRI, terpisah dari akun Buffer Pelangi Homestay yang selama ini
@@ -17,11 +28,15 @@ function resolveBufferToken(token?: string | null): string {
   return resolved;
 }
 
-async function bufferGraphQL<T>(query: string, variables?: Record<string, unknown>, token?: string | null): Promise<T> {
-  const res = await fetch(BUFFER_API_URL, {
+// SATU-SATUNYA pintu call Buffer GraphQL (bufferAuth + createPost buffer.ts). `kind` WAJIB -> setiap call
+// tercatat di ledger per token/brand/channel/jenis (dicatat SEBELUM fetch: percobaan gagal ikut terhitung).
+export async function bufferGraphQL<T>(query: string, variables: Record<string, unknown> | undefined, token: string | null | undefined, kind: BufferCallKind, ctx?: BufferCallCtx): Promise<T> {
+  const resolved = resolveBufferToken(token);
+  await recordBufferCall(kind, resolved, ctx?.brandId ?? null, ctx?.channelId ?? null, Date.now());
+  const res = await fetch(bufferApiUrl(), {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${resolveBufferToken(token)}`,
+      Authorization: `Bearer ${resolved}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
@@ -54,7 +69,8 @@ async function getOrganizationId(token?: string | null): Promise<string> {
   const orgData = await bufferGraphQL<{ account: { organizations: { id: string }[] } }>(
     "query { account { organizations { id } } }",
     undefined,
-    token
+    token,
+    "tokenCheck"
   );
   const orgId = orgData.account.organizations[0]?.id;
   if (!orgId) throw new Error("Tidak ada organization Buffer utk akun ini");
@@ -70,7 +86,8 @@ export async function listBufferChannels(token?: string | null): Promise<BufferC
   const chData = await bufferGraphQL<{ channels: BufferChannel[] }>(
     "query($input: ChannelsInput!) { channels(input: $input) { id name service } }",
     { input: { organizationId: orgId } },
-    token
+    token,
+    "channels"
   );
   return chData.channels;
 }
@@ -84,11 +101,13 @@ export type BufferMetric = { name: string; value: number; unit: string; type: st
 // SUDAH published brand ini - hasil views 266/220/163, BUKAN nol, jadi data ASLI
 // tersedia, bukan cuma skema kosong). Return null kalau post belum ada
 // metrics/metricsUpdatedAt sama sekali (terlalu baru, Buffer belum sempat sync).
-export async function getPostMetrics(postId: string, token?: string | null): Promise<BufferMetric[] | null> {
+export async function getPostMetrics(postId: string, token?: string | null, ctx?: BufferCallCtx): Promise<BufferMetric[] | null> {
   const data = await bufferGraphQL<{ post: { metricsUpdatedAt: string | null; metrics: BufferMetric[] } }>(
     "query($input: PostInput!) { post(input: $input) { metricsUpdatedAt metrics { name value unit type } } }",
     { input: { id: postId } },
-    token
+    token,
+    "analytics",
+    ctx
   );
   if (!data.post || !data.post.metricsUpdatedAt) return null;
   return data.post.metrics;
@@ -102,34 +121,41 @@ export async function getAggregatedMetrics(
   channelId: string,
   startDateTime: string,
   endDateTime: string,
-  token?: string | null
+  token?: string | null,
+  ctx?: BufferCallCtx
 ): Promise<BufferMetric[]> {
   const orgId = await getOrganizationId(token);
   const data = await bufferGraphQL<{ aggregatedPostMetrics: { metrics: BufferMetric[] } }>(
     "query($input: AggregatedPostMetricsInput!) { aggregatedPostMetrics(input: $input) { metrics { name value unit type } } }",
     { input: { organizationId: orgId, channelIds: [channelId], startDateTime, endDateTime } },
-    token
+    token,
+    "analytics",
+    { brandId: ctx?.brandId ?? null, channelId }
   );
   return data.aggregatedPostMetrics.metrics;
 }
 
 type BufferPostNode = { id: string; text: string; externalLink: string | null };
 
-async function findDuplicates(channelId: string, keepPostId: string, text: string, token?: string | null): Promise<BufferPostNode[]> {
+async function findDuplicates(channelId: string, keepPostId: string, text: string, token?: string | null, brandId?: string | null): Promise<BufferPostNode[]> {
   const orgId = await getOrganizationId(token);
   const data = await bufferGraphQL<{ posts: { edges: { node: BufferPostNode }[] } }>(
     "query($input: PostsInput!) { posts(input: $input, first: 10) { edges { node { id text externalLink } } } }",
     { input: { organizationId: orgId, filter: { channelIds: [channelId] } } },
-    token
+    token,
+    "duplicateCheck",
+    { brandId: brandId ?? null, channelId }
   );
   return data.posts.edges.map((e) => e.node).filter((p) => p.id !== keepPostId && p.text === text);
 }
 
-async function tryDeletePost(id: string, token?: string | null): Promise<boolean> {
+export async function tryDeletePost(id: string, token?: string | null, ctx?: BufferCallCtx): Promise<boolean> {
   const result = await bufferGraphQL<{ deletePost: { __typename: string } }>(
     "mutation($input: DeletePostInput!) { deletePost(input: $input) { __typename } }",
     { input: { id } },
-    token
+    token,
+    "delete",
+    ctx
   );
   return result.deletePost.__typename === "DeletePostSuccess";
 }
@@ -189,13 +215,15 @@ export async function verifyPublishSucceeded(opts: {
   brandName: string;
   platformLabel: string;
   token?: string | null;
+  brandId?: string | null;
+  channelId?: string | null;
 }): Promise<void> {
   const { sendTelegramNotification } = await import("./telegram");
   const { db } = await import("@/db");
   const { publishLogs, projects, socialAccounts } = await import("@/db/schema");
   const { eq, and } = await import("drizzle-orm");
 
-  const pollDelaysMs = [300_000, 600_000]; // cumulative ~5 menit & ~15 menit
+  const pollDelaysMs = envDelays("BUFFER_VERIFY_DELAYS_MS", [300_000, 600_000]); // cumulative ~5 menit & ~15 menit
 
   for (let i = 0; i < pollDelaysMs.length; i++) {
     await new Promise((resolve) => setTimeout(resolve, pollDelaysMs[i]));
@@ -205,7 +233,9 @@ export async function verifyPublishSucceeded(opts: {
       const data = await bufferGraphQL<{ post: { id: string; status: string } | null }>(
         "query($input: PostInput!) { post(input: $input) { id status } }",
         { input: { id: opts.postId } },
-        opts.token
+        opts.token,
+        "verify",
+        { brandId: opts.brandId ?? null, channelId: opts.channelId ?? null }
       );
       status = data.post?.status;
     } catch (err) {
@@ -260,23 +290,24 @@ export async function checkAndHandleDuplicate(opts: {
   brandName: string;
   platformLabel: string;
   token?: string | null;
+  brandId?: string | null;
 }): Promise<void> {
   const { sendTelegramNotification } = await import("./telegram");
   // (2026-10-08, permintaan Agus - optimasi kuota Buffer: 2 poll -> 1 poll = 3 call/publish
   // turun ke 2 call/publish, biar muat ~25 konten/hari/brand dlm 3000 call/30hari). 1 poll di
   // ~180dtk TETAP melewati titik ~3 menit tempat insiden duplikat NYATA Buffer terjadi.
-  const pollDelaysMs = [180_000];
+  const pollDelaysMs = envDelays("BUFFER_DUP_DELAYS_MS", [180_000]);
 
   for (const delay of pollDelaysMs) {
     await new Promise((resolve) => setTimeout(resolve, delay));
 
-    const duplicates = await findDuplicates(opts.channelId, opts.keepPostId, opts.text, opts.token);
+    const duplicates = await findDuplicates(opts.channelId, opts.keepPostId, opts.text, opts.token, opts.brandId);
     if (duplicates.length === 0) continue;
 
     for (const dup of duplicates) {
       let deleted = false;
       try {
-        deleted = await tryDeletePost(dup.id, opts.token);
+        deleted = await tryDeletePost(dup.id, opts.token, { brandId: opts.brandId ?? null, channelId: opts.channelId });
       } catch {
         deleted = false;
       }
@@ -293,4 +324,20 @@ export async function checkAndHandleDuplicate(opts: {
     }
     return; // sudah ketemu & ditangani, tidak perlu lanjut poll
   }
+}
+
+// SWEEP (feat/publish-guard): SATU query `posts` per channel -> id, text, status, link post terbaru. Dipakai
+// sweep (BUFFER_SWEEP_ENABLED=1) utk verifikasi status + deteksi duplikat semua pending channel sekaligus.
+export type BufferRecentPost = { id: string; text: string; status: string; externalLink: string | null };
+export async function listRecentPosts(channelId: string, token: string | null | undefined, ctx?: BufferCallCtx, first = 50): Promise<BufferRecentPost[]> {
+  const orgId = await getOrganizationId(token); // di-cache per token (0 call setelah yg pertama)
+  const n = Math.max(1, Math.min(100, Math.floor(first)));
+  const data = await bufferGraphQL<{ posts: { edges: { node: BufferRecentPost }[] } }>(
+    `query($input: PostsInput!) { posts(input: $input, first: ${n}) { edges { node { id text status externalLink } } } }`,
+    { input: { organizationId: orgId, filter: { channelIds: [channelId] } } },
+    token,
+    "sweep",
+    { brandId: ctx?.brandId ?? null, channelId }
+  );
+  return data.posts.edges.map((e) => e.node);
 }
