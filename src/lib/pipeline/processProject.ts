@@ -22,7 +22,7 @@ import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/render/brandKit";
 import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
 import { renderViaScenes } from "@/lib/render/renderViaScenes";
-import { directFootageOrder, planHeroAndClips, planFootageSufficiency, applyFootageGuard, slugFromSourceUrl, type GuardMode, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { directFootageOrder, planFootageSufficiency, applyFootageGuard, safeFootageGuard, slugFromSourceUrl, type GuardMode, type ClipCandidate } from "@/lib/ai/footageDirector";
 import { editorialPreflight, hasRejectIssue } from "@/lib/ai/editorialQc";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
@@ -1233,31 +1233,46 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     const guardMode: GuardMode = (["observe", "hero-only", "full"] as const).includes(guardBk.footageGuardMode as GuardMode)
       ? (guardBk.footageGuardMode as GuardMode) : "observe";
     const footageDomain = typeof guardBk.footageDomain === "string" ? guardBk.footageDomain : undefined;
-    const guardCands: ClipCandidate[] = [
-      ...brollClips.map((c, i): ClipCandidate => c.sourceUrl
-        ? { key: `b${i}`, source: "stock", probe: slugFromSourceUrl(c.sourceUrl) }
-        : { key: `b${i}`, source: "brand", tags: photoClipTagByUrl.get(c.videoUrl) || [] }),
-      ...selected.map((s, i): ClipCandidate => ({ key: `s${i}`, source: "brand", tags: brandVidTags.get(s.sourceUrl) || [] })),
-    ];
-    const footagePlan = planHeroAndClips(guardCands, hookText || "", project.script || "", { domain: footageDomain });
-    const uniqueFootageSeconds = brollClips.reduce((a, c) => a + (c.durationSeconds || 0), 0)
-      + selected.reduce((a, s) => a + Math.max(0.5, s.end - s.start), 0);
-    const footageSuff = planFootageSufficiency(uniqueFootageSeconds, durationConfig.target);
-    autoFixLog.push({
-      step: "footage_guard",
-      action: `mode=${guardMode} domain=${footagePlan.domain}(${footagePlan.domainKnown ? "known" : "unknown"}) hero=${footagePlan.heroKey ?? "none"} dropped=${footagePlan.dropped.length}${footagePlan.dropped.length ? "[" + footagePlan.dropped.map((d) => `${d.source}:${d.reason}`).join(",") + "]" : ""} footage=${footageSuff.status}(${uniqueFootageSeconds.toFixed(1)}s/${durationConfig.target}s)`,
-      result: guardMode === "observe" ? "observe_logonly" : "applied",
-    });
-    if (guardMode !== "observe") {
-      // ponytail: reorder DALAM masing-masing daftar (broll/segment) + set heroTags. Hero lintas-sumber ke
-      // posisi-0 (mis. hero segment saat masih ada broll) perlu gabung-daftar klip; ditunda sampai ada brand
-      // mengaktifkan mode ini (default observe -> jalur ini MATI di prod). Upgrade: unified clip list.
-      const applied = applyFootageGuard(guardMode, footagePlan, guardCands, (c) => c.key, heroFootageTags);
-      const bOrder = applied.order.filter((c) => c.key[0] === "b").map((c) => Number(c.key.slice(1)));
-      const sOrder = applied.order.filter((c) => c.key[0] === "s").map((c) => Number(c.key.slice(1)));
-      brollClips = bOrder.map((i) => brollClips[i]);
-      selected = sOrder.map((i) => selected[i]);
-      heroFootageTags = applied.heroTags;
+    // try/catch (Part 5-6): perhitungan + log + apply guard TIDAK boleh menggagalkan/mengubah pipeline
+    // di luar rencana. observe (default) -> error cuma dicatat, footage apa adanya. (safeFootageGuard
+    // menangkap error perhitungan di dalam; try luar ini belt utk pembuatan kandidat + apply.)
+    try {
+      const guardCands: ClipCandidate[] = [
+        ...brollClips.map((c, i): ClipCandidate => c.sourceUrl
+          ? { key: `b${i}`, source: "stock", probe: slugFromSourceUrl(c.sourceUrl) }
+          : { key: `b${i}`, source: "brand", tags: photoClipTagByUrl.get(c.videoUrl) || [] }),
+        // #3: project isStockFootage -> segment `selected` BERSUMBER STOK (skor via slug isi klip; metadata
+        // isi tak ada -> slug kosong -> planHeroAndClips catat no_basis). Non-stock = brand (tag bank video).
+        ...selected.map((s, i): ClipCandidate => isStockFootage
+          ? { key: `s${i}`, source: "stock", probe: slugFromSourceUrl(s.sourceUrl) }
+          : { key: `s${i}`, source: "brand", tags: brandVidTags.get(s.sourceUrl) || [] }),
+      ];
+      const { plan: footagePlan, error: guardErr } = safeFootageGuard(guardCands, hookText || "", project.script || "", { domain: footageDomain });
+      if (!footagePlan) {
+        autoFixLog.push({ step: "footage_guard", action: `error: ${guardErr ?? "plan null"} -> footage apa adanya (observe aman, tak mengubah/menggagalkan)`, result: "error" });
+      } else {
+        const uniqueFootageSeconds = brollClips.reduce((a, c) => a + (c.durationSeconds || 0), 0)
+          + selected.reduce((a, s) => a + Math.max(0.5, s.end - s.start), 0);
+        const footageSuff = planFootageSufficiency(uniqueFootageSeconds, durationConfig.target);
+        autoFixLog.push({
+          step: "footage_guard",
+          action: `mode=${guardMode} domain=${footagePlan.domain}(${footagePlan.domainKnown ? "known" : "unknown"}) hero=${footagePlan.heroKey ?? "none"} dropped=${footagePlan.dropped.length}${footagePlan.dropped.length ? "[" + footagePlan.dropped.map((d) => `${d.source}:${d.reason}`).join(",") + "]" : ""} footage=${footageSuff.status}(${uniqueFootageSeconds.toFixed(1)}s/${durationConfig.target}s)`,
+          result: guardMode === "observe" ? "observe_logonly" : "applied",
+        });
+        if (guardMode !== "observe") {
+          // ponytail: reorder DALAM masing-masing daftar (broll/segment) + set heroTags. Hero lintas-sumber ke
+          // posisi-0 perlu gabung-daftar klip; ditunda sampai ada brand mengaktifkan mode (default observe -> MATI di prod).
+          const applied = applyFootageGuard(guardMode, footagePlan, guardCands, (c) => c.key, heroFootageTags);
+          const bOrder = applied.order.filter((c) => c.key[0] === "b").map((c) => Number(c.key.slice(1)));
+          const sOrder = applied.order.filter((c) => c.key[0] === "s").map((c) => Number(c.key.slice(1)));
+          brollClips = bOrder.map((i) => brollClips[i]);
+          selected = sOrder.map((i) => selected[i]);
+          heroFootageTags = applied.heroTags;
+        }
+      }
+    } catch (guardErr) {
+      // observe aman: apa pun yg gagal di atas -> footage/urutan apa adanya, pipeline lanjut.
+      autoFixLog.push({ step: "footage_guard", action: `error tak terduga: ${String((guardErr as Error)?.message || guardErr).slice(0, 140)} -> footage apa adanya`, result: "error" });
     }
 
     const renderWithSubtitles = async (srtForRender: string, wordTimingsForRender: typeof wordTimings) => {

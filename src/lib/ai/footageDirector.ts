@@ -268,3 +268,13 @@ export function applyFootageGuard<K>(
   const order = plan.order.map((pk) => byKey.get(pk)).filter((k): k is K => k !== undefined);
   return { order, heroTags: plan.heroTags, changed: true };
 }
+
+// Pembungkus aman perhitungan guard (Part 5-6, 2026-11-04): planHeroAndClips di dalam try/catch ->
+// error TIDAK pernah menggagalkan pipeline (observe aman). Return {plan:null, error} kalau gagal.
+export function safeFootageGuard(cands: ClipCandidate[], hookText: string, script: string, opts?: { domain?: string }): { plan: HeroPlan | null; error: string | null } {
+  try {
+    return { plan: planHeroAndClips(cands, hookText, script, opts), error: null };
+  } catch (e) {
+    return { plan: null, error: String((e as Error)?.message || e).slice(0, 140) };
+  }
+}

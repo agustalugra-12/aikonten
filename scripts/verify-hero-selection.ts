@@ -3,7 +3,8 @@
 // Mencakup syarat tes #7: mixed brand, klip stok pertama, skor 0, semua avoid, tag kosong,
 // Ankylosaurus, + fallback (plan deterministik = dipakai render & ffmpeg sama). + sinonim #4.
 import assert from "node:assert";
-import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, applyFootageGuard, resolveDomain, categoryOf, matchedCategories, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, applyFootageGuard, safeFootageGuard, resolveDomain, categoryOf, matchedCategories, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { validateBrandKit } from "@/lib/render/brandKit";
 
 let n = 0;
 const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
@@ -290,6 +291,46 @@ const origTags = ["orig-hero"];
   assert.strictEqual(r.order[0], guardPlan.heroKey, "full: hero di posisi 0");
   assert.strictEqual(r.changed, true, "full: changed=true");
   ok("#7 full: plan.order dipakai, dropped dibuang (fungsi murni)");
+}
+
+// === Perbaikan kecil (2026-11-04): error-guard, validator Brand Kit, selected stok ===
+// 26. safeFootageGuard: error perhitungan TIDAK melempar -> {plan:null, error} (pipeline aman).
+{
+  const bomb = [{ get source(): never { throw new Error("boom-guard"); }, key: "x" }] as unknown as ClipCandidate[];
+  const r = safeFootageGuard(bomb, "hook", "script");
+  assert.strictEqual(r.plan, null, "error -> plan null (tak melempar)");
+  assert.ok(r.error && r.error.includes("boom"), "error dicatat");
+  // Kontrol: input normal -> plan ada, error null.
+  const ok2 = safeFootageGuard([{ key: "a", source: "brand", tags: ["ranjang"] }], "hook", "script");
+  assert.ok(ok2.plan && ok2.error === null, "input normal -> plan ada, error null");
+  ok("#1 safeFootageGuard: error tak menggagalkan (plan null+catat), normal OK");
+}
+// 27. Validator Brand Kit footageGuardMode: observe diterima; hero-only & full DITOLAK sementara.
+{
+  assert.strictEqual(validateBrandKit({ footageGuardMode: "observe" }).ok, true, "observe diterima");
+  assert.strictEqual(validateBrandKit({ footageGuardMode: "hero-only" }).ok, false, "hero-only ditolak");
+  assert.strictEqual(validateBrandKit({ footageGuardMode: "full" }).ok, false, "full ditolak");
+  assert.strictEqual(validateBrandKit({ footageGuardMode: "x" }).ok, false, "nilai asing ditolak");
+  ok("#2 validator footageGuardMode: observe OK, hero-only/full ditolak");
+}
+// 28. Validator Brand Kit footageDomain: hanya animal/hospitality/laundry/business.
+{
+  for (const d of ["animal", "hospitality", "laundry", "business"]) {
+    assert.strictEqual(validateBrandKit({ footageDomain: d }).ok, true, `${d} diterima`);
+  }
+  assert.strictEqual(validateBrandKit({ footageDomain: "sport" }).ok, false, "domain asing ditolak");
+  assert.strictEqual(validateBrandKit({ footageDomain: "universal" }).ok, false, "universal tak boleh di-set eksplisit");
+  ok("#2 validator footageDomain: 4 enum OK, selain itu ditolak");
+}
+// 29. Project isStockFootage: segment stok tanpa metadata isi (slug kosong) -> no_basis; ada slug -> dipakai.
+{
+  const p = planHeroAndClips([
+    { key: "s0", source: "stock", probe: slugFromSourceUrl("https://pixabay.com/videos/id-85674/") }, // slug kosong
+    { key: "s1", source: "stock", probe: slugFromSourceUrl("https://www.pexels.com/video/sunset-beach-palm-trees-12345/") },
+  ], "sunset beach", "beach palm sunset", { domain: "hospitality" });
+  assert.ok(p.dropped.some((d) => d.key === "s0" && d.reason === "no_basis"), "stok tanpa metadata -> no_basis");
+  assert.ok(p.order.includes("s1"), "stok dgn slug relevan dipakai");
+  ok("#3 selected stok: no metadata -> no_basis; ada slug -> dipakai");
 }
 
 console.log(`ALL_HERO_TESTS_PASS (${n} tes)`);

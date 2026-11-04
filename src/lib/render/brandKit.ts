@@ -114,6 +114,11 @@ export type BrandKit = {
     enabled?: boolean;
     label?: string; // default "Mulai dari"
   };
+  // Footage Guard (Tahap 2 HyperFrames, 2026-11-04). mode: "observe" = DEFAULT, hanya CATAT keputusan
+  // guard ke log, footage TIDAK diubah. hero-only/full DITOLAK validator sementara (belum diuji di prod).
+  footageGuardMode?: "observe";
+  // Profil kategori footage per-brand (planHeroAndClips domain). unset = universal (ditandai unknown di log).
+  footageDomain?: "animal" | "hospitality" | "laundry" | "business";
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -292,6 +297,17 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
       op.label = p.label;
     }
     out.priceOverlay = op;
+  }
+  // Footage Guard (Tahap 2, 2026-11-04). Hanya "observe" yg diterima SEKARANG; hero-only/full DITOLAK
+  // sementara sampai terbukti aman di prod (keputusan deploy observe-first).
+  if ("footageGuardMode" in o && o.footageGuardMode !== undefined && o.footageGuardMode !== null) {
+    if (o.footageGuardMode !== "observe") return { ok: false, error: "footageGuardMode harus 'observe' (hero-only/full belum tersedia)" };
+    out.footageGuardMode = "observe";
+  }
+  if ("footageDomain" in o && o.footageDomain !== undefined && o.footageDomain !== null) {
+    const DOMAINS = ["animal", "hospitality", "laundry", "business"];
+    if (!DOMAINS.includes(o.footageDomain as string)) return { ok: false, error: "footageDomain harus animal/hospitality/laundry/business" };
+    out.footageDomain = o.footageDomain as BrandKit["footageDomain"];
   }
   return { ok: true, value: out };
 }
