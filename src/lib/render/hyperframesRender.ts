@@ -45,10 +45,12 @@ export async function renderViaHyperframes(
   // Broll (foto brand-derive + stok) dulu, lalu segment video bank (urutan 45fd784). Urutan/hero klip
   // sudah ditentukan pemanggil (footagePlan/applyFootageGuard di processProject).
   const clips: HfClip[] = [];
-  if (opts.orderedClips && opts.orderedClips.length) {
-    // Daftar terpadu hero-first (feat/hero-order) -> hero = clips[0]; mediaStart dijaga per klip.
+  if (opts.orderedClips !== undefined) {
+    // feat/hero-order: daftar terpadu hero-first MENANG. [] = nol klip aman -> clips kosong -> FACELESS
+    // (background brand beranimasi). JANGAN balik ke broll/segment lama (itu klip yg sudah ditolak guard).
     for (const c of opts.orderedClips) clips.push({ videoUrl: c.videoUrl, durationSeconds: c.durationSeconds, mediaStart: Math.max(0, c.mediaStart) });
   } else {
+    // undefined = observe / jalur lama: broll dulu lalu segment (IDENTIK produksi).
     for (const b of opts.brollClips || []) clips.push({ videoUrl: b.videoUrl, durationSeconds: b.durationSeconds });
     for (const s of opts.segments || []) clips.push({ videoUrl: s.sourceUrl, durationSeconds: Math.max(0.5, s.end - s.start), mediaStart: Math.max(0, s.start) });
   }

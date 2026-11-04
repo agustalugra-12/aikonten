@@ -370,8 +370,14 @@ export async function renderFinalVideo(opts: {
     // footage asli & broll Pexels hampir pasti beda resolusi/fps, WAJIB diseragamkan
     // dulu sblm concat (sama alasannya dgn Cloudinary versi lama: "Concatenated videos
     // sizes don't match" kalau tidak diseragamkan).
-    const allClips: Array<{ url: string; start: number; end: number }> = opts.orderedClips && opts.orderedClips.length
-      // feat/hero-order: daftar terpadu hero-first (hero=allClips[0]); mediaStart dijaga (start=mediaStart).
+    // feat/hero-order: orderedClips=[] (BEDA dari undefined) = guard menghasilkan NOL klip aman (semua
+    // footage ditolak). ffmpeg TIDAK punya jalur faceless -> GAGAL JELAS, drpd memutar klip yg sudah
+    // ditolak atau render kosong rusak. (undefined = jalur lama; HyperFrames yg justru faceless pada [].)
+    if (opts.orderedClips !== undefined && opts.orderedClips.length === 0) {
+      throw new Error("Guard footage: nol klip aman (semua footage ditolak) - render ffmpeg dibatalkan (tak ada jalur faceless di ffmpeg)");
+    }
+    const allClips: Array<{ url: string; start: number; end: number }> = opts.orderedClips !== undefined
+      // daftar terpadu hero-first (hero=allClips[0]); mediaStart dijaga (start=mediaStart). JANGAN campur broll/segment lama.
       ? opts.orderedClips.map((c) => ({ url: c.videoUrl, start: Math.max(0, c.mediaStart), end: Math.max(0, c.mediaStart) + c.durationSeconds }))
       : [
           ...opts.segments.map((s) => ({ url: s.sourceUrl, start: s.start, end: s.end })),

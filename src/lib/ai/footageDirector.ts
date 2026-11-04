@@ -292,3 +292,11 @@ export function orderedRenderClips(broll: ClipForRender[], segments: ClipForRend
   const r = applyFootageGuard(mode, plan, unified, (c) => c.key, []);
   return { clips: r.order, heroKey: plan.heroKey, changed: r.changed };
 }
+
+// Indeks efek per-klip ffmpeg (feat/hero-order). ffmpeg menggabung klip SEGMENT dulu lalu BROLL
+// (ffmpeg.ts allClips), jadi efek 1:1 (motions) diindeks: s{j}=j, b{i}=segmentCount+i. Dipakai untuk
+// menata ulang motions MENGIKUTI klip saat orderedClips mengubah urutan (hero-first).
+export function ffmpegEffectIndex(key: string, segmentCount: number): number {
+  const n = Number(key.slice(1));
+  return key[0] === "s" ? n : segmentCount + n;
+}
