@@ -31,6 +31,14 @@ const SYN_GROUPS: string[][] = [
   ["bersih", "clean", "wangi", "fresh", "rapi"],
   ["taman", "garden", "kebun"],
   ["parkir", "parking", "motor", "mobil", "car"],
+  // Lintas-bahasa EN<->ID (slug Pexels Inggris, hook/script bisa Indonesia) - subjek Animal Story.
+  ["dinosaur", "dinosaurus", "dino"],
+  ["fosil", "fossil"],
+  ["kura", "turtle", "penyu", "tortoise"],
+  ["kadal", "lizard"],
+  ["hewan", "animal", "satwa", "wildlife"],
+  ["laut", "sea", "ocean", "underwater", "samudra"],
+  ["hutan", "forest", "jungle", "rimba"],
 ];
 const CANON = new Map<string, string>();
 for (const g of SYN_GROUPS) for (const v of g) CANON.set(v, g[0]);
@@ -77,6 +85,19 @@ export function directFootageOrder<T>(
 export function isOffTopic(basis: string[], hookText: string, script: string): boolean {
   const s = scoreClipTags(basis || [], new Set(canonTokens(hookText)), new Set(canonTokens(script)));
   return s.hasTags && s.relevance === 0;
+}
+
+// Slug ISI dari URL sumber (Tahap 2 LANGKAH 1, 2026-11-04). KRUSIAL: `source_query` = NIAT cari
+// (sering TAK cocok isi - mis query "narwhal Arctic" -> klip "cracked-ice-surface"), sedangkan
+// `source_url` slug = ISI NYATA klip yg dikembalikan Pexels (mis .../close-up-of-iguana-...).
+// Dipakai sbg `probe` guard stok -> isi off-topik (iguana/kura utk topik dinosaurus) tertolak via
+// slug ISI, BUKAN daftar kata manual. Kosong kalau URL tak ada/tak terparse -> caller tandai no_basis.
+export function slugFromSourceUrl(url: string | null | undefined): string {
+  try {
+    const segs = new URL(String(url)).pathname.split("/").filter(Boolean);
+    const last = segs[segs.length - 1] || "";
+    return last.replace(/[-_]+/g, " ").replace(/\b\d{4,}\b/g, " ").replace(/\s+/g, " ").trim();
+  } catch { return ""; }
 }
 
 export type ClipSource = "brand" | "stock";

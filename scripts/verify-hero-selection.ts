@@ -3,7 +3,7 @@
 // Mencakup syarat tes #7: mixed brand, klip stok pertama, skor 0, semua avoid, tag kosong,
 // Ankylosaurus, + fallback (plan deterministik = dipakai render & ffmpeg sama). + sinonim #4.
 import assert from "node:assert";
-import { planHeroAndClips, isOffTopic, directFootageOrder, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, type ClipCandidate } from "@/lib/ai/footageDirector";
 
 let n = 0;
 const ok = (m: string) => { n++; console.log(`  ok ${n} - ${m}`); };
@@ -95,6 +95,35 @@ const S = (key: string, probe: string): ClipCandidate => ({ key, source: "stock"
   const rel = planHeroAndClips([S("s", "cucian")], "laundry", "x");
   assert.strictEqual(rel.faceless, false, "stok 'cucian' relevan ke 'laundry' (sinonim) -> dipakai");
   ok("sinonim terbatas: cucian~laundry, kamar~room (#4)");
+}
+
+// 10. LANGKAH 1: slugFromSourceUrl ambil ISI dari source_url (bukan niat sourceQuery)
+{
+  assert.strictEqual(slugFromSourceUrl("https://www.pexels.com/video/close-up-of-iguana-in-natural-habitat-36016852/"), "close up of iguana in natural habitat");
+  assert.strictEqual(slugFromSourceUrl("https://www.pexels.com/video/a-man-playing-golf-12345/"), "a man playing golf");
+  assert.strictEqual(slugFromSourceUrl(""), "");
+  ok("slugFromSourceUrl ambil isi + buang ID");
+}
+
+// 11. REGRESI Animal Story: topik Ankylosaurus, klip stok golf/iguana/kura DITOLAK via SLUG source_url
+//     (bukan sourceQuery, tanpa menaruh kata "golf"/"iguana" manual). Hanya guard slug yg bekerja.
+{
+  const hook = "Ankylosaurus dinosaurus berlapis baja", script = "dinosaurus purba armor fosil ankylosaurus tank berjalan";
+  // source_query generik (niat), source_url = isi nyata (off-topik utk dinosaurus)
+  const stock = (su: string): ClipCandidate => ({ key: su, source: "stock", probe: slugFromSourceUrl(su) });
+  const p = planHeroAndClips([
+    stock("https://www.pexels.com/video/a-man-playing-golf-on-a-course-99/"),
+    stock("https://www.pexels.com/video/close-up-of-iguana-in-natural-habitat-36016852/"),
+    stock("https://www.pexels.com/video/herd-of-turtles-swimming-in-zoo-11358388/"),
+    stock("https://www.pexels.com/video/oriental-garden-lizard-climbing-tree-37903088/"),
+  ], hook, script);
+  assert.strictEqual(p.faceless, true, "semua stok off-topik (golf/iguana/kura/lizard) -> tak ada hero -> faceless");
+  assert.strictEqual(p.dropped.length, 4, "4 klip off-topik ditolak");
+  assert.ok(p.dropped.every((d) => d.reason === "off_topic"), "semua ditolak via off_topic (slug), bukan avoid manual: " + JSON.stringify(p.dropped));
+  // kontrol: klip dinosaur relevan DITERIMA
+  const p2 = planHeroAndClips([stock("https://www.pexels.com/video/dinosaur-skeleton-fossil-museum-77/"), stock("https://www.pexels.com/video/a-man-playing-golf-99/")], hook, script);
+  assert.ok(p2.heroKey && p2.heroKey.includes("dinosaur"), "klip dinosaur (slug relevan) jadi hero, golf ditolak");
+  ok("REGRESI Animal Story: golf/iguana/kura ditolak via slug source_url (tanpa kata manual)");
 }
 
 // 9. directFootageOrder tetap benar
