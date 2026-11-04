@@ -101,10 +101,18 @@ export function isInCooldown(cooldownUntilMs: number | null | undefined, nowMs: 
 
 // === #7 Kuota HARIAN per brand/akun (di atas kuota siklus). count24h dari publish_logs sukses 24 jam. ===
 export type DailyCfg = { maxPerBrandPerDay: number; maxPerAccountPerDay: number };
+// Diselaraskan dgn kuota BULANAN 20/brand (#3): default harian 5 (≈ sebar 20/bln tanpa burst 1 hari).
 export function defaultDailyCfg(env: Record<string, string | undefined> = process.env): DailyCfg {
-  return { maxPerBrandPerDay: numEnv(env.PUBLISH_MAX_PER_BRAND_DAY, 10), maxPerAccountPerDay: numEnv(env.PUBLISH_MAX_PER_ACCOUNT_DAY, 10) };
+  return { maxPerBrandPerDay: numEnv(env.PUBLISH_MAX_PER_BRAND_DAY, 5), maxPerAccountPerDay: numEnv(env.PUBLISH_MAX_PER_ACCOUNT_DAY, 5) };
 }
 export function dailyBrandExceeded(brandCount24h: number, cfg: DailyCfg): boolean { return brandCount24h >= cfg.maxPerBrandPerDay; }
+
+// #3 Kuota BULANAN per brand (ceiling di atas harian). Default 20 publish/brand/30hr (PUBLISH_MAX_PER_BRAND_MONTH).
+export type MonthlyCfg = { maxPerBrandPerMonth: number };
+export function defaultMonthlyCfg(env: Record<string, string | undefined> = process.env): MonthlyCfg {
+  return { maxPerBrandPerMonth: numEnv(env.PUBLISH_MAX_PER_BRAND_MONTH, 20) };
+}
+export function monthlyBrandExceeded(brandSuccess30d: number, cfg: MonthlyCfg): boolean { return brandSuccess30d >= cfg.maxPerBrandPerMonth; }
 
 // === #8 Jalankan siklus publish TERURUT; berhenti SEGERA pada breaker (token/rate), jangan coba kandidat lain. ===
 export type PublishOutcome = { ok: boolean; bufferError?: string | null };

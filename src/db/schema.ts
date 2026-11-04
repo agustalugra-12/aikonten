@@ -980,3 +980,23 @@ export const llmBalances = sqliteTable("llm_balances", {
   note: text("note"),
   createdAt: integer("created_at").notNull(),
 });
+
+// Ledger PERSISTEN call Buffer (feat/publish-guard, 2026-11-04) - 1 baris per call API Buffer: token
+// fingerprint (HASH, bukan token mentah) / brand / channel / jenis. Sumber BUDGET 30hr (bukan publish_logs
+// -> log gagal lama TIDAK ikut; ledger fresh = baseline, token baru tak langsung terblokir).
+export const bufferCallLedger = sqliteTable("buffer_call_ledger", {
+  id: text("id").primaryKey(),
+  tokenFp: text("token_fp").notNull(),
+  brandId: text("brand_id"),
+  channelId: text("channel_id"),
+  kind: text("kind", { enum: ["createPost", "sweep", "analytics", "channels", "tokenCheck", "delete"] }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+// State breaker/cooldown PERSISTEN per token fingerprint (tahan restart - beda dari var in-memory lama).
+export const bufferTokenState = sqliteTable("buffer_token_state", {
+  tokenFp: text("token_fp").primaryKey(),
+  cooldownUntil: integer("cooldown_until", { mode: "timestamp" }),
+  reason: text("reason"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
