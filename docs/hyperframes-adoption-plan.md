@@ -423,3 +423,21 @@ Berikutnya: Tahap 8 (QC pre-render `hyperframes check` + keputusan render/ulang/
 skrip review frame), lalu verifikasi akhir (render uji 3 video 15–20 dtk dari fixture, HANYA di luar jam
 generate produksi 23:00–02:30 WIB). Belum diverifikasi: AI Director dgn OpenAI nyata (tak ada key di
 lingkungan uji), render nyata adegan baru, overflow nyata di browser.
+
+### Update checkpoint — Tahap 8 + verifikasi akhir (2026-11-04 23:55)
+
+| Tahap | Commit | Tes |
+| --- | --- | --- |
+| 8 QC/metrik | 12610bd | verify-render-qc 6/6 |
+| Render fixture | 3100fb7 | — |
+| Fix temuan check | c13d5cb, ce2f826 | render-qc 6/6, scene 5/5, builder 8/8 |
+
+Render uji LOKAL (bukan worker produksi; cgroup 1 core/1.2 GB, Node 24, hyperframes 0.8.230, gsap 3.15.0 dari
+paket hyperframes, font OFL -> woff2): hospitality 15.3 dtk (336 dtk render), laundry 16.0 dtk (354 dtk),
+animal 17.3 dtk (384 dtk). v2: `hyperframes check` lolos ketiganya (browser jalan), tanpa unduhan font luar.
+Media fixture (footage/VO/SRT project nyata) TIDAK di-commit. Plan render ditulis tangan, bukan output AI.
+
+Sisa: caption terlalu cepat dibaca (craft line_unread, cadence builder lama), kontras #mark/kata caption di
+atas footage terang (warning), hook detik 0 belum ada teks (muncul 0.55 dtk), footage tak cocok topik
+(Pelangi kuliner vs kamar; animal stok bukan vampire finch), AI Director belum diuji dgn OpenAI nyata.
+Berikutnya: Gerbang 3 (Agus menilai video) sebelum shadow deploy / aktivasi satu brand.
