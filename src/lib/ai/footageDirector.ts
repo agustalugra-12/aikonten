@@ -278,3 +278,25 @@ export function safeFootageGuard(cands: ClipCandidate[], hookText: string, scrip
     return { plan: null, error: String((e as Error)?.message || e).slice(0, 140) };
   }
 }
+
+// Klip render terpadu lintas sumber (feat/hero-order, 2026-11-04). mediaStart = offset dalam file sumber
+// (broll/foto = 0; segment video bank/stok = detik mulai trim) -> DIJAGA saat klip dipindah urutannya.
+export type ClipForRender = { key: string; videoUrl: string; durationSeconds: number; mediaStart: number; source: ClipSource };
+
+// Satukan broll + segment jadi SATU daftar (urutan dasar: broll dulu lalu segment), lalu terapkan mode:
+// - observe  -> urutan apa adanya (dipakai hanya di tes; produksi tidak memanggil ini di observe).
+// - hero-only/full -> hero (plan.heroKey) jadi klip-0 LINTAS SUMBER (segment pun bisa paling depan).
+// Dipakai utk HyperFrames DAN fallback ffmpeg -> kedua renderer + QC melihat hero yang sama.
+export function orderedRenderClips(broll: ClipForRender[], segments: ClipForRender[], plan: HeroPlan, mode: GuardMode): { clips: ClipForRender[]; heroKey: string | null; changed: boolean } {
+  const unified = [...broll, ...segments];
+  const r = applyFootageGuard(mode, plan, unified, (c) => c.key, []);
+  return { clips: r.order, heroKey: plan.heroKey, changed: r.changed };
+}
+
+// Indeks efek per-klip ffmpeg (feat/hero-order). ffmpeg menggabung klip SEGMENT dulu lalu BROLL
+// (ffmpeg.ts allClips), jadi efek 1:1 (motions) diindeks: s{j}=j, b{i}=segmentCount+i. Dipakai untuk
+// menata ulang motions MENGIKUTI klip saat orderedClips mengubah urutan (hero-first).
+export function ffmpegEffectIndex(key: string, segmentCount: number): number {
+  const n = Number(key.slice(1));
+  return key[0] === "s" ? n : segmentCount + n;
+}
