@@ -1,0 +1,183 @@
+{
+ "ctx": {
+  "footageIds": [
+   "biz-desk",
+   "biz-phone",
+   "biz-team"
+  ],
+  "audioDurationSeconds": 13
+ },
+ "valid": {
+  "version": 1,
+  "orientation": "portrait",
+  "look": "clean",
+  "pacing": "medium",
+  "music": {
+   "mood": "neutral",
+   "volume": 0.13
+  },
+  "brand": {
+   "tone": "corporate"
+  },
+  "scenes": [
+   {
+    "id": "hook",
+    "type": "hook",
+    "duration": 2,
+    "transition": "cut",
+    "text": "Konten tiap hari tanpa tim besar",
+    "footageRef": "biz-desk"
+   },
+   {
+    "id": "hours",
+    "type": "stat",
+    "duration": 3,
+    "transition": "zoom",
+    "value": "10 jam",
+    "label": "dihemat per minggu",
+    "chart": [
+     2,
+     5,
+     10
+    ],
+    "footageRef": "biz-phone"
+   },
+   {
+    "id": "feat",
+    "type": "feature-list",
+    "duration": 3.5,
+    "transition": "slide",
+    "title": "Satu dashboard",
+    "items": [
+     "Ide otomatis",
+     "Video siap posting",
+     "Jadwal multi-kanal"
+    ]
+   },
+   {
+    "id": "quote",
+    "type": "testimonial",
+    "duration": 3.5,
+    "transition": "crossfade",
+    "quote": "Engagement naik sejak posting rutin.",
+    "author": "Owner cafe, Denpasar",
+    "footageRef": "biz-team"
+   },
+   {
+    "id": "outro",
+    "type": "logo-outro",
+    "duration": 3,
+    "transition": "flash",
+    "tagline": "Konten jalan, bisnis tumbuh"
+   }
+  ]
+ },
+ "broken": [
+  {
+   "name": "html di teks",
+   "set": {
+    "scenes.0.text": "<b>Promo</b> hari ini"
+   },
+   "expect": "markup_forbidden"
+  },
+  {
+   "name": "css/js di caption",
+   "set": {
+    "scenes.1.duration": 3
+   },
+   "setKey": [
+    "scenes.1",
+    "style",
+    "color:red"
+   ],
+   "expect": "unknown_field"
+  },
+  {
+   "name": "field liar top-level",
+   "setKey": [
+    "",
+    "html",
+    "<div>x</div>"
+   ],
+   "expect": "unknown_field"
+  },
+  {
+   "name": "footageRef tak dikenal",
+   "set": {
+    "scenes.0.footageRef": "tidak-ada"
+   },
+   "expect": "footage_ref_unknown"
+  },
+  {
+   "name": "hook terlalu panjang",
+   "set": {
+    "scenes.0.text": "Ini adalah hook yang sangat panjang sekali dan tidak muat"
+   },
+   "expect": "too_many_words"
+  },
+  {
+   "name": "durasi adegan di luar batas",
+   "set": {
+    "scenes.1.duration": 12
+   },
+   "expect": "out_of_range"
+  },
+  {
+   "name": "transisi tak dikenal",
+   "set": {
+    "scenes.1.transition": "spin3d"
+   },
+   "expect": "transition: invalid"
+  },
+  {
+   "name": "adegan pertama bukan cut",
+   "set": {
+    "scenes.0.transition": "whip"
+   },
+   "expect": "first_scene_must_cut"
+  },
+  {
+   "name": "tipe adegan tak dikenal",
+   "set": {
+    "scenes.1.type": "html-block"
+   },
+   "expect": "type: invalid"
+  },
+  {
+   "name": "url di teks",
+   "set": {
+    "scenes.0.text": "Cek https://x.y"
+   },
+   "expect": "markup_forbidden"
+  },
+  {
+   "name": "versi salah",
+   "set": {
+    "version": 2
+   },
+   "expect": "unsupported_version"
+  },
+  {
+   "name": "volume musik kebesaran",
+   "set": {
+    "music.volume": 0.9
+   },
+   "expect": "out_of_range"
+  },
+  {
+   "name": "hook bukan pertama",
+   "swap": [
+    0,
+    1
+   ],
+   "expect": "first_scene_must_be_hook"
+  },
+  {
+   "name": "durasi jauh dari VO",
+   "set": {
+    "_audio": 60
+   },
+   "expect": "total_vs_audio"
+  }
+ ]
+}

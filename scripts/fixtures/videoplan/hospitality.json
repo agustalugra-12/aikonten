@@ -1,0 +1,192 @@
+{
+ "ctx": {
+  "footageIds": [
+   "hosp-pool",
+   "hosp-room",
+   "hosp-breakfast",
+   "hosp-garden",
+   "hosp-lobby"
+  ],
+  "audioDurationSeconds": 15.5
+ },
+ "valid": {
+  "version": 1,
+  "orientation": "portrait",
+  "look": "warm",
+  "pacing": "medium",
+  "music": {
+   "mood": "calm",
+   "volume": 0.13
+  },
+  "brand": {
+   "tone": "premium"
+  },
+  "scenes": [
+   {
+    "id": "hook",
+    "type": "hook",
+    "duration": 2.5,
+    "transition": "cut",
+    "text": "Liburan tenang di tengah Ubud?",
+    "footageRef": "hosp-pool"
+   },
+   {
+    "id": "room",
+    "type": "footage-caption",
+    "duration": 3,
+    "transition": "crossfade",
+    "footageRef": "hosp-room",
+    "mediaStart": 1.5,
+    "caption": "Kamar luas, view sawah"
+   },
+   {
+    "id": "price",
+    "type": "stat",
+    "duration": 3,
+    "transition": "zoom",
+    "value": "Rp350.000",
+    "label": "per malam, sarapan termasuk",
+    "footageRef": "hosp-breakfast"
+   },
+   {
+    "id": "why",
+    "type": "feature-list",
+    "duration": 3.5,
+    "transition": "slide",
+    "title": "Kenapa tamu betah",
+    "items": [
+     "Kolam renang",
+     "Sarapan Bali",
+     "5 menit ke pusat Ubud"
+    ],
+    "footageRef": "hosp-garden"
+   },
+   {
+    "id": "review",
+    "type": "testimonial",
+    "duration": 3.5,
+    "transition": "crossfade",
+    "quote": "Stafnya ramah sekali, kamarnya bersih dan tenang.",
+    "author": "Rina, Jakarta",
+    "rating": 5,
+    "footageRef": "hosp-lobby"
+   },
+   {
+    "id": "cta",
+    "type": "cta",
+    "duration": 2.5,
+    "transition": "flash",
+    "text": "Booking via WhatsApp",
+    "sub": "Promo musim hujan"
+   }
+  ]
+ },
+ "broken": [
+  {
+   "name": "html di teks",
+   "set": {
+    "scenes.0.text": "<b>Promo</b> hari ini"
+   },
+   "expect": "markup_forbidden"
+  },
+  {
+   "name": "css/js di caption",
+   "set": {
+    "scenes.1.duration": 3
+   },
+   "setKey": [
+    "scenes.1",
+    "style",
+    "color:red"
+   ],
+   "expect": "unknown_field"
+  },
+  {
+   "name": "field liar top-level",
+   "setKey": [
+    "",
+    "html",
+    "<div>x</div>"
+   ],
+   "expect": "unknown_field"
+  },
+  {
+   "name": "footageRef tak dikenal",
+   "set": {
+    "scenes.0.footageRef": "tidak-ada"
+   },
+   "expect": "footage_ref_unknown"
+  },
+  {
+   "name": "hook terlalu panjang",
+   "set": {
+    "scenes.0.text": "Ini adalah hook yang sangat panjang sekali dan tidak muat"
+   },
+   "expect": "too_many_words"
+  },
+  {
+   "name": "durasi adegan di luar batas",
+   "set": {
+    "scenes.1.duration": 12
+   },
+   "expect": "out_of_range"
+  },
+  {
+   "name": "transisi tak dikenal",
+   "set": {
+    "scenes.1.transition": "spin3d"
+   },
+   "expect": "transition: invalid"
+  },
+  {
+   "name": "adegan pertama bukan cut",
+   "set": {
+    "scenes.0.transition": "whip"
+   },
+   "expect": "first_scene_must_cut"
+  },
+  {
+   "name": "tipe adegan tak dikenal",
+   "set": {
+    "scenes.1.type": "html-block"
+   },
+   "expect": "type: invalid"
+  },
+  {
+   "name": "url di teks",
+   "set": {
+    "scenes.0.text": "Cek https://x.y"
+   },
+   "expect": "markup_forbidden"
+  },
+  {
+   "name": "versi salah",
+   "set": {
+    "version": 2
+   },
+   "expect": "unsupported_version"
+  },
+  {
+   "name": "volume musik kebesaran",
+   "set": {
+    "music.volume": 0.9
+   },
+   "expect": "out_of_range"
+  },
+  {
+   "name": "hook bukan pertama",
+   "swap": [
+    0,
+    1
+   ],
+   "expect": "first_scene_must_be_hook"
+  },
+  {
+   "name": "durasi jauh dari VO",
+   "set": {
+    "_audio": 60
+   },
+   "expect": "total_vs_audio"
+  }
+ ]
+}
