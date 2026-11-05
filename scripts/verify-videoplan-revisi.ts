@@ -8,7 +8,7 @@ import { buildCompositionFromPlan, type PlanMedia } from "../src/lib/video/planB
 import { validateVideoPlan, type VideoPlan } from "../src/lib/video/videoPlan";
 import { analyzeGray, applyGlossary, centerTexture, fixText, freeZone, isBlurry, MIN_FRAME_SHARP, officialName, subjectScore } from "../src/lib/video/footageFit";
 import { captionLines } from "../src/lib/video/planText";
-import { contrast, estLines, pickInk } from "../src/lib/video/sceneLibrary";
+import { contrast, designBg, estLines, pickInk } from "../src/lib/video/sceneLibrary";
 import { wordsFor } from "./verify-videoplan-builder";
 
 let n = 0;
@@ -47,9 +47,14 @@ const S = {
   const b = buildCompositionFromPlan(plan([S.hookFood, S.menu, S.room, S.outro]), media());
   assert.strictEqual(b.heroRef, "food"); assert.strictEqual(b.hookMode, "footage");
   assert.ok(/<video id="bg0"[^>]*src="\.\/m\/food\.mp4"/.test(b.html), "klip pertama = footage yg menggambarkan hook");
-  assert.deepStrictEqual(b.designScenes, ["menu"]);
-  assert.ok(!b.html.includes("./m/garden.mp4"), "footage tak cocok tidak dipakai");
-  assert.ok(b.html.includes('id="sc1d"') && b.html.includes('class="vp-dcap"'), "adegan desain + caption besar");
+  // PRIORITAS 1.2: menu "makanan warung" -> klip BAWAAN garden tak cocok, utamakan footage NYATA yg cocok (food),
+  // bukan adegan desain dan bukan footage acak (garden).
+  assert.ok(!b.designScenes.includes("menu"), `menu pakai footage cocok, bukan desain: ${b.designScenes}`);
+  assert.ok(!b.html.includes("./m/garden.mp4"), "footage tak cocok (garden) tidak dipakai");
+  // Subjek yg TAK ADA footage cocok sama sekali -> adegan desain (bukan footage acak) + tandai footage_kurang.
+  const b3 = buildCompositionFromPlan(plan([S.hookFood, { ...S.menu, id: "mobil", subject: "mobil balap", caption: "Mobil balap" }, S.room, S.outro]), media());
+  assert.ok(b3.designScenes.includes("mobil") && b3.html.includes('class="vp-dcap"'), `subjek tanpa footage -> desain: ${b3.designScenes}`);
+  assert.ok(b3.footageKurang.includes("mobil balap"), `footage_kurang menandai subjek tanpa footage: ${b3.footageKurang}`);
   // Tanpa footage yang cocok dgn hook -> hook desain (latar brand), bukan footage acak.
   const m2 = media(); delete (m2.footage as Record<string, unknown>).food;
   const b2 = buildCompositionFromPlan(plan([{ ...S.hookFood, footageRef: "room" }, S.room, S.outro].map((x) => x) as unknown[]), { ...m2, footage: { room: m2.footage.room, garden: m2.footage.garden, blur: m2.footage.blur } });
@@ -234,8 +239,11 @@ ok("#6 hook: tak menimpa bingkai/subjek hero (pita bebas di atas/bawah, font men
 
 // 13. (#7) Keyakinan hook: metadata query Pexels saja / cocok lemah -> hook desain; deskripsi isi frame & cakupan ≥50% -> footage.
 {
-  const q = { description: "vampire finch pecking seabird blood feeding", tags: [] };
+  // query-only = HANYA kata pencarian, tanpa metadata hasil (deskripsi/judul/slug). Deskripsi isi -> vision (PRIORITAS 1).
+  const q = { description: "", tags: [] as string[] };
   assert.strictEqual(subjectSource(q), "query"); assert.strictEqual(subjectSource({ description: "x", tags: ["a"] }), "vision");
+  assert.strictEqual(subjectSource({ description: "vampire finch pecking seabird blood", tags: [] }), "vision", "deskripsi isi (tanpa tags) -> vision");
+  assert.strictEqual(subjectSource({ sourceUrl: "https://www.pexels.com/video/vampire-finch-bird-123.mp4" }), "vision", "slug source_url = metadata hasil -> vision");
   assert.deepStrictEqual(hookConfidence("burung minum darah", q), { ok: false, reason: "metadata hanya query pencarian" });
   assert.ok(!hookConfidence("burung minum darah", { ...q, source: "query", tags: ["finch"] }).ok, "source eksplisit menang atas tags");
   assert.ok(hookConfidence("pakaian bersih", { description: "Seseorang melipat pakaian di meja", tags: ["melipat pakaian"] }).ok, "1/2 token = 50% -> yakin");
@@ -251,30 +259,29 @@ ok("#6 hook: tak menimpa bingkai/subjek hero (pita bebas di atas/bawah, font men
 }
 ok("#7 hook yakin: query Pexels saja/cocok lemah (<50% token) -> hook desain; deskripsi isi frame cocok -> footage");
 
-// 14. (#8) Caption selalu kontras: kata muncul instan (tanpa tween opacity), pil gelap ≥.8, aksen kontras rendah -> putih.
+// 14. (#8) Caption: SELURUH frasa tampil (tanpa reveal opacity per kata), pil gelap ≥.8, sorot aksen kontras rendah -> putih.
 {
   const b = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media());
   assert.ok(!/tl\.(to|fromTo)\("#vpc\d+w\d+"/.test(b.html), "tanpa tween pada kata caption");
-  assert.ok(/tl\.set\("#vpc0w0",\{opacity:1,color:"#E8A33D"/.test(b.html), "kata tampil penuh + aksen sekaligus");
-  assert.ok(/\.vpcl b\{[^}]*opacity:0;background:rgba\(8,10,14,\.8\)/.test(b.html));
+  assert.ok(/tl\.set\("#vpc0w0",\{color:"#E8A33D"\}/.test(b.html), "kata yg diucapkan disorot aksen");
+  assert.ok(/\.vpcl b\{[^}]*background:rgba\(8,10,14,\.8\)/.test(b.html) && !/\.vpcl b\{[^}]*opacity:0/.test(b.html), "pil gelap .8; kata TANPA opacity:0 (frasa langsung tampil)");
   assert.ok(contrast("#FFFFFF", CAP_PILL_WORST) >= 7 && contrast("#E8A33D", CAP_PILL_WORST) >= 4.5);
   const dark = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media({ brand: { ...media().brand, accent: "#1B4332" } }));
-  assert.ok(/tl\.set\("#vpc0w0",\{opacity:1,color:"#FFFFFF"/.test(dark.html) && !dark.html.includes('color:"#1B4332"'), "aksen gelap tak dipakai di pil gelap");
+  assert.ok(/tl\.set\("#vpc0w0",\{color:"#FFFFFF"\}/.test(dark.html) && !dark.html.includes('color:"#1B4332"'), "aksen gelap tak dipakai sbg sorot di pil gelap");
 }
-ok("#8 caption: kata muncul instan & penuh (tak pernah pudar), pil gelap .8 (kontras putih ≥7 di atas footage putih), aksen kontras rendah -> putih");
+ok("#8 caption: frasa tampil penuh (tanpa reveal opacity), pil gelap .8 (kontras putih ≥7 di atas footage putih), sorot aksen kontras rendah -> putih");
 
-// 14b. (#8b) Ujung kanan pil caption selalu bulat: kata yg muncul membulatkan ujung kanannya; kata sebelumnya diratakan.
+// 14b. (#8b) Frasa utuh: seluruh kata satu baris tampil bersama (bukan reveal 1 kata) -> tak ada kata menggantung.
 {
   const words = "Menginap di Pelangi Homestay dekat kebun".split(" ").map((word, i) => ({ word, start: i * 0.4, end: i * 0.4 + 0.3 }));
   const b = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media({ words }));
-  // kata muncul -> ujung kanan dibulatkan (pil tak kotak di kanan sebelum kata terakhir)
-  assert.ok(/tl\.set\("#vpc0w0",\{opacity:1,color:"[^"]+",borderTopRightRadius:"\d+px",borderBottomRightRadius:"\d+px"\}/.test(b.html), "kata w0 bulat kanan saat muncul");
-  // kata berikut muncul -> kata sebelumnya tak lagi terkanan -> ujung kanannya diratakan
-  assert.ok(/tl\.set\("#vpc0w0",\{borderTopRightRadius:"0px",borderBottomRightRadius:"0px"\}/.test(b.html), "w0 diratakan saat w1 muncul");
-  // CSS awal tetap bulatkan first/last/only child (keadaan diam)
-  assert.ok(/\.vpcl b:first-child\{border-radius:\d+px 0 0 \d+px;\}/.test(b.html) && /\.vpcl b:last-child\{border-radius:0 \d+px \d+px 0;\}/.test(b.html));
+  assert.ok(!/#vpc\d+w\d+",\{[^}]*opacity/.test(b.html), "kata caption tanpa animasi opacity (frasa langsung tampil penuh)");
+  assert.ok(!/#vpc\d+w\d+",\{[^}]*borderTopRightRadius/.test(b.html), "tanpa animasi sudut per kata (pil frasa statis)");
+  assert.ok(!/\.vpcl b\{[^}]*opacity:0/.test(b.html), ".vpcl b tanpa opacity:0");
+  assert.ok(/\.vpcl b:first-child\{border-radius:\d+px 0 0 \d+px;\}/.test(b.html) && /\.vpcl b:last-child\{border-radius:0 \d+px \d+px 0;\}/.test(b.html), "pil frasa ujung membulat (first/last)");
+  assert.ok([...b.html.matchAll(/tl\.set\("#vpc0w\d+",\{color:/g)].length >= 2, "beberapa kata disorot (karaoke sinkron suara)");
 }
-ok("#8b pil caption: ujung kanan selalu bulat (kata terkanan membulatkan ujungnya, kata lama diratakan) -> tak pernah kotak di kanan");
+ok("#8b caption frasa utuh: seluruh kata baris tampil bersama (pil frasa statis, hanya sorot warna karaoke) -> tak ada kata menggantung");
 
 // 15. (#9) Kapitalisasi glossary hanya istilah utuh.
 {
@@ -312,9 +319,9 @@ ok("#10 nama brand resmi: 'Laundry In Bali'/'laundry in bali' di teks adegan -> 
   assert.ok(/^(<b id="vpc0w\d+">[^<]*<\/b>)+$/.test(line), `kata rapat tanpa spasi: ${line}`);
   assert.ok(/\.vpcl span\{display:inline-block;white-space:nowrap;font:800 \d+px\/1\.2 [^;]+;\}/.test(b.html), "span tanpa latar (pil tidak selebar baris)");
   assert.ok(/\.vpcl b\{[^}]*background:rgba\(8,10,14,\.8\);padding:\d+px \d+px;/.test(b.html) && /\.vpcl b:first-child\{border-radius/.test(b.html));
-  assert.ok(/\.vpcl\{position:absolute;left:0;right:0;text-align:center/.test(b.html), "posisi baris tetap (semua kata ditata sejak awal, opacity 0)");
+  assert.ok(/\.vpcl\{position:absolute;left:0;right:0;text-align:center/.test(b.html), "posisi baris tetap (frasa utuh terpusat)");
 }
-ok("#11 pil caption per kata: tumbuh kata demi kata tanpa ruang kosong, posisi baris tetap");
+ok("#11 pil caption frasa: kata rapat membentuk pil frasa penuh (tanpa ruang kosong), posisi baris tetap terpusat");
 
 // 18. (#12) Bayangan bingkai di ::before wrapper (bertahan saat HyperFrames ganti <video> dgn <img>), ikut gerbang waktu.
 {
@@ -377,5 +384,48 @@ ok("#6 non-hook: klaim subjek (subject/caption footage) wajib footage vision (is
   assert.ok(b.html.includes(`id="vpd${idx}"`), "latar brand (designBg) di belakang panel");
 }
 ok("#7 before-after tanpa footage: visual desain 2 panel + label mengisi frame (lolos QC tekstur), bukan latar kosong");
+
+// ===== Revisi-5 (2026-11-05) =====
+// 22. (PRIORITAS 1) Kecocokan dari metadata HASIL: judul & slug source_url ikut dinilai (bukan hanya kata pencarian).
+{
+  assert.ok(subjectScore("burung laut", { description: "", tags: [], title: "seabird colony finch" }) > 0, "judul hasil -> cocok");
+  assert.ok(subjectScore("burung", { sourceUrl: "https://www.pexels.com/video/vampire-finch-bird-99.mp4" }) > 0, "slug source_url -> cocok");
+  assert.strictEqual(subjectScore("burung", { sourceUrl: "https://www.pexels.com/video/123456.mp4" }), 0, "slug angka (host/generik dibuang) tak palsu-cocok");
+}
+ok("metadata hasil: judul & slug source_url klip ikut memverifikasi isi (bukan sekadar kata pencarian)");
+
+// 23. (PRIORITAS 2 & 3) Adegan desain KAYA (bukan navy polos + 1 glow): beberapa elemen besar + tekstur; panel
+//     before-after bersih & kontras cukup (before bukan bg2 yg menyatu latar; teks tiap panel >= 4.5:1).
+{
+  const bg = designBg("d0", 0, 3, { primary: "#14213D", bg2: "#0c1526", accent: "#FFD84D", ink: "#FFFFFF", cta: "#CC1F1F", font: "Poppins", mark: "PELANGI" });
+  assert.ok(bg.html.includes('class="b1"') && bg.html.includes('class="b2"') && bg.html.includes('class="rg"'), "beberapa elemen visual besar");
+  assert.ok(bg.css.includes("background-size:54px 54px") && !bg.css.includes("blur(80px)"), "ada tekstur titik; bukan 1-glow lama");
+  const ba = { id: "ba", type: "before-after", duration: 3.5, transition: "whip", subject: "pakaian cucian", before: { label: "Cucian numpuk", footageRef: "garden" }, after: { label: "Dilipat rapi", footageRef: "garden" } };
+  const bb = buildCompositionFromPlan(plan([S.hookFood, ba, S.room, S.outro]), media({ brand: { primary: "#14213D", bg2: "#0c1526", accent: "#FFD84D", cta: "#CC1F1F", name: "Laundry in Bali", mark: "LAUNDRY IN BALI" } }));
+  const idx = bb.windows.findIndex((w) => w.scene.id === "ba");
+  const pnl = (k: string) => new RegExp(`id="sc${idx}${k}" style="background:(#[0-9a-fA-F]{6});color:(#[0-9a-fA-F]{6});`).exec(bb.html)!;
+  const [, beforeBg, beforeInk] = pnl("b"), [, afterBg, afterInk] = pnl("a");
+  assert.notStrictEqual(beforeBg.toLowerCase(), "#0c1526", "panel before bukan bg2 (tak menyatu latar desain)");
+  assert.ok(contrast(beforeInk, beforeBg) >= 4.5 && contrast(afterInk, afterBg) >= 4.5, `kontras panel cukup: ${beforeInk}/${beforeBg} ${afterInk}/${afterBg}`);
+}
+ok("desain kaya: designBg beberapa elemen + tekstur (bukan 1-glow); panel before-after bersih (before bukan bg2) & teks >=4.5:1");
+
+// 24. (PRIORITAS 3) Caption tak menyisakan satu kata menggantung ("This"/"a bird"): minimal 1 frasa utuh per baris.
+{
+  const mk = (pairs: [string, number][]) => pairs.map(([word, t]) => ({ word, start: t, end: t + 0.3 }));
+  const { lines } = captionLines(mk([["Kucing", 0], ["lucu", 0.5], ["sekali", 1.0], ["ini.", 1.5], ["Dia", 3.0]]), { offset: 0, total: 10, w: 1080, h: 1920, font: "Poppins", zoneAt: () => "bottom" });
+  assert.ok(lines.length >= 1 && lines.every((ln) => ln.words.length >= 2 || lines.length === 1), `baris menggantung: ${lines.map((l) => l.text).join(" | ")}`);
+  assert.strictEqual(captionLines(mk([["Halo", 0], ["dunia", 0.5]]), { offset: 0, total: 5, w: 1080, h: 1920, font: "Poppins", zoneAt: () => "bottom" }).lines.length, 1, "kalimat sangat pendek tetap 1 baris");
+}
+ok("caption: tak ada kata menggantung (lone word digabung/ditarik jadi frasa utuh, tetap muat 1 baris)");
+
+// 25. (PRIORITAS 3) Baris caption di luar durasi VO (SRT melewati titik potong) dibuang -> tak ada caption durasi nol/negatif.
+{
+  const words = [["Halo", 0.2], ["dunia", 0.6], ["yang", 9.0], ["jauh", 9.4]].map(([w, t]) => ({ word: w as string, start: t as number, end: (t as number) + 0.3 }));
+  const { lines } = captionLines(words, { offset: 0, total: 5, w: 1080, h: 1920, font: "Poppins", zoneAt: () => "bottom" });
+  assert.ok(lines.length >= 1 && lines.every((l) => l.start < l.end && l.start < 5), `baris di luar VO dibuang: ${lines.map((l) => `${l.text}@${l.start.toFixed(1)}`).join(" ")}`);
+  assert.ok(!lines.some((l) => l.text.includes("jauh")), "kata di luar VO (t>total) tak jadi baris");
+}
+ok("caption: baris di luar durasi VO (start>=total) dibuang -> tak ada caption durasi nol/negatif");
 
 console.log(`ALL_VIDEOPLAN_REVISI_TESTS_PASS (${n} tes)`);

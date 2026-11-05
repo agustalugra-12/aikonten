@@ -74,19 +74,37 @@ export function captionLines(words: HfWord[], o: { offset: number; total: number
       if (shown(raw, i) < READ(chars) && fits([...raw[i], ...raw[i + 1]])) { raw.splice(i, 2, [...raw[i], ...raw[i + 1]]); changed = true; break; }
     }
   }
+  // Jangan tinggalkan kata menggantung ("This") / frasa mungil ("a bird"). (1) gabung penuh ke tetangga bila muat
+  // 1 baris; (2) kalau tetangga sudah penuh, CURI 1 kata dari tetangga (yg akan dibaca bersamanya) sampai jadi frasa
+  // utuh. Jendela baris diturunkan dari batas kata grup -> kata yg dipindah tetap tampil di waktunya (sinkron suara).
+  const tooSmall = (g: HfWord[]) => g.length < 2 || g.map((x) => x.word).join("").length < 7;
+  const relieve = (): boolean => {
+    for (let i = 0; i < raw.length; i++) {
+      if (raw.length < 2 || !tooSmall(raw[i])) continue;
+      if (i > 0 && fits([...raw[i - 1], ...raw[i]])) { raw.splice(i - 1, 2, [...raw[i - 1], ...raw[i]]); return true; }
+      if (i + 1 < raw.length && fits([...raw[i], ...raw[i + 1]])) { raw.splice(i, 2, [...raw[i], ...raw[i + 1]]); return true; }
+      if (i + 1 < raw.length && raw[i + 1].length >= 2 && fits([...raw[i], raw[i + 1][0]])) { raw[i].push(raw[i + 1].shift()!); return true; }
+      if (i > 0 && raw[i - 1].length >= 2 && fits([raw[i - 1].at(-1)!, ...raw[i]])) { raw[i].unshift(raw[i - 1].pop()!); return true; }
+    }
+    return false;
+  };
+  // ponytail: guard iterasi — curi-kata bisa ping-pong di kasus patologis; batasi raw.length*4 langkah lalu terima apa adanya.
+  for (let guard = raw.length * 4; guard-- > 0 && relieve(); );
   const lines = raw.map((g, i) => {
     const start = Math.max(o.offset, o.offset + g[0].start - 0.12);
     const end = Math.min(o.total, i + 1 < raw.length ? o.offset + raw[i + 1][0].start - 0.12 : o.offset + g[g.length - 1].end + 0.6);
     return { words: g, text: g.map((x) => x.word).join(" "), start, end, zone: o.zoneAt(start) };
-  });
+    // Buang baris di luar VO: SRT bisa punya kata melewati titik potong VO -> start>=total (durasi nol/negatif),
+    // tak boleh dirender sebagai caption berkedip. (mis. "Nature's survival hacks" di t>durasi).
+  }).filter((l) => l.start < o.total - 0.03 && l.end - l.start > 0.05);
   return { lines, size, maxW };
 }
 
-// Render: tiap baris = semua kata sudah ditata (opacity 0) -> posisi baris TETAP terpusat saat kata muncul
-// (tanpa reflow/loncatan). Revisi-3: pil gelap PER KATA (kata bersebelahan tanpa spasi teks, jarak = padding pil)
-// -> pil tumbuh kata demi kata mengikuti kata yg tampil, posisi baris tetap. Kata muncul INSTAN (tl.set opacity 1,
-// tanpa tween) -> tak pernah ada kata pudar/kontras rendah. Kata aktif = aksen hanya bila kontras ≥4.5 thd pil
-// terburuk (pil di atas footage putih); kalau tidak putih.
+// Render (revisi-5): SELURUH frasa (satu baris = satu kelompok frasa utuh) tampil sekaligus saat baris muncul ->
+// tak pernah ada SATU kata menggantung ("This"/"a bird") seperti pada reveal kata-demi-kata. Pil gelap per kata
+// (kata rapat tanpa spasi teks) membentuk pil frasa penuh dgn ujung membulat. Sinkron suara tetap: kata yg SEDANG
+// diucapkan disorot warna aksen lalu kembali putih (karaoke di atas teks yg sudah tampil). Kata aktif = aksen hanya
+// bila kontras ≥4.5 thd pil terburuk (pil di atas footage putih); kalau tidak putih.
 export const CAP_PILL = "rgba(8,10,14,.8)";
 export const CAP_PILL_WORST = "#3B3C3E"; // pil .8 di atas putih murni (0.8*8+0.2*255 ≈ 58)
 export function captionLayer(words: HfWord[], o: { offset: number; total: number; w: number; h: number; brand: BrandColors; zoneAt: (t: number) => Zone | null }): Layer & { lines: CapLine[] } {
@@ -99,14 +117,11 @@ export function captionLayer(words: HfWord[], o: { offset: number; total: number
     if (!ln.zone) return;
     const pos = ln.zone === "top" ? `top:${Math.round(o.h * 0.15)}px` : `bottom:${o.h - sa.y1}px`;
     html.push(`<div class="vpcl" id="vpc${i}" style="${pos}"><span>${ln.words.map((wd, j) => `<b id="vpc${i}w${j}">${esc(wd.word)}</b>`).join("")}</span></div>`);
+    // Baris (frasa utuh) tampil sekaligus; sorot aksen mengikuti kata yg diucapkan lalu kembali putih.
     tl.push(`tl.set("#vpc${i}",{visibility:"visible"},${f3(ln.start)});`, `tl.set("#vpc${i}",{visibility:"hidden"},${f3(ln.end)});`);
     ln.words.forEach((wd, j) => {
       const t = Math.max(ln.start, o.offset + wd.start - 0.08), te = Math.max(t + 0.1, o.offset + wd.end);
-      // Kata muncul = jadi kata TERKANAN yg tampil -> ujung kanannya dibulatkan (pil tak pernah kotak di kanan
-      // sampai kata terakhir); kata sebelumnya tak lagi terkanan -> ujung kanannya diratakan. Posisi/opacity instan.
-      tl.push(`tl.set("#vpc${i}w${j}",{opacity:1,color:"${active}",borderTopRightRadius:"${r}px",borderBottomRightRadius:"${r}px"},${f3(t)});`);
-      if (j > 0) tl.push(`tl.set("#vpc${i}w${j - 1}",{borderTopRightRadius:"0px",borderBottomRightRadius:"0px"},${f3(t)});`);
-      tl.push(`tl.set("#vpc${i}w${j}",{color:"#FFFFFF"},${f3(te)});`);
+      tl.push(`tl.set("#vpc${i}w${j}",{color:"${active}"},${f3(t)});`, `tl.set("#vpc${i}w${j}",{color:"#FFFFFF"},${f3(te)});`);
     });
   });
   return {
@@ -115,7 +130,8 @@ export function captionLayer(words: HfWord[], o: { offset: number; total: number
     css: `.vpcl{position:absolute;left:0;right:0;text-align:center;z-index:500;visibility:hidden;}` +
       // font di span: ukuran caption utk seluruh baris (estimasi lebar = captionLines).
       `.vpcl span{display:inline-block;white-space:nowrap;font:800 ${size}px/1.2 ${fontStack(o.brand.font)};}` +
-      `.vpcl b{font:inherit;color:#FFFFFF;opacity:0;background:${CAP_PILL};padding:${py}px ${px}px;text-shadow:0 2px 6px rgba(0,0,0,.5);}` +
+      // b TANPA opacity:0 -> seluruh frasa langsung tampil (tak ada kata menggantung saat reveal).
+      `.vpcl b{font:inherit;color:#FFFFFF;background:${CAP_PILL};padding:${py}px ${px}px;text-shadow:0 2px 6px rgba(0,0,0,.5);}` +
       `.vpcl b:first-child{border-radius:${r}px 0 0 ${r}px;}.vpcl b:last-child{border-radius:0 ${r}px ${r}px 0;}.vpcl b:only-child{border-radius:${r}px;}`,
     tl,
   };

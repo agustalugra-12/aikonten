@@ -56,7 +56,7 @@ const hashInt = (s: string) => parseInt(createHash("sha256").update(s).digest("h
 const refOf = (s: Scene): string | undefined => ("footageRef" in s ? (s as { footageRef?: string }).footageRef : undefined);
 const startOf = (s: Scene): number | undefined => ("mediaStart" in s ? (s as { mediaStart?: number }).mediaStart : undefined);
 
-export type PlanBuild = { hookBox: [number, number] | null; hookAvoid: [number, number] | null; hookWhy: Record<string, string>; html: string; input: HfCompositionInput; windows: SceneWindow[]; clipScenes: string[]; heroRef: string | null; hookMode: "footage" | "design"; designScenes: string[]; framed: string[]; glossaryFixed: string[]; captionLines: Array<{ text: string; start: number; end: number; zone: Zone | null }> };
+export type PlanBuild = { hookBox: [number, number] | null; hookAvoid: [number, number] | null; hookWhy: Record<string, string>; html: string; input: HfCompositionInput; windows: SceneWindow[]; clipScenes: string[]; heroRef: string | null; hookMode: "footage" | "design"; designScenes: string[]; footageKurang: string[]; framed: string[]; glossaryFixed: string[]; captionLines: Array<{ text: string; start: number; end: number; zone: Zone | null }> };
 
 // Field teks adegan yg ikut dikoreksi glossary.
 function fixScene(s: Scene, terms: string[]): Scene {
@@ -112,6 +112,12 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   const sh = (r: string) => sharpOf(r) ?? Infinity;
   const heroRef = cands.filter((r) => fits(hook, r, true)).sort((a, b) => (sh(b) - sh(a)) || subjectScore(hookSubj, m.footage[b].subject) - subjectScore(hookSubj, m.footage[a].subject))[0] ?? null;
   const hookMode: "footage" | "design" = heroRef ? "footage" : "design";
+  // Utamakan footage nyata (PRIORITAS 1): adegan ber-klaim subjek yg klip BAWAANnya tak cocok boleh memakai klip
+  // LAIN yg isinya terbukti cocok (vision + skor subjek >0, tertajam menang) SEBELUM jatuh ke adegan desain.
+  const altFor = (subj: string): string | undefined =>
+    Object.keys(m.footage).filter((r) => subjectSource(m.footage[r].subject) === "vision" && subjectScore(subj, m.footage[r].subject) > 0).sort((a, b) => sh(b) - sh(a))[0];
+  const claimSubj = (s: Scene): string | undefined => s.subject || (s.type === "footage-caption" ? s.caption : undefined);
+  const footageKurang: string[] = []; // subjek yg tak punya footage cocok -> sinyal "tenant perlu tambah footage"
 
   // Klip per adegan (panjang = jendela adegan). Adegan desain: footage tak dipakai (klip sebelumnya
   // diperpanjang di bawah latar desain). Jendela sebelum klip pertama ditanggung klip pertama (mulai t=0).
@@ -136,17 +142,22 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     if (s.transition === "flash" && i > 0) flashes.push(win.start);
     if (s.type === "before-after") {
       const ok = [s.before.footageRef, s.after.footageRef].every((r) => known(r) && fits(s, r, false));
-      if (!ok) designScenes.push(s.id);
       if (ok) {
         push(s.before.footageRef, win.dur / 2, s.before.mediaStart, s.transition, s.id);
         push(s.after.footageRef, win.dur / 2, s.after.mediaStart, "slide", s.id);
         clipAt.push(s.before.footageRef); return;
       }
+      designScenes.push(s.id); if (s.subject) footageKurang.push(s.subject);
+      clipAt.push(null);
+      if (clips.length) clips[clips.length - 1].durationSeconds += win.dur; else lead += win.dur;
+      return;
     }
-    const ref = i === 0 ? heroRef ?? undefined : known(refOf(s));
-    const ok = i === 0 ? !!heroRef : !!ref && fits(s, ref, false);
-    if (ref && !ok && i > 0) designScenes.push(s.id);
-    if (ref && ok) { push(ref, win.dur, startOf(s), s.transition, s.id); clipAt.push(ref); return; }
+    const ref0 = i === 0 ? heroRef ?? undefined : known(refOf(s));
+    let ref = ref0, ok = i === 0 ? !!heroRef : !!ref && fits(s, ref, false);
+    if (!ok && i > 0 && s.subject) { const alt = altFor(s.subject); if (alt) { ref = alt; ok = true; } } // footage lain yg cocok
+    if (ref && ok) { push(ref, win.dur, ref === ref0 ? startOf(s) : undefined, s.transition, s.id); clipAt.push(ref); return; }
+    if (i > 0 && (ref0 || claimSubj(s))) designScenes.push(s.id);
+    if (i > 0) { const cs = claimSubj(s); if (cs) footageKurang.push(cs); }
     clipAt.push(null);
     if (clips.length) clips[clips.length - 1].durationSeconds += win.dur; else lead += win.dur;
   });
@@ -244,5 +255,5 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     cta: "", stats: null, stat: null, lowerThird: null,
     transitions, tileMax: 99, busy, layers,
   };
-  return { hookBox, hookAvoid, hookWhy, html: buildComposition(input), input, windows, clipScenes, heroRef, hookMode, designScenes, framed, glossaryFixed: g.fixed, captionLines: cap.lines.map(({ text, start, end, zone }) => ({ text, start, end, zone })) };
+  return { hookBox, hookAvoid, hookWhy, html: buildComposition(input), input, windows, clipScenes, heroRef, hookMode, designScenes, footageKurang: [...new Set(footageKurang)], framed, glossaryFixed: g.fixed, captionLines: cap.lines.map(({ text, start, end, zone }) => ({ text, start, end, zone })) };
 }

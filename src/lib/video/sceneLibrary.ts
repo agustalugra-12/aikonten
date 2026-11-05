@@ -98,11 +98,30 @@ function vpos(c: SceneCtx, defTop: number): string {
   return `top:${defTop}px;`;
 }
 // Latar desain penuh (brand) utk adegan tanpa footage yg cocok: menutup footage, di bawah caption & kartu.
+// Revisi-5 (PRIORITAS 2): BUKAN navy polos + 1 glow. Elemen visual besar (2 blob brand + cincin brand), tekstur
+// titik brand, dan gradasi -> frame selalu terisi & on-brand, tak pernah kosong (kasus Animal Story 4/5 kosong).
+// Ukuran pakai % (relatif frame) -> andal tanpa tahu w/h; warna hanya dari Brand Kit (bukan AI).
 export function designBg(id: string, start: number, dur: number, b: BrandColors): Layer {
+  // Warna elemen HARUS kontras thd primary (brand terang MAUPUN gelap): ring/tekstur ikut accentOr (aksen bila
+  // vivid, kalau tidak hitam/putih); blob2 pakai CTA bila kontras cukup, kalau tidak ikut ring. (Bug revisi-5a:
+  // brand primary terang -> dots aksen & blob2=primary jadi tak terlihat -> frame bland.)
+  const ring = accentOr(b.accent, b.primary), blob2 = contrast(b.cta, b.primary) >= 2.2 ? b.cta : ring;
+  const d = f3(Math.max(0.5, dur));
   return {
-    html: `<div id="${id}" class="vp-design"><i></i></div>`,
-    css: `#${id}{position:absolute;inset:0;z-index:400;visibility:hidden;background:radial-gradient(120% 85% at 50% 30%,${b.primary},${b.bg2});overflow:hidden;}#${id} i{position:absolute;width:70%;aspect-ratio:1;left:15%;top:22%;border-radius:50%;background:${b.accent};opacity:.18;filter:blur(80px);}`,
-    tl: [`tl.set("#${id}",{visibility:"visible"},${f3(start)});`, `tl.fromTo("#${id} i",{scale:.85},{scale:1.1,duration:${f3(Math.max(0.5, dur))},ease:"sine.inOut"},${f3(start)});`, `tl.set("#${id}",{visibility:"hidden"},${f3(start + dur)});`],
+    html: `<div id="${id}" class="vp-design"><i class="b1"></i><i class="b2"></i><i class="rg"></i></div>`,
+    css:
+      `#${id}{position:absolute;inset:0;z-index:400;visibility:hidden;overflow:hidden;background:linear-gradient(152deg,${b.primary} 0%,${b.bg2} 100%);}` +
+      `#${id}::after{content:"";position:absolute;inset:0;background-image:radial-gradient(${ring} 2.6px,transparent 2.8px);background-size:54px 54px;opacity:.18;}` +
+      `#${id} .b1{position:absolute;width:92%;aspect-ratio:1;left:-24%;top:-16%;border-radius:50%;background:${b.accent};opacity:.30;filter:blur(55px);}` +
+      `#${id} .b2{position:absolute;width:78%;aspect-ratio:1;right:-26%;bottom:-18%;border-radius:48% 52% 50% 50%;background:${blob2};opacity:.26;filter:blur(66px);}` +
+      `#${id} .rg{position:absolute;width:86%;aspect-ratio:1;left:7%;top:28%;border-radius:50%;border:12px solid ${ring};opacity:.42;}`,
+    tl: [
+      `tl.set("#${id}",{visibility:"visible"},${f3(start)});`,
+      `tl.fromTo("#${id} .b1",{scale:.9},{scale:1.12,duration:${d},ease:"sine.inOut"},${f3(start)});`,
+      `tl.fromTo("#${id} .b2",{scale:1.12},{scale:.92,duration:${d},ease:"sine.inOut"},${f3(start)});`,
+      `tl.fromTo("#${id} .rg",{scale:.96,rotation:-4},{scale:1.04,rotation:4,duration:${d},ease:"sine.inOut"},${f3(start)});`,
+      `tl.set("#${id}",{visibility:"hidden"},${f3(start + dur)});`,
+    ],
   };
 }
 
@@ -192,11 +211,20 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
         // (lolos QC tekstur). Latar brand (designBg) disuntik terpisah oleh builder.
         const longest = [scene.before.label, scene.after.label].reduce((a, b) => (a.length > b.length ? a : b), "");
         const ds = fitFont(longest, maxW - Math.round(c.w * 0.1), Math.round(c.w * 0.072), Math.round(c.w * 0.044), 1, st.head);
-        const pnl = (k: string, txt: string, bgc: string) => `<div class="pnl" id="${id}${k}" style="background:${bgc};color:${pickInk(bgc)};">${esc(txt)}</div>`;
+        // Revisi-5 (PRIORITAS 3): panel "kotor/kontras rendah" (sebelumnya before=bg2 yg menyatu dgn latar desain).
+        // before = slab kontras-tinggi thd latar (putih/hitam) dgn teks brand; after = aksen brand (atau CTA bila
+        // aksen menyatu dgn primary). Keduanya pasti ≥4.5:1 (pickInk) & jelas beda dari latar + bingkai pemisah.
+        const beforeBg = pickInk(c.brand.primary);
+        const beforeInk = contrast(c.brand.primary, beforeBg) >= 4.5 ? c.brand.primary : pickInk(beforeBg);
+        const afterBg = contrast(c.brand.accent, c.brand.primary) >= 1.8 ? c.brand.accent : c.brand.cta;
+        const afterInk = pickInk(afterBg);
+        const pnl = (k: string, txt: string, bgc: string, inkc: string) => `<div class="pnl" id="${id}${k}" style="background:${bgc};color:${inkc};">${esc(txt)}</div>`;
         return {
-          html: `<div id="${id}" class="vp-ba2">${pnl("b", scene.before.label, c.brand.bg2)}<div class="ar" id="${id}ar">${svgArrow(pickInk(c.brand.primary), Math.round(c.w * 0.085))}</div>${pnl("a", scene.after.label, c.brand.accent)}</div>`,
-          css: `#${id}{position:absolute;left:${sa.x0}px;right:${c.w - sa.x1}px;top:${Math.round(c.h * 0.27)}px;z-index:560;visibility:hidden;opacity:0;display:flex;flex-direction:column;gap:${Math.round(c.w * 0.028)}px;}#${id} .pnl{min-height:${Math.round(c.h * 0.155)}px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:${st.radius + 10}px;padding:${Math.round(c.w * 0.05)}px;font:${st.headW} ${ds}px/1.1 ${head};${up}overflow-wrap:anywhere;box-shadow:0 18px 50px rgba(0,0,0,.4);}#${id} .ar{display:flex;justify-content:center;transform:rotate(90deg);}`,
-          tl: [...inOut(`#${id}`, c, st), `tl.fromTo("#${id}a",{opacity:.35,scale:.95},{opacity:1,scale:1,duration:.5,ease:"${st.ease}"},${f3(half)});`],
+          html: `<div id="${id}" class="vp-ba2">${pnl("b", scene.before.label, beforeBg, beforeInk)}<div class="ar" id="${id}ar">${svgArrow(pickInk(c.brand.primary), Math.round(c.w * 0.085))}</div>${pnl("a", scene.after.label, afterBg, afterInk)}</div>`,
+          css: `#${id}{position:absolute;left:${sa.x0}px;right:${c.w - sa.x1}px;top:${Math.round(c.h * 0.27)}px;z-index:560;visibility:hidden;opacity:0;display:flex;flex-direction:column;gap:${Math.round(c.w * 0.028)}px;}#${id} .pnl{min-height:${Math.round(c.h * 0.155)}px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:${st.radius + 10}px;padding:${Math.round(c.w * 0.05)}px;font:${st.headW} ${ds}px/1.1 ${head};${up}overflow-wrap:anywhere;border:3px solid rgba(0,0,0,.18);box-shadow:0 18px 50px rgba(0,0,0,.4);}#${id} .ar{display:flex;justify-content:center;transform:rotate(90deg);}`,
+          // After panel TETAP opak penuh (hanya pop skala di half) -> tak ada frame semi-transparan yg muddy/kotor
+          // (revisi-5a: opacity .35 sebelum reveal membuat panel "Dilipat rapi" olive/kontras rendah di atas latar).
+          tl: [...inOut(`#${id}`, c, st), `tl.fromTo("#${id}a",{scale:.94},{scale:1,duration:.5,ease:"${st.ease}"},${f3(half)});`],
         };
       }
       const tag = (k: string, txt: string, side: string) => `<div id="${id}${k}" class="vp-ba" style="${side}">${esc(txt)}</div>`;

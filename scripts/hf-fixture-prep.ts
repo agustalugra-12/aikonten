@@ -29,7 +29,9 @@ type Meta = { brand: string; brand_kit: Record<string, string>; clips: Array<{ f
     const [sw, sh] = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v", "-show_entries", "stream=width,height:stream_side_data=rotation", "-of", "json", src], { encoding: "utf8" }).match(/"width": (\d+),\s*"height": (\d+)/)!.slice(1).map(Number);
     const rot = /"rotation": -?90/.test(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v", "-show_entries", "stream_side_data=rotation", "-of", "json", src], { encoding: "utf8" }));
     const analysis = await analyzeClip(src, dur, { probe: rot ? { w: sh, h: sw } : { w: sw, h: sh } });
-    footage[`c${i}`] = { videoUrl: `./media/c${i}.mp4`, durationSeconds: Math.round(dur * 1000) / 1000, mediaStart: 0, subject: { ...c.subject, source: c.subject.tags.length ? "vision" : "query" }, analysis }; // meta tanpa tags = query Pexels
+    // source=vision bila ADA metadata isi (deskripsi/judul/tags = apa yg dikembalikan), bukan sekadar kata pencarian.
+    const hasContent = !!(c.subject.description && c.subject.description.trim()) || !!(c.subject.tags && c.subject.tags.length);
+    footage[`c${i}`] = { videoUrl: `./media/c${i}.mp4`, durationSeconds: Math.round(dur * 1000) / 1000, mediaStart: 0, subject: { ...c.subject, source: hasContent ? "vision" : "query" }, analysis };
     console.error(d, `c${i}`, JSON.stringify(analysis), c.subject.description.slice(0, 50));
   }
   // Kata dari SRT: dibagi rata per cue sesuai panjang kata (SRT produksi tak punya timing per kata).

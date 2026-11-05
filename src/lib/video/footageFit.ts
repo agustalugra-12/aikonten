@@ -4,10 +4,22 @@ import { execFile } from "node:child_process";
 import type { HfWord } from "@/lib/render/hyperframesComposition";
 
 // ---------- subjek footage ----------
-// Metadata subjek footage: footage_bank.description/tags (describeFootage) atau source_query Pexels.
-// source: "vision" = deskripsi isi frame (footage_bank describeFootage, selalu ber-tags); "query" = hanya kata
-// pencarian Pexels (isi klip TIDAK dijamin). Tanpa source: ber-tags -> vision, tanpa tags -> query.
-export type FootageSubject = { description?: string; tags?: string[]; source?: "vision" | "query" };
+// Metadata subjek footage dari HASIL (bukan kata pencarian): deskripsi isi frame (footage_bank describeFootage),
+// tags, judul, dan slug source_url klip yg sebenarnya dikembalikan. source: "vision" = ada metadata isi
+// (deskripsi/judul/tags/slug) -> isi klip terverifikasi; "query" = HANYA kata pencarian, isi TIDAK dijamin
+// (klip query "vampire finch" ternyata burung kecil di tangan) -> tak boleh dipakai klaim subjek.
+// Tanpa source eksplisit: ada metadata isi -> vision, tak ada -> query.
+export type FootageSubject = { description?: string; tags?: string[]; title?: string; sourceUrl?: string; source?: "vision" | "query" };
+// Kata isi dari slug source_url (mis. .../video/vampire-finch-eating-123.mp4 -> finch,eating); host & kata generik
+// dibuang supaya bukan "query" tersamar. Ini metadata HASIL (apa yg dikembalikan), bukan kata pencarian.
+const URL_STOP = new Set(["video", "videos", "photo", "photos", "download", "www", "com", "net", "org", "mp4", "pexels", "pixabay", "istock", "media"]);
+function slugWords(u?: string): string[] {
+  if (!u) return [];
+  const path = u.replace(/^https?:\/\/[^/]+/i, "").replace(/[?#].*$/, "");
+  return (path.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !URL_STOP.has(w));
+}
+// Semua metadata ISI klip jadi satu teks untuk pencocokan (deskripsi + tags + judul + slug source_url).
+const contentText = (f: FootageSubject) => `${f.description ?? ""} ${(f.tags ?? []).join(" ")} ${f.title ?? ""} ${slugWords(f.sourceUrl).join(" ")}`;
 const STOP = new Set(("yang dan di ke dari untuk dengan ini itu atau pada juga ada akan bisa lebih sangat kami kita " +
   "anda kamu dalam tak tidak sudah jadi para the a an of to in on at for with and or is are wajib coba dekat").split(" "));
 // Sinonim kecil (ID/EN) supaya "kuliner" cocok dgn "makanan"/"food"; bukan NLP penuh.
@@ -33,7 +45,7 @@ export function subjectTokens(s: string): Set<string> {
 // Jumlah token subjek adegan yg ada di metadata footage (0 = tak cocok).
 export function subjectScore(subject: string, f: FootageSubject | undefined): number {
   if (!f) return 0;
-  const have = subjectTokens(`${f.description ?? ""} ${(f.tags ?? []).join(" ")}`);
+  const have = subjectTokens(contentText(f));
   let n = 0;
   for (const t of subjectTokens(subject)) if (have.has(t)) n++;
   return n;
@@ -46,7 +58,9 @@ export function subjectScore(subject: string, f: FootageSubject | undefined): nu
 export const HOOK_MIN_COVER = 0.5;
 export function subjectSource(f: FootageSubject | undefined): "vision" | "query" | null {
   if (!f) return null;
-  return f.source ?? (f.tags?.length ? "vision" : "query");
+  if (f.source) return f.source; // eksplisit menang (mis. prep menandai klip query-only)
+  // Metadata isi apa pun (deskripsi/judul/tags/slug source_url) -> isi terverifikasi. Hanya kata pencarian -> query.
+  return contentText(f).trim() ? "vision" : "query";
 }
 export function hookConfidence(subject: string, f: FootageSubject | undefined): { ok: boolean; reason: string } {
   const src = subjectSource(f);
