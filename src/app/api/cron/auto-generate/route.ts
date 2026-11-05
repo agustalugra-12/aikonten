@@ -8,6 +8,7 @@ import { todayDateKeyWita } from "@/lib/ai/researchTopics";
 import { runAutoContent } from "@/lib/pipeline/autoContent";
 import { runPlanRowGenerate } from "@/lib/pipeline/generatePlanRow";
 import { tryAcquireLock, releaseLock, brandAutoContentLockKey } from "@/lib/concurrency/locks";
+import { budgetMs, makeDeadline, withTimeout, StageTimeoutError } from "@/lib/cron/renderBudget";
 
 // Cron #2 - SEMUA brand, bukan cuma publishMode="auto" (2026-08-06, revisi permintaan
 // Agus - "ketika owner buat setting 5 vidio 5 foto ini akan disiapkan idenya di rencana
@@ -40,11 +41,28 @@ export async function POST(req: NextRequest) {
   const brandIdsParam = req.nextUrl.searchParams.get("brandIds");
   const onlyBrandIds = brandIdsParam ? brandIdsParam.split(",").filter(Boolean) : null;
 
+  // Batas waktu (2026-11-06) - cegah loop 6-9 jam yg menahan server (lihat renderBudget.ts).
+  // Round-budget = total loop; per-video = 1 render. Query > env > default. Timer boleh
+  // kirim ?budgetMinutes = timeout curl-nya ("loop berhenti saat cron timeout"). Default
+  // round 300mnt (cegah runaway tapi beri ruang beberapa long-form ~2jam/video); per-video
+  // 180mnt (longgar utk long-form normal, hanya tangkap render yg benar2 nyangkut).
+  const roundBudgetMs = budgetMs(req.nextUrl.searchParams.get("budgetMinutes"), "AUTO_GEN_ROUND_BUDGET_MIN", 300);
+  const videoTimeoutMs = budgetMs(req.nextUrl.searchParams.get("videoTimeoutMinutes"), "AUTO_GEN_VIDEO_TIMEOUT_MIN", 180);
+  const deadlineReached = makeDeadline(roundBudgetMs);
+  let timedOut = false;
+
   const allBrandsRaw = await db.select().from(brands);
   const allBrands = onlyBrandIds ? allBrandsRaw.filter((b) => onlyBrandIds.includes(b.id)) : allBrandsRaw;
   const results: Array<{ brandId: string; name: string; generated: number; failed: number; skipped?: string }> = [];
 
   for (const brand of allBrands) {
+    // Stop bersih saat budget putaran habis - brand sisa dibiarkan utk cron berikutnya
+    // (ide belum ditandai used, baris Planner masih "direncanakan"), server tidak ditahan.
+    if (deadlineReached()) {
+      timedOut = true;
+      results.push({ brandId: brand.id, name: brand.name, generated: 0, failed: 0, skipped: "skipped_timeout: budget putaran habis" });
+      continue;
+    }
     // Automation dimatikan (2026-11-02) - skip generate ide & konten utk brand ini.
     if (brand.automationPaused) {
       results.push({ brandId: brand.id, name: brand.name, generated: 0, failed: 0, skipped: "automation dimatikan" });
@@ -79,17 +97,33 @@ export async function POST(req: NextRequest) {
       let generated = 0;
       let failed = 0;
       for (const idea of todaysIdeas) {
+        // Budget putaran habis di tengah brand: stop, ide sisa dibiarkan used=false (retry
+        // cron berikut), server tidak ditahan berjam-jam.
+        if (deadlineReached()) { timedOut = true; break; }
         try {
           // Threading contentType asli ide (2026-08-06, fix bug "video tidak ada malah
           // foto semua") - lihat catatan lengkap di autoContent.ts runAutoContent().
-          await runAutoContent(
-            brand.id, idea.idea, idea.contentType ?? undefined, idea.contentFormat ?? undefined,
-            idea.youtubeSeriesId ?? undefined, idea.youtubeMetadata ?? undefined, idea.pillar ?? undefined,
-            idea.score ?? undefined, idea.reasoning ?? undefined
+          // withTimeout: 1 render macet tak menahan loop tanpa batas (ffmpeg anak sudah
+          // dibatasi cgroup di ffmpegExec; ini batas di level orkestrasi).
+          await withTimeout(
+            runAutoContent(
+              brand.id, idea.idea, idea.contentType ?? undefined, idea.contentFormat ?? undefined,
+              idea.youtubeSeriesId ?? undefined, idea.youtubeMetadata ?? undefined, idea.pillar ?? undefined,
+              idea.score ?? undefined, idea.reasoning ?? undefined
+            ),
+            videoTimeoutMs,
+            `render ide "${idea.idea.slice(0, 40)}"`
           );
           await markDailyIdeaUsed(idea.id);
           generated++;
         } catch (err) {
+          if (err instanceof StageTimeoutError) {
+            // Render melewati batas per-video (nyangkut): JANGAN tandai used (retry cron
+            // berikut), JANGAN mulai video lain utk brand ini (hindari numpuk kerja orphan).
+            timedOut = true;
+            console.warn(`[cron/auto-generate] ide "${idea.idea.slice(0, 60)}..." brand ${brand.name} DILEWATI (nyangkut): ${err.message}`);
+            break;
+          }
           if ((err as { kodeAturan?: string })?.kodeAturan === "video_panjang") {
             // Tenant eksternal minta video panjang: JANGAN render, JANGAN hapus jadwal,
             // tandai ide dipakai supaya TIDAK di-retry tiap cron. Catat alasan.
@@ -111,13 +145,21 @@ export async function POST(req: NextRequest) {
         .from(contentPlan)
         .where(and(eq(contentPlan.brandId, brand.id), eq(contentPlan.autoMode, "auto"), eq(contentPlan.status, "direncanakan"), eq(contentPlan.date, today)));
       for (const row of duePlan) {
+        if (deadlineReached()) { timedOut = true; break; }
         try {
-          const pid = await runPlanRowGenerate(row);
+          const pid = await withTimeout(runPlanRowGenerate(row), videoTimeoutMs, `Planner ${row.id}`);
           const schedFor = new Date(`${row.date}T09:00:00+08:00`);
           await db.update(projects).set({ status: "scheduled", scheduledFor: schedFor, updatedAt: new Date() }).where(eq(projects.id, pid));
           await db.update(contentPlan).set({ status: "terjadwal", scheduledFor: schedFor, updatedAt: new Date() }).where(eq(contentPlan.id, row.id));
           generated++;
         } catch (err) {
+          if (err instanceof StageTimeoutError) {
+            // Timeout != gagal permanen: biarkan "direncanakan" supaya cron berikut coba lagi
+            // (JANGAN tandai "gagal" - itu utk kegagalan genuine). Stop brand ini.
+            timedOut = true;
+            console.warn(`[cron/auto-generate] baris Planner ${row.id} brand ${brand.name} DILEWATI (nyangkut): ${err.message}`);
+            break;
+          }
           console.error(`[cron/auto-generate] gagal generate baris Planner ${row.id} brand ${brand.name}:`, err);
           // (2026-10-25) Tandai TERMINAL "gagal" - jangan biarkan "direncanakan" supaya tak
           // di-retry tiap cron run (akar runaway Pelangi: baris gagal menumpuk + diulang).
@@ -131,5 +173,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, results });
+  return NextResponse.json({ ok: true, timedOut, results });
 }
