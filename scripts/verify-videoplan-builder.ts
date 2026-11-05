@@ -22,7 +22,7 @@ export function mediaFor(domain: string, f = loadFixture(domain)): PlanMedia {
   return {
     // Metadata subjek (revisi 2026-11-05): footage hook dideskripsikan sesuai isi hook -> boleh jadi hero.
     footage: Object.fromEntries(f.ctx.footageIds.map((id, i) => [id, { videoUrl: `https://r2.example/${id}.mp4`, durationSeconds: 8, mediaStart: i === 1 ? 2 : 0,
-      subject: { description: id === (f.valid.scenes as Array<{ footageRef?: string }>)[0].footageRef ? String((f.valid.scenes as Array<{ text?: string }>)[0].text) : id.replace(/-/g, " ") } }])),
+      subject: { description: id === (f.valid.scenes as Array<{ footageRef?: string }>)[0].footageRef ? String((f.valid.scenes as Array<{ text?: string }>)[0].text) : id.replace(/-/g, " "), source: "vision" as const } }])),
     audioUrl: "https://r2.example/vo.mp3", audioDurationSeconds: f.ctx.audioDurationSeconds, words: wordsFor(f.ctx.audioDurationSeconds),
     musicUrl: "https://r2.example/m.mp3", brand: { primary: "#1B4332", accent: "#F4A261", cta: "#E63946", name: domain }, seed: `p-${domain}`,
   };

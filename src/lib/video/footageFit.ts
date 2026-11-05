@@ -5,7 +5,9 @@ import type { HfWord } from "@/lib/render/hyperframesComposition";
 
 // ---------- subjek footage ----------
 // Metadata subjek footage: footage_bank.description/tags (describeFootage) atau source_query Pexels.
-export type FootageSubject = { description?: string; tags?: string[] };
+// source: "vision" = deskripsi isi frame (footage_bank describeFootage, selalu ber-tags); "query" = hanya kata
+// pencarian Pexels (isi klip TIDAK dijamin). Tanpa source: ber-tags -> vision, tanpa tags -> query.
+export type FootageSubject = { description?: string; tags?: string[]; source?: "vision" | "query" };
 const STOP = new Set(("yang dan di ke dari untuk dengan ini itu atau pada juga ada akan bisa lebih sangat kami kita " +
   "anda kamu dalam tak tidak sudah jadi para the a an of to in on at for with and or is are wajib coba dekat").split(" "));
 // Sinonim kecil (ID/EN) supaya "kuliner" cocok dgn "makanan"/"food"; bukan NLP penuh.
@@ -37,6 +39,24 @@ export function subjectScore(subject: string, f: FootageSubject | undefined): nu
   return n;
 }
 
+// Keyakinan footage hook (revisi-3). Hook = frame pertama penonton -> wajib YAKIN cocok, kalau tidak hook desain.
+// Yakin bila: (1) metadata berasal dari analisis isi frame (bukan sekadar query Pexels: klip "vampire finch"
+// ternyata burung kecil di tangan), dan (2) ≥ HOOK_MIN_COVER token subjek hook ada di metadata (cocok langsung,
+// bukan 1 kata umum dari subjek panjang).
+export const HOOK_MIN_COVER = 0.5;
+export function subjectSource(f: FootageSubject | undefined): "vision" | "query" | null {
+  if (!f) return null;
+  return f.source ?? (f.tags?.length ? "vision" : "query");
+}
+export function hookConfidence(subject: string, f: FootageSubject | undefined): { ok: boolean; reason: string } {
+  const src = subjectSource(f);
+  if (!src) return { ok: false, reason: "tanpa metadata" };
+  if (src === "query") return { ok: false, reason: "metadata hanya query pencarian" };
+  const need = subjectTokens(subject).size, got = subjectScore(subject, f);
+  if (!need || !got) return { ok: false, reason: "subjek tak cocok" };
+  return got / need >= HOOK_MIN_COVER ? { ok: true, reason: `cocok ${got}/${need}` } : { ok: false, reason: `cocok lemah ${got}/${need}` };
+}
+
 // ---------- glossary caption ----------
 function dist(a: string, b: string): number { // Damerau-Levenshtein (transposisi) sederhana
   const d = Array.from({ length: a.length + 1 }, (_v, i) => [i, ...Array(b.length).fill(0)]);
@@ -56,19 +76,47 @@ function near(word: string, term: string): boolean {
   if (b.length <= 4 || a[0] !== b[0] || Math.abs(a.length - b.length) > 1) return false;
   return dist(a, b) <= (b.length >= 10 ? 2 : 1);
 }
-// Ganti ejaan salah istilah glossary (nama brand, tempat, produk) pada kata caption; tanda baca dipertahankan.
+// Gaya huruf kata asli diterapkan ke ejaan istilah: HURUF BESAR semua tetap besar, huruf kecil semua tetap
+// kecil, Kapital-awal tetap Kapital-awal. Dipakai utk koreksi ejaan bagian istilah (bukan istilah utuh).
+function styleLike(orig: string, part: string): string {
+  if (orig.length > 1 && orig === orig.toUpperCase()) return part.toUpperCase();
+  if (orig === orig.toLowerCase()) return part.toLowerCase();
+  return part[0].toUpperCase() + part.slice(1).toLowerCase();
+}
+// Ejaan istilah dianggap resmi (boleh mengubah huruf besar/kecil) hanya bila campuran ("Laundry in Bali",
+// "Bedugul"); istilah huruf kecil semua (nama DB) atau BESAR semua (mark) hanya mengoreksi ejaan.
+const casingOf = (t: string) => t !== t.toLowerCase() && t !== t.toUpperCase();
+// Glossary (revisi-3): kapitalisasi HANYA utk istilah UTUH. "nasi tempong" -> "Nasi Tempong", "nasi" saja tetap
+// "nasi", "homestay" saja tetap "homestay". Kata yg salah eja dari bagian istilah multi-kata ("pelani") dikoreksi
+// ejaannya tapi gaya hurufnya ikut kata asli ("pelangi"). Kata ditulis BESAR semua (gaya) tak diubah kapitalnya.
 export function applyGlossary(words: HfWord[], terms: string[]): { words: HfWord[]; fixed: string[] } {
-  const parts = [...new Set(terms.flatMap((t) => t.split(/\s+/)).filter((x) => norm(x).length >= 3))];
+  const seen = new Set<string>();
+  const T = terms.map((t) => t.trim()).filter((t) => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))
+    .map((t) => ({ parts: t.split(/\s+/), cased: casingOf(t) })).sort((a, b) => b.parts.length - a.parts.length);
+  const sp = words.map((w) => /^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u.exec(w.word)!);
+  const out = words.map((w) => ({ ...w }));
   const fixed: string[] = [];
-  const out = words.map((w) => {
-    const m = /^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u.exec(w.word)!;
-    const hit = parts.find((p) => near(m[2], p));
-    // Beda huruf besar/kecil saja: hanya NAIK ke ejaan resmi bila kata huruf kecil semua ("homestay"->"Homestay");
-    // kata yg sudah ber-kapital tak pernah diturunkan ("Laundry" tetap walau nama brand di DB "laundry in bali").
-    if (!hit || m[2] === hit || (norm(m[2]) === norm(hit) && m[2] !== m[2].toLowerCase())) return w;
-    fixed.push(`${m[2]}->${hit}`);
-    return { ...w, word: `${m[1]}${hit}${m[3]}` };
-  });
+  const put = (i: number, core: string) => {
+    if (core === sp[i][2]) return;
+    fixed.push(`${sp[i][2]}->${core}`);
+    out[i].word = `${sp[i][1]}${core}${sp[i][3]}`;
+  };
+  for (let i = 0; i < words.length;) {
+    // Istilah utuh: semua bagian berurutan cocok (ejaan ≈), tanda baca hanya di kata terakhir.
+    const t = T.find(({ parts }) => parts.every((p, j) => i + j < words.length && near(sp[i + j][2], p) && (j === parts.length - 1 || !sp[i + j][3]) && (j === 0 || !sp[i + j][1])));
+    if (t) {
+      t.parts.forEach((p, j) => {
+        const o = sp[i + j][2], allCaps = o.length > 1 && o === o.toUpperCase();
+        // Ejaan benar & hanya beda huruf: ubah hanya bila istilah ber-ejaan resmi dan kata tak ditulis BESAR semua.
+        put(i + j, norm(o) === norm(p) ? (t.cased && !allCaps ? p : o) : t.cased && !allCaps ? p : styleLike(o, p));
+      });
+      i += t.parts.length; continue;
+    }
+    // Bagian istilah multi-kata: koreksi ejaan saja (≥5 huruf, beda ≥1), tanpa menaikkan kapital.
+    const p = T.filter((x) => x.parts.length > 1).flatMap((x) => x.parts).find((q) => norm(sp[i][2]) !== norm(q) && near(sp[i][2], q));
+    if (p) put(i, styleLike(sp[i][2], p));
+    i++;
+  }
   return { words: out, fixed };
 }
 // Nama resmi brand utk tampilan/glossary: nama di DB yg huruf kecil semua ("laundry in bali") di-title-case;
@@ -78,7 +126,9 @@ export function officialName(name: string | undefined): string | undefined {
   return name.replace(/\S+/g, (x, i: number) => (i > 0 && x.length <= 2 ? x : x[0].toUpperCase() + x.slice(1)));
 }
 export function fixText(s: string, terms: string[]): string {
-  return applyGlossary(s.split(/(\s+)/).map((x) => ({ word: x, start: 0, end: 0 })), terms).words.map((x) => x.word).join("");
+  const tok = s.split(/(\s+)/); // [kata, spasi, kata, ...] -> istilah multi-kata dicocokkan antar kata, spasi asli dipertahankan
+  const fixedWords = applyGlossary(tok.filter((_x, i) => i % 2 === 0).map((x) => ({ word: x, start: 0, end: 0 })), terms).words;
+  return tok.map((x, i) => (i % 2 === 0 ? fixedWords[i / 2].word : x)).join("");
 }
 
 // ---------- analisis frame (gratis, ffmpeg) ----------

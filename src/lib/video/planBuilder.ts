@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { buildComposition, type HfClip, type HfCompositionInput, type HfWord } from "@/lib/render/hyperframesComposition";
 import type { Scene, VideoPlan } from "./videoPlan";
 import { designBg, flashLayer, renderScene, safeHex, type BrandColors, type Layer } from "./sceneLibrary";
-import { applyGlossary, fixText, freeZone, isBlurry, MIN_FRAME_SHARP, officialName, subjectScore, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
+import { applyGlossary, fixText, freeZone, hookConfidence, isBlurry, MIN_FRAME_SHARP, officialName, subjectScore, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
 import { captionLayer, hookLayer } from "./planText";
 
 // mediaStart = awal segmen di sumber; subject = metadata isi (footage_bank/Pexels); analysis = ketajaman & letak subjek.
@@ -56,7 +56,7 @@ const hashInt = (s: string) => parseInt(createHash("sha256").update(s).digest("h
 const refOf = (s: Scene): string | undefined => ("footageRef" in s ? (s as { footageRef?: string }).footageRef : undefined);
 const startOf = (s: Scene): number | undefined => ("mediaStart" in s ? (s as { mediaStart?: number }).mediaStart : undefined);
 
-export type PlanBuild = { html: string; input: HfCompositionInput; windows: SceneWindow[]; clipScenes: string[]; heroRef: string | null; hookMode: "footage" | "design"; designScenes: string[]; framed: string[]; glossaryFixed: string[]; captionLines: Array<{ text: string; start: number; end: number; zone: Zone | null }> };
+export type PlanBuild = { hookBox: [number, number] | null; hookAvoid: [number, number] | null; hookWhy: Record<string, string>; html: string; input: HfCompositionInput; windows: SceneWindow[]; clipScenes: string[]; heroRef: string | null; hookMode: "footage" | "design"; designScenes: string[]; framed: string[]; glossaryFixed: string[]; captionLines: Array<{ text: string; start: number; end: number; zone: Zone | null }> };
 
 // Field teks adegan yg ikut dikoreksi glossary.
 function fixScene(s: Scene, terms: string[]): Scene {
@@ -87,15 +87,17 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   const sharpOf = (r: string) => m.footage[r].analysis?.sharp;
   const bestSharp = Math.max(0, ...Object.keys(m.footage).map((r) => sharpOf(r) ?? 0));
   const sharpOk = (r: string) => !isBlurry(sharpOf(r), bestSharp);
+  const hookWhy: Record<string, string> = {}; // alasan tiap kandidat hero diterima/ditolak (debug/QC)
   const fits = (s: Scene, r: string | undefined, isHook: boolean): boolean => {
     if (!r) return false;
     const subj = s.subject || (isHook && s.type === "hook" ? s.text : "");
     const meta = m.footage[r].subject;
-    if (isHook) return !!subj && subjectScore(subj, meta) > 0 && sharpOk(r);
+    if (isHook) { const c = hookConfidence(subj, meta); hookWhy[r] = sharpOk(r) ? c.reason : "buram"; return c.ok && sharpOk(r); }
     if (!s.subject) return true;
     return !meta || subjectScore(s.subject, meta) > 0;
   };
   const hook = windows[0].scene;
+  // Hero hanya bila YAKIN (hookConfidence: metadata isi frame, bukan query Pexels; cakupan subjek ≥50%) & tak buram.
   // Hero = footage hook bila cocok; kalau tidak, cari footage plan lain yg cocok dgn hook. Tak ada -> hook desain.
   // Kandidat: footage hook dulu, lalu footage lain di plan, lalu seluruh footage tersedia; yg cocok subjek & tak buram,
   // tertajam menang (tanpa analisis = dianggap tajam), seri -> skor subjek.
@@ -156,12 +158,25 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   });
   const winAt = (t: number) => { let k = 0; windows.forEach((x, i) => { if (t >= x.start - 1e-6) k = i; }); return k; };
 
+  // Klip buram/resolusi rendah (sharp < MIN_FRAME_SHARP): tampil terbingkai di atas latar brand. Revisi-3: lebar
+  // bingkai = lebar sumber (tanpa upscale); sumber < 40% lebar layar boleh naik sampai 40% (bingkai terlalu kecil
+  // lebih buruk); tanpa Ken Burns & tanpa transisi zoom/whip (scale memperburuk blur).
+  const frameOf = (r: string) => {
+    const a = m.footage[r].analysis;
+    if (!a || a.sharp >= MIN_FRAME_SHARP || !a.srcW || !a.srcH) return null;
+    const fw = Math.round(Math.min(w * 0.86, Math.max(a.srcW, w * 0.4))), fh = Math.round((fw * a.srcH) / a.srcW);
+    return { fw, fh, left: Math.round((w - fw) / 2), top: Math.round((h - fh) / 2) };
+  };
   const seed = hashInt(m.seed);
   const layers: Layer[] = [];
   const busy: Array<[number, number]> = [];
   const ctaScene = plan.scenes.find((s) => s.type === "cta");
   // Hook: terbaca penuh di frame 0 (footage hero atau latar desain).
-  if (hook.type === "hook") layers.push(hookLayer({ text: hook.text, dur: windows[0].dur, zone: freeZone(heroRef ? m.footage[heroRef].analysis : undefined, "bottom"), w, h, tone: plan.brand.tone, brand, design: !heroRef || !clips.length }));
+  // Hook tak boleh menimpa subjek: bingkai hero (klip terbingkai) atau rentang subjek hasil analisis (full-bleed).
+  const heroFrame = heroRef ? frameOf(heroRef) : null, heroA = heroRef ? m.footage[heroRef].analysis : undefined;
+  const hookAvoid: [number, number] | null = heroFrame ? [heroFrame.top, heroFrame.top + heroFrame.fh] : heroA ? [Math.round(heroA.y0 * h), Math.round(heroA.y1 * h)] : null;
+  let hookBox: [number, number] | null = null;
+  if (hook.type === "hook") { const hl = hookLayer({ text: hook.text, dur: windows[0].dur, avoid: hookAvoid, w, h, tone: plan.brand.tone, brand, design: !heroRef || !clips.length }); hookBox = hl.box; layers.push(hl); }
   windows.forEach((win, i) => {
     if (i === 0) return;
     const design = designScenes.includes(win.scene.id) || (!clips.length && win.scene.type !== "logo-outro");
@@ -183,18 +198,20 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   const H = windows[0].dur, total = H + m.audioDurationSeconds;
   const cap = captionLayer(words, { offset: H, total, w, h, brand, zoneAt: (t) => capZone[winAt(t)] });
   layers.push(cap);
-  // Klip buram/resolusi rendah: tampil terbingkai (tanpa upscale berlebih & tanpa Ken Burns) di atas latar brand.
   const framed: string[] = [];
   clipRefs.forEach((r, k) => {
-    const a = m.footage[r].analysis;
-    if (!a || a.sharp >= MIN_FRAME_SHARP || !a.srcW || !a.srcH) return;
-    const fw = Math.round(Math.min(w * 0.86, a.srcW * 1.35)), fh = Math.round((fw * a.srcH) / a.srcW);
+    const f = frameOf(r);
+    if (!f) return;
     framed.push(r);
+    if (transitions[k] === "zoom" || transitions[k] === "whip") transitions[k] = "slide";
     // Latar bingkai ada di wrapper #cwK yg z-index-nya di atas klip sebelumnya & selalu tampil -> tanpa gerbang
     // waktu, latar klip berikutnya menutupi klip yg sedang tayang (footage hilang). Wrapper hanya tampil di
     // jendela klipnya sendiri (data-start/duration dibaca dari <video> agar sama persis dgn builder lama).
+    // Bayangan/garis bingkai di ::before wrapper (HyperFrames mengganti <video> dgn <img> tanpa box-shadow),
+    // ikut gerbang waktu wrapper -> hanya tampil di jendela klip.
     const gate = `((d)=>{const s=+d.start,e=s+ +d.duration;tl.set("#cw${k}",{visibility:"hidden"},0);tl.set("#cw${k}",{visibility:"visible"},s);tl.set("#cw${k}",{visibility:"hidden"},e);})(document.getElementById("bg${k}").dataset);`;
-    layers.push({ html: "", tl: [gate], css: `#cw${k}{background:radial-gradient(120% 85% at 50% 30%,${brand.primary},${brand.bg2});}#bg${k}{width:${fw}px!important;height:${fh}px!important;left:${Math.round((w - fw) / 2)}px!important;top:${Math.round((h - fh) / 2)}px!important;transform:none!important;border-radius:28px;box-shadow:0 24px 60px rgba(0,0,0,.45);}` });
+    const box = `width:${f.fw}px;height:${f.fh}px;left:${f.left}px;top:${f.top}px;border-radius:28px;`;
+    layers.push({ html: "", tl: [gate], css: `#cw${k}{background:radial-gradient(120% 85% at 50% 30%,${brand.primary},${brand.bg2});}#cw${k}::before{content:"";position:absolute;${box}box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 4px rgba(255,255,255,.22);}#bg${k}{${box.replace(/;/g, "!important;").replace("border-radius:28px!important;", "border-radius:28px;")}transform:none!important;}` });
   });
   // Mode plan: intro lama dimatikan (hook pakai hookLayer), scrim layar penuh diperingan; nama brand dlm pil.
   layers.push({ html: "", tl: [], css: `#introLayer{display:none;}#scrim{background:linear-gradient(180deg,rgba(6,12,24,.2) 0%,rgba(6,12,24,0) 22%,rgba(6,12,24,0) 70%,rgba(6,12,24,.28) 100%);}#mark{left:50%;right:auto;transform:translateX(-50%);white-space:nowrap;background:rgba(8,10,14,.72);padding:10px 28px;border-radius:999px;text-shadow:none;}` });
@@ -219,5 +236,5 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     cta: "", stats: null, stat: null, lowerThird: null,
     transitions, tileMax: 99, busy, layers,
   };
-  return { html: buildComposition(input), input, windows, clipScenes, heroRef, hookMode, designScenes, framed, glossaryFixed: g.fixed, captionLines: cap.lines.map(({ text, start, end, zone }) => ({ text, start, end, zone })) };
+  return { hookBox, hookAvoid, hookWhy, html: buildComposition(input), input, windows, clipScenes, heroRef, hookMode, designScenes, framed, glossaryFixed: g.fixed, captionLines: cap.lines.map(({ text, start, end, zone }) => ({ text, start, end, zone })) };
 }

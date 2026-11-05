@@ -486,3 +486,24 @@ Pelangi: KB `WEB_PELANGI_INTERNAL_URL` (HTTP ringan ke backend web Pelangi, sah)
   klip tertajam yang cocok subjek (hook tetap wajib cocok subjek, kalau tidak hook desain).
   `MIN_FRAME_SHARP=60` hanya menandai klip yang tampil terbingkai.
 - Render ulang 3 fixture: `/home/admin/hf-test-output/2026-11-05-revisi2/` (footage tampil di ketiganya).
+
+### Checkpoint revisi-3 (2026-11-05 malam, VPS Agustap)
+
+- **#6 Hook vs subjek**: `hookLayer` menerima `avoid` (bingkai hero terbingkai, atau rentang subjek analisis
+  utk hero full-bleed) dan menaruh teks di pita bebas atas/bawah dlm title-safe, font dikecilkan sampai muat;
+  tanpa scale-up teks. `PlanBuild.hookBox/hookAvoid` utk QC.
+- **#7 Keyakinan hook**: `hookConfidence()` — yakin hanya bila metadata dari isi frame (`subject.source`
+  "vision"; tanpa source: ber-tags = vision, tanpa tags = query Pexels) DAN ≥50% token subjek hook cocok.
+  Query-only/lemah -> hook desain. `PlanBuild.hookWhy` = alasan per kandidat. Prep fixture menandai source.
+- **#8/#11 Caption**: pil gelap .8 PER KATA (kata rapat, jarak = padding) -> pil tumbuh mengikuti kata yg
+  tampil, baris tetap; kata tampil instan (`tl.set` opacity 1, tanpa tween); aksen dipakai hanya bila
+  kontras ≥4.5 thd pil terburuk (#3B3C3E), kalau tidak putih.
+- **#9/#10 Glossary**: kapitalisasi hanya istilah UTUH ("nasi" tetap, "nasi tempong" -> "Nasi Tempong");
+  bagian istilah yg salah eja dikoreksi ejaannya dgn gaya huruf asli ("pelani" -> "pelangi"); istilah huruf
+  kecil/BESAR semua tak mengubah kapital; "Laundry In Bali" -> "Laundry in Bali" (nama resmi). Fixture laundry
+  diperbaiki.
+- **#12 Bayangan bingkai**: pindah ke `#cwK::before` (HyperFrames mengganti <video> dgn <img> tanpa
+  box-shadow), ikut gerbang waktu wrapper.
+- **#13 Blur**: bingkai = lebar sumber (tanpa upscale; min 40% lebar layar), transisi zoom/whip -> slide utk
+  klip terbingkai.
+- Tes: verify-videoplan-revisi 19/19 (8 baru). Render: `/home/admin/hf-test-output/2026-11-05-revisi3/`.
