@@ -87,8 +87,9 @@ export function captionLayer(words: HfWord[], o: { offset: number; total: number
     lines,
     html: html.join(""),
     css: `.vpcl{position:absolute;left:0;right:0;text-align:center;z-index:500;visibility:hidden;}` +
-      `.vpcl span{display:inline-block;white-space:nowrap;background:rgba(8,10,14,.55);border-radius:${Math.round(size * 0.3)}px;padding:${Math.round(size * 0.12)}px ${Math.round(size * 0.4)}px;}` +
-      `.vpcl b{font:800 ${size}px/1.2 ${fontStack(o.brand.font)};color:#FFFFFF;opacity:0;text-shadow:0 2px 10px rgba(0,0,0,.6);}`,
+      // font di span (bukan hanya <b>): spasi antar-kata ikut ukuran caption, kalau tidak spasi 14px -> kata menempel.
+      `.vpcl span{display:inline-block;white-space:nowrap;font:800 ${size}px/1.2 ${fontStack(o.brand.font)};background:rgba(8,10,14,.55);border-radius:${Math.round(size * 0.3)}px;padding:${Math.round(size * 0.12)}px ${Math.round(size * 0.4)}px;}` +
+      `.vpcl b{font:inherit;color:#FFFFFF;opacity:0;text-shadow:0 2px 10px rgba(0,0,0,.6);}`,
     tl,
   };
 }

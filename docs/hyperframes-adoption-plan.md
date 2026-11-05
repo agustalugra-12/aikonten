@@ -468,3 +468,21 @@ layanan AI Content Pilot yang berjalan di server Pelangi; yang tersisa hanya ber
 DB lama, cache HyperFrames/Chrome dan media fixture dari render uji). Ketergantungan app produksi ke server
 Pelangi: KB `WEB_PELANGI_INTERNAL_URL` (HTTP ringan ke backend web Pelangi, sah), serta `APP_URL` dan
 `AGENCY_PEER_URLS` yang masih menunjuk domain lama ber-DNS ke server Pelangi dan tidak dilayani lagi.
+
+### Checkpoint revisi-2 (2026-11-05 sore, VPS Agustap)
+
+- **Footage hilang (laundry/animal)**: akar = latar bingkai klip buram dipasang di wrapper `#cwK`
+  (z-index 1+K, `inset:0`, selalu tampil). Wrapper klip BERIKUTNYA (z-index lebih tinggi) ikut melukis
+  latarnya sejak t=0 -> menutup klip yang sedang tayang. Bukan masalah ukuran sumber/`!important`/injeksi
+  frame HyperFrames: probe 1 klip 360x640 terbingkai tampil normal; di komposisi animal, membuang CSS
+  `#bgK` tetap kosong, membuang latar `#cwK` -> footage muncul. Fix: wrapper berlatar hanya `visible` di
+  jendela klipnya (`data-start/duration` dibaca dari `<video>`). QC baru `scripts/hf-footage-check.ts`
+  (tekstur tengah frame di `footageAt` build.json; render lama: EMPTY std 0.8, baru: VISIBLE).
+- **Glossary**: perubahan huruf besar/kecil saja tak pernah menurunkan kapital; hanya kata huruf kecil
+  semua yang naik ke ejaan resmi. Nama brand DB huruf kecil -> `officialName` ("Laundry in Bali").
+- **Placement**: caption tak pernah disembunyikan; zona lain dari kartu, tanpa kartu zona paling sedikit
+  menimpa subjek. Spasi antar-kata caption kini seukuran caption (font di span).
+- **Ketajaman**: batas absolut hero 60 diganti relatif: buram = < 0.5x klip tertajam yang tersedia; hero =
+  klip tertajam yang cocok subjek (hook tetap wajib cocok subjek, kalau tidak hook desain).
+  `MIN_FRAME_SHARP=60` hanya menandai klip yang tampil terbingkai.
+- Render ulang 3 fixture: `/home/admin/hf-test-output/2026-11-05-revisi2/` (footage tampil di ketiganya).

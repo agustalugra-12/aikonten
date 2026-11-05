@@ -3,7 +3,7 @@
 import assert from "node:assert";
 import { buildCompositionFromPlan, type PlanMedia } from "../src/lib/video/planBuilder";
 import { validateVideoPlan, type VideoPlan } from "../src/lib/video/videoPlan";
-import { analyzeGray, applyGlossary, fixText, freeZone, MIN_HERO_SHARP, subjectScore, zoneOverlap } from "../src/lib/video/footageFit";
+import { analyzeGray, applyGlossary, centerTexture, fixText, freeZone, isBlurry, MIN_FRAME_SHARP, officialName, subjectScore } from "../src/lib/video/footageFit";
 import { captionLines } from "../src/lib/video/planText";
 import { contrast, estLines, pickInk } from "../src/lib/video/sceneLibrary";
 import { wordsFor } from "./verify-videoplan-builder";
@@ -84,13 +84,15 @@ ok("hook: terlihat penuh di t=0 (tanpa fade/blur dari gelap), intro gelap lama d
   const sub = media().footage.room.analysis!; // subjek kamar di bawah (0.55-0.9)
   const kamar = b.windows.findIndex((w) => w.scene.id === "kamar"), list = b.windows.findIndex((w) => w.scene.id === "list");
   assert.ok(new RegExp(`#sc${kamar}\\{top:${Math.round(1920 * 0.14)}px;`).test(b.html) && new RegExp(`#sc${list}\\{top:${Math.round(1920 * 0.14)}px;`).test(b.html), "kartu di atas, subjek di bawah");
-  for (const ln of b.captionLines) if (ln.zone) {
+  assert.ok(sub.y0 > 0.5);
+  for (const ln of b.captionLines) {
+    assert.ok(ln.zone, `caption "${ln.text}" disembunyikan`);
     const w = b.windows.find((x) => ln.start >= x.start - 1e-6 && ln.start < x.start + x.dur)!;
-    if (["kamar", "list"].includes(w.scene.id)) assert.ok(zoneOverlap(ln.zone, sub) < 0.05, `caption "${ln.text}" menimpa subjek`);
+    if (["kamar", "list"].includes(w.scene.id)) assert.strictEqual(ln.zone, "bottom", `caption "${ln.text}" harus di zona lain dari kartu`);
   }
   assert.ok(b.html.includes('class="vpdim"'), "CTA dgn peredup footage");
 }
-ok("placement: kartu & caption pindah ke zona bebas subjek; caption disembunyikan bila satu-satunya zona menimpa subjek");
+ok("placement: kartu pindah ke zona bebas subjek; caption selalu tampil di zona lain dari kartu");
 
 // 5. Caption: 1 baris, posisi tetap (tanpa scale/y), cukup lama dibaca.
 {
@@ -99,8 +101,9 @@ ok("placement: kartu & caption pindah ke zona bebas subjek; caption disembunyika
   for (const ln of lines) assert.strictEqual(estLines(ln.text, size, maxW, "Poppins"), 1, ln.text);
   lines.slice(0, -1).forEach((ln, i) => assert.ok(ln.end - ln.start >= Math.min(1.0, 0.045 * ln.text.length + 0.35) - 1e-9 || estLines(`${ln.text} ${lines[i + 1].text}`, size, maxW, "Poppins") > 1, `"${ln.text}" ${(ln.end - ln.start).toFixed(2)}s`));
   const b = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media({ words }));
-  assert.ok(!/tl\.(to|fromTo)\("#vpc\d+w\d+",[^)]*(scale|y:)/.test(b.html), "kata caption tanpa animasi posisi");
+  assert.ok(!/tl\.(to|fromTo)\("#vpc\d+w\d+",[^)]*(scale|[{,]y:)/.test(b.html) && b.captionLines.every((l) => l.zone), "kata caption tanpa animasi posisi");
   assert.ok(b.html.includes("white-space:nowrap") && /\.vpcl\{position:absolute;left:0;right:0;text-align:center/.test(b.html));
+  assert.ok(/\.vpcl span\{[^}]*font:800 \d+px/.test(b.html), "spasi antar-kata seukuran caption (font di span)");
 }
 ok("caption: tiap baris muat 1 baris, terpusat, kata muncul via opacity (tanpa loncatan), baris singkat digabung agar terbaca");
 
@@ -108,7 +111,7 @@ ok("caption: tiap baris muat 1 baris, terpusat, kata muncul via opacity (tanpa l
 {
   const W = 120, H = 200, sharpPx = new Uint8Array(W * H), blurPx = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { sharpPx[y * W + x] = ((x >> 2) + (y >> 2)) % 2 ? 230 : 20; blurPx[y * W + x] = 125 + Math.round(40 * Math.sin(x / 9)); }
-  assert.ok(analyzeGray(sharpPx, W, H).sharp > MIN_HERO_SHARP && analyzeGray(blurPx, W, H).sharp < MIN_HERO_SHARP);
+  assert.ok(analyzeGray(sharpPx, W, H).sharp > MIN_FRAME_SHARP && analyzeGray(blurPx, W, H).sharp < MIN_FRAME_SHARP);
   const m = media(); delete (m.footage as Record<string, unknown>).food; // tinggal footage makanan yg BURAM
   const b = buildCompositionFromPlan(plan([{ ...S.hookFood, footageRef: "blur" }, { ...S.room, footageRef: "blur", subject: "makanan" }, S.outro]), { ...m, footage: { room: m.footage.room, garden: m.footage.garden, blur: m.footage.blur } });
   assert.notStrictEqual(b.heroRef, "blur"); assert.strictEqual(b.hookMode, "design");
@@ -132,4 +135,69 @@ ok("ketajaman: analisis Laplacian membedakan tajam/buram; klip buram tak jadi he
   assert.ok(b.html.includes('id="sc99"') && b.html.includes('<div class="c">Pesan via WhatsApp</div>') && b.html.includes(">PELANGI HOMESTAY</div>"), "plan berakhir CTA -> end card brand");
 }
 ok("akhir: logo-outro latar solid brand (nama brand kontras ≥4.5 di 4 warna), CTA diulang sbg pil, caption tak menimpa; plan berakhir CTA dapat end card brand");
+
+// 8. Footage tampil: latar bingkai ada di wrapper #cwK (z-index di atas klip sebelumnya). Wrapper WAJIB
+//    tersembunyi di luar jendela klipnya, kalau tidak latar klip berikutnya menutup footage yg sedang tayang
+//    (bug fixture 2026-11-05: laundry/animal hanya gradasi gelap). + QC frame tengah tak seragam.
+{
+  const lo = { sharp: 9, y0: 0.2, y1: 0.8, cy: 0.5, srcW: 360, srcH: 640 };
+  const f = media().footage;
+  const m = media({ footage: { room: { ...f.room, analysis: lo }, garden: { ...f.garden, analysis: lo }, food: { ...f.food, analysis: { ...lo, sharp: 15 } } } });
+  const b = buildCompositionFromPlan(plan([S.hookFood, { ...S.menu, subject: "taman" }, S.room, S.outro]), m);
+  assert.ok(b.framed.length >= 2, `framed=${b.framed}`);
+  const wraps = [...b.html.matchAll(/#cw(\d+)\{background:/g)].map((x) => x[1]);
+  assert.strictEqual(wraps.length, b.framed.length);
+  for (const k of wraps) {
+    assert.ok(b.html.includes(`tl.set("#cw${k}",{visibility:"hidden"},0);tl.set("#cw${k}",{visibility:"visible"},s);tl.set("#cw${k}",{visibility:"hidden"},e);})(document.getElementById("bg${k}").dataset);`), `wrapper cw${k} tanpa gerbang waktu`);
+    assert.ok(new RegExp(`<div class="clipwrap" id="cw${k}"[^>]*><video id="bg${k}" [^>]*data-start="[\\d.]+" data-duration="[\\d.]+"`).test(b.html));
+  }
+  const W = 90, H = 160, flat = new Uint8Array(W * H), tex = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { flat[y * W + x] = 20 + Math.round(y / 16); tex[y * W + x] = ((x * 7) ^ (y * 13)) & 255; }
+  assert.ok(!centerTexture(flat, W, H).ok && centerTexture(tex, W, H).ok);
+}
+ok("footage: latar bingkai hanya tampil di jendela klipnya (tak menutup klip lain); QC tengah frame menolak frame kosong");
+
+// 9. Glossary tak pernah menurunkan huruf besar (nama brand di DB huruf kecil: "laundry in bali").
+{
+  assert.strictEqual(officialName("laundry in bali"), "Laundry in Bali"); assert.strictEqual(officialName("Pelangi Homestay"), "Pelangi Homestay");
+  assert.strictEqual(fixText("Laundry in Bali siap jemput", ["laundry in bali"]), "Laundry in Bali siap jemput");
+  assert.deepStrictEqual(applyGlossary([{ word: "Laundry", start: 0, end: 1 }, { word: "BALI", start: 1, end: 2 }], ["laundry", "bali"]).fixed, []);
+  assert.strictEqual(fixText("menginap di homestay", ["Pelangi Homestay"]), "menginap di Homestay", "huruf kecil semua -> naik ke ejaan resmi");
+  assert.strictEqual(fixText("Liburan ke pelani", ["Pelangi Homestay"]), "Liburan ke Pelangi");
+  const ws = ["Laundry", "in", "Bali,", "laundri", "kilat"].map((word, i) => ({ word, start: i * 0.9, end: i * 0.9 + 0.5 }));
+  const b = buildCompositionFromPlan(plan([S.hookFood, { ...S.room, caption: "Laundry in Bali dekat Denpasar" }, S.outro]), media({ words: ws, brand: { ...media().brand, name: "laundry in bali", mark: "LAUNDRY IN BALI" } }));
+  assert.ok(b.html.includes("Laundry in Bali dekat") && !/laundry In bali|Laundry->laundry/.test(b.html + b.glossaryFixed.join()), b.glossaryFixed.join());
+  assert.ok(b.captionLines.map((l) => l.text).join(" ").startsWith("Laundry in Bali, Laundry"), "laundri->Laundry (ejaan), Laundry tetap");
+}
+ok("glossary: perubahan huruf besar/kecil saja diabaikan; nama brand huruf kecil di DB -> nama resmi title-case; pelani->Pelangi tetap");
+
+// 10. Placement: proxy subjek lebar (0.16-0.85, menimpa kedua zona) -> caption TETAP tampil, tak ada yg disembunyikan.
+{
+  const wide = { sharp: 400, y0: 0.16, y1: 0.85, cy: 0.5, srcW: 1080, srcH: 1920 };
+  const m = media({ footage: Object.fromEntries(Object.entries(media().footage).map(([k, v]) => [k, { ...v, analysis: wide }])) as PlanMedia["footage"] });
+  const b = buildCompositionFromPlan(plan([S.hookFood, S.room, S.list, S.cta, S.outro]), m);
+  assert.ok(b.captionLines.length > 3 && b.captionLines.every((l) => l.zone), `tersembunyi ${b.captionLines.filter((l) => !l.zone).length}`);
+  assert.strictEqual((b.html.match(/class="vpcl"/g) ?? []).length, b.captionLines.length);
+}
+ok("placement: subjek menimpa semua zona -> caption tetap tampil (paling banyak dipindah), tak pernah disembunyikan");
+
+// 11. Ketajaman relatif: hero = klip tertajam yg cocok subjek; buram (< 0.5x tertajam) tak boleh hero.
+{
+  const mk = (vals: number[]) => media({ footage: Object.fromEntries(vals.map((sharp, i) => [`c${i}`, { videoUrl: `./m/c${i}.mp4`, durationSeconds: 8, subject: { description: i < 2 ? "piring makanan warung" : "kamar tidur", tags: [] }, analysis: { sharp, y0: 0.3, y1: 0.6, cy: 0.45, srcW: 478, srcH: 850 } }])) as PlanMedia["footage"] });
+  const hp = (vals: number[]) => {
+    const p = plan([S.hookFood, S.room, S.outro]);
+    p.scenes = p.scenes.map((s) => ("footageRef" in s ? { ...s, footageRef: s.type === "hook" ? "c0" : "c2" } : s)) as VideoPlan["scenes"];
+    return buildCompositionFromPlan(p, mk(vals));
+  };
+  // laundry: makanan = c0 6.8 & c1 5.3; tertajam global c2 15.6 -> keduanya < 7.8 (buram) -> hook desain
+  assert.strictEqual(hp([6.8, 5.3, 15.6, 5.1, 2.1]).hookMode, "design");
+  // nilai absolut rendah tapi relatif tajam -> boleh hero (dulu ditolak batas absolut 60); tertajam yg cocok menang
+  assert.strictEqual(hp([14, 22.1, 6.3, 7.2, 19.7]).heroRef, "c1");
+  // hospitality: c0 17.8 buram vs c1 109.2 -> hero c1 walau hook menunjuk c0
+  assert.strictEqual(hp([17.8, 109.2, 98.2, 55.5, 13.5]).heroRef, "c1");
+  assert.ok(isBlurry(17.8, 109.2) && !isBlurry(55.5, 109.2) && !isBlurry(undefined, 109.2));
+  // cocok subjek tetap wajib: klip tertajam tak cocok & yg cocok buram -> desain
+  assert.strictEqual(hp([3, 2, 109, 100, 90]).hookMode, "design");
+}
+ok("ketajaman relatif: hero = tertajam yg cocok subjek, buram (<0.5x tertajam) hanya pendukung; hook tetap wajib cocok subjek");
 console.log(`ALL_VIDEOPLAN_REVISI_TESTS_PASS (${n} tes)`);

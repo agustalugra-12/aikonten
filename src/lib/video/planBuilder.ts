@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { buildComposition, type HfClip, type HfCompositionInput, type HfWord } from "@/lib/render/hyperframesComposition";
 import type { Scene, VideoPlan } from "./videoPlan";
 import { designBg, flashLayer, renderScene, safeHex, type BrandColors, type Layer } from "./sceneLibrary";
-import { applyGlossary, fixText, freeZone, zoneOverlap, MIN_HERO_SHARP, subjectScore, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
+import { applyGlossary, fixText, freeZone, isBlurry, MIN_FRAME_SHARP, officialName, subjectScore, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
 import { captionLayer, hookLayer } from "./planText";
 
 // mediaStart = awal segmen di sumber; subject = metadata isi (footage_bank/Pexels); analysis = ketajaman & letak subjek.
@@ -75,7 +75,7 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     ink: safeHex(m.brand.ink, "#FFFFFF"), cta: safeHex(m.brand.cta, "#CC1F1F"), font: m.brand.font || "Poppins", mark: (m.brand.mark || m.brand.name || "").toUpperCase(),
   };
   // Glossary: nama brand + istilah Brand Kit -> koreksi ejaan caption VO & teks adegan.
-  const terms = [m.brand.name, m.brand.mark, ...(m.glossary ?? [])].filter((x): x is string => !!x);
+  const terms = [officialName(m.brand.name), m.brand.mark, ...(m.glossary ?? [])].filter((x): x is string => !!x);
   const g = applyGlossary(m.words, terms);
   const words = g.words;
   const plan: VideoPlan = { ...plan0, scenes: plan0.scenes.map((s) => fixScene(s, terms)) as VideoPlan["scenes"] };
@@ -84,7 +84,9 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   // Kecocokan footage per adegan: subjek adegan (atau teks hook) harus ada di metadata footage. Adegan
   // tanpa subject & footage tanpa metadata (plan lama) tetap diterima, KECUALI hook (wajib terbukti cocok).
   const known = (r?: string) => (r && m.footage[r] ? r : undefined);
-  const sharpOk = (r: string) => !m.footage[r].analysis || m.footage[r].analysis!.sharp >= MIN_HERO_SHARP;
+  const sharpOf = (r: string) => m.footage[r].analysis?.sharp;
+  const bestSharp = Math.max(0, ...Object.keys(m.footage).map((r) => sharpOf(r) ?? 0));
+  const sharpOk = (r: string) => !isBlurry(sharpOf(r), bestSharp);
   const fits = (s: Scene, r: string | undefined, isHook: boolean): boolean => {
     if (!r) return false;
     const subj = s.subject || (isHook && s.type === "hook" ? s.text : "");
@@ -95,10 +97,12 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   };
   const hook = windows[0].scene;
   // Hero = footage hook bila cocok; kalau tidak, cari footage plan lain yg cocok dgn hook. Tak ada -> hook desain.
-  // Kandidat: footage hook dulu, lalu footage lain di plan, lalu seluruh footage tersedia; skor subjek tertinggi menang.
+  // Kandidat: footage hook dulu, lalu footage lain di plan, lalu seluruh footage tersedia; yg cocok subjek & tak buram,
+  // tertajam menang (tanpa analisis = dianggap tajam), seri -> skor subjek.
   const cands = [...new Set([refOf(hook), ...plan.scenes.map(refOf), ...Object.keys(m.footage)].map(known).filter((x): x is string => !!x))];
   const hookSubj = hook.subject || (hook.type === "hook" ? hook.text : "");
-  const heroRef = cands.filter((r) => fits(hook, r, true)).sort((a, b) => subjectScore(hookSubj, m.footage[b].subject) - subjectScore(hookSubj, m.footage[a].subject))[0] ?? null;
+  const sh = (r: string) => sharpOf(r) ?? Infinity;
+  const heroRef = cands.filter((r) => fits(hook, r, true)).sort((a, b) => (sh(b) - sh(a)) || subjectScore(hookSubj, m.footage[b].subject) - subjectScore(hookSubj, m.footage[a].subject))[0] ?? null;
   const hookMode: "footage" | "design" = heroRef ? "footage" : "design";
 
   // Klip per adegan (panjang = jendela adegan). Adegan desain: footage tak dipakai (klip sebelumnya
@@ -144,12 +148,11 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   const subOf = (i: number) => { const r = clipAt[i]; return r ? m.footage[r].analysis : undefined; };
   const CARD = new Set(["stat", "testimonial", "feature-list", "footage-caption", "cta"]);
   const cardZone = windows.map((win, i) => (CARD.has(win.scene.type) ? freeZone(subOf(i), win.scene.type === "cta" ? "bottom" : "top") : null));
-  // Caption di zona lain dari kartu; kalau zona itu menimpa subjek -> caption disembunyikan (null) selama kartu.
-  const capZone = windows.map((_w, i): Zone | null => {
+  // Caption SELALU tampil (keterbacaan VO diutamakan): di zona lain dari kartu; tanpa kartu di zona yg paling
+  // sedikit menimpa subjek. Proxy subjek (energi tepi) hampir selalu menyentuh zona bawah -> tak boleh menyembunyikan.
+  const capZone = windows.map((_w, i): Zone => {
     const cz = cardZone[i];
-    if (!cz) return freeZone(subOf(i), "bottom");
-    const opp: Zone = cz === "top" ? "bottom" : "top";
-    return zoneOverlap(opp, subOf(i)) < 0.05 ? opp : null;
+    return cz ? (cz === "top" ? "bottom" : "top") : freeZone(subOf(i), "bottom");
   });
   const winAt = (t: number) => { let k = 0; windows.forEach((x, i) => { if (t >= x.start - 1e-6) k = i; }); return k; };
 
@@ -184,10 +187,14 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   const framed: string[] = [];
   clipRefs.forEach((r, k) => {
     const a = m.footage[r].analysis;
-    if (!a || a.sharp >= MIN_HERO_SHARP || !a.srcW || !a.srcH) return;
+    if (!a || a.sharp >= MIN_FRAME_SHARP || !a.srcW || !a.srcH) return;
     const fw = Math.round(Math.min(w * 0.86, a.srcW * 1.35)), fh = Math.round((fw * a.srcH) / a.srcW);
     framed.push(r);
-    layers.push({ html: "", tl: [], css: `#cw${k}{background:radial-gradient(120% 85% at 50% 30%,${brand.primary},${brand.bg2});}#bg${k}{width:${fw}px!important;height:${fh}px!important;left:${Math.round((w - fw) / 2)}px!important;top:${Math.round((h - fh) / 2)}px!important;transform:none!important;border-radius:28px;box-shadow:0 24px 60px rgba(0,0,0,.45);}` });
+    // Latar bingkai ada di wrapper #cwK yg z-index-nya di atas klip sebelumnya & selalu tampil -> tanpa gerbang
+    // waktu, latar klip berikutnya menutupi klip yg sedang tayang (footage hilang). Wrapper hanya tampil di
+    // jendela klipnya sendiri (data-start/duration dibaca dari <video> agar sama persis dgn builder lama).
+    const gate = `((d)=>{const s=+d.start,e=s+ +d.duration;tl.set("#cw${k}",{visibility:"hidden"},0);tl.set("#cw${k}",{visibility:"visible"},s);tl.set("#cw${k}",{visibility:"hidden"},e);})(document.getElementById("bg${k}").dataset);`;
+    layers.push({ html: "", tl: [gate], css: `#cw${k}{background:radial-gradient(120% 85% at 50% 30%,${brand.primary},${brand.bg2});}#bg${k}{width:${fw}px!important;height:${fh}px!important;left:${Math.round((w - fw) / 2)}px!important;top:${Math.round((h - fh) / 2)}px!important;transform:none!important;border-radius:28px;box-shadow:0 24px 60px rgba(0,0,0,.45);}` });
   });
   // Mode plan: intro lama dimatikan (hook pakai hookLayer), scrim layar penuh diperingan; nama brand dlm pil.
   layers.push({ html: "", tl: [], css: `#introLayer{display:none;}#scrim{background:linear-gradient(180deg,rgba(6,12,24,.2) 0%,rgba(6,12,24,0) 22%,rgba(6,12,24,0) 70%,rgba(6,12,24,.28) 100%);}#mark{left:50%;right:auto;transform:translateX(-50%);white-space:nowrap;background:rgba(8,10,14,.72);padding:10px 28px;border-radius:999px;text-shadow:none;}` });

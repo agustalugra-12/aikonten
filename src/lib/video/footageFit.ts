@@ -63,11 +63,19 @@ export function applyGlossary(words: HfWord[], terms: string[]): { words: HfWord
   const out = words.map((w) => {
     const m = /^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u.exec(w.word)!;
     const hit = parts.find((p) => near(m[2], p));
-    if (!hit || m[2] === hit) return w;
+    // Beda huruf besar/kecil saja: hanya NAIK ke ejaan resmi bila kata huruf kecil semua ("homestay"->"Homestay");
+    // kata yg sudah ber-kapital tak pernah diturunkan ("Laundry" tetap walau nama brand di DB "laundry in bali").
+    if (!hit || m[2] === hit || (norm(m[2]) === norm(hit) && m[2] !== m[2].toLowerCase())) return w;
     fixed.push(`${m[2]}->${hit}`);
     return { ...w, word: `${m[1]}${hit}${m[3]}` };
   });
   return { words: out, fixed };
+}
+// Nama resmi brand utk tampilan/glossary: nama di DB yg huruf kecil semua ("laundry in bali") di-title-case;
+// kata sambung ≤2 huruf tetap kecil kecuali di awal ("Laundry in Bali"). Nama ber-kapital dipakai apa adanya.
+export function officialName(name: string | undefined): string | undefined {
+  if (!name || name !== name.toLowerCase()) return name;
+  return name.replace(/\S+/g, (x, i: number) => (i > 0 && x.length <= 2 ? x : x[0].toUpperCase() + x.slice(1)));
 }
 export function fixText(s: string, terms: string[]): string {
   return applyGlossary(s.split(/(\s+)/).map((x) => ({ word: x, start: 0, end: 0 })), terms).words.map((x) => x.word).join("");
@@ -99,6 +107,17 @@ export function analyzeGray(px: Uint8Array, w: number, h: number): FrameStats {
   }
   return { sharp: Math.round(sharp * 10) / 10, y0: y0 / h, y1: y1 / h, cy: cyw / tot / h };
 }
+// QC footage tampil: area tengah frame render (25-75% lebar, 30-70% tinggi) tak boleh nyaris seragam (latar
+// gradasi kosong). std = simpangan baku luma; edge = rerata |Laplacian|. Footage asli >> ambang; gradasi ~0.
+export function centerTexture(px: Uint8Array, w: number, h: number): { std: number; edge: number; ok: boolean } {
+  let s = 0, s2 = 0, e = 0, n = 0;
+  for (let y = Math.round(h * 0.3); y < Math.round(h * 0.7); y++) for (let x = Math.round(w * 0.25); x < Math.round(w * 0.75); x++) {
+    const i = y * w + x, v = px[i];
+    s += v; s2 += v * v; e += Math.abs(px[i - 1] + px[i + 1] + px[i - w] + px[i + w] - 4 * v); n++;
+  }
+  const std = Math.sqrt(Math.max(0, s2 / n - (s / n) ** 2)), edge = e / n;
+  return { std: Math.round(std * 10) / 10, edge: Math.round(edge * 100) / 100, ok: std >= 12 && edge >= 1.5 };
+}
 type Exec = typeof execFile;
 function grab(url: string, t: number, outW: number, ffmpeg: string, ex: Exec): Promise<{ px: Uint8Array; w: number; h: number }> {
   const w = outW, h = Math.round((outW * 16) / 9 / 2) * 2;
@@ -113,9 +132,15 @@ export async function analyzeClip(url: string, durationSeconds: number, opts: { 
   const avg = (k: "y0" | "y1" | "cy") => fr.reduce((a, f) => a + f[k], 0) / fr.length;
   return { sharp, y0: avg("y0"), y1: avg("y1"), cy: avg("cy"), srcW: opts.probe?.w ?? 0, srcH: opts.probe?.h ?? 0 };
 }
-// Batas ketajaman hero (varian Laplacian @1080 lebar). Dikalibrasi di fixture 2026-11-05: klip laundry
-// 474x850 yg di-upscale jauh di bawah klip kamera HP 1080p. Klip di bawah batas: tak boleh hero & tampil terbingkai.
-export const MIN_HERO_SHARP = 60;
+// Ketajaman (varian Laplacian @1080 lebar). Hero dinilai RELATIF thd footage yg tersedia (nilai absolut beda
+// jauh antar sumber: fixture 2026-11-05 hospitality 13-109, laundry 2-16, animal 6-22): klip "buram" bila
+// < BLUR_REL x klip tertajam; buram tak boleh hero (boleh jadi pendukung). MIN_FRAME_SHARP (absolut) hanya
+// menandai klip yg tampil terbingkai (resolusi rendah/upscale, tanpa Ken Burns).
+export const BLUR_REL = 0.5;
+export const MIN_FRAME_SHARP = 60;
+export function isBlurry(sharp: number | undefined, best: number): boolean {
+  return sharp !== undefined && sharp < BLUR_REL * best;
+}
 
 // ---------- zona teks (portrait) ----------
 export type Zone = "top" | "bottom";
