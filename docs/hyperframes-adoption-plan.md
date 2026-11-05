@@ -507,3 +507,33 @@ Pelangi: KB `WEB_PELANGI_INTERNAL_URL` (HTTP ringan ke backend web Pelangi, sah)
 - **#13 Blur**: bingkai = lebar sumber (tanpa upscale; min 40% lebar layar), transisi zoom/whip -> slide utk
   klip terbingkai.
 - Tes: verify-videoplan-revisi 19/19 (8 baru). Render: `/home/admin/hf-test-output/2026-11-05-revisi3/`.
+
+### Checkpoint revisi-4 (2026-11-05, VPS Agustap)
+
+- **#5 Glossary kapital kanonik (end-to-end)**: kata SALAH-EJA tunggal yg cocok bagian istilah brand kini
+  mengambil kapitalisasi KANONIK istilah, bukan huruf kecil ("pelani" -> "Pelangi", "homstay" -> "Homestay",
+  "laundri" -> "Laundry"; "bedugull" -> "Bedugul" lewat cabang istilah utuh). Kata ejaan-benar (beda kapital
+  saja) tetap tak tersentuh ("nasi"/"homestay" tetap). `applyGlossary` memakai `core` yg sama utk `out[i].word`
+  dan log `fixed` -> caption terender & log `glossary` build.json SELALU setuju (terverifikasi: hospitality
+  log `pelani->Pelangi`, caption `<b>Pelangi</b>`, nol "pelangi"/"pelani" huruf kecil).
+- **#6 Klaim subjek non-hook wajib footage vision**: `fits()` non-hook — adegan dgn klaim subjek (field
+  `subject`, caption berlabel footage-caption, atau before-after) wajib footage ber-metadata isi frame
+  (`subjectSource=="vision"` / ber-tags) DAN cocok; query Pexels / tanpa metadata -> adegan desain (sama logika
+  dgn hook, digeneralisasi). Tanpa klaim subjek (latar/plan lama) tetap bebas. Animal fixture (semua klip
+  query): "meet"/"peck" tak lagi footage salah-label (dulu "Vampire finch" di burung di tangan) -> kartu desain;
+  footageAt animal 3->1 (hanya CTA latar).
+- **#7 Before-after kosong -> visual desain**: cabang `c.design` di adegan `before-after` (sceneLibrary) =
+  2 panel bertumpuk (sebelum=panel gelap, sesudah=panel aksen) + panah + label besar yg mengisi area tengah
+  frame (lolos QC tekstur), bukan label di latar kosong. `hf-render-fixture` footageAt kini memasukkan jendela
+  before-after -> hf-footage-check memeriksa non-kosong (laundry t=3.73 std 48.4 — dulu nyaris kosong).
+- **#8a Bayangan bingkai**: diperkuat agar jelas di latar brand gelap MAUPUN terang — cincin putih 5px .5
+  (nampak di latar gelap) + garis gelap tipis + drop/glow gelap (nampak di latar terang).
+- **#8b Pil caption ujung kanan**: kata terkanan yg tampil membulatkan ujung kanannya (`borderTopRightRadius`/
+  `borderBottomRightRadius` via `tl.set` saat muncul), kata sebelumnya diratakan -> pil tak pernah kotak di
+  kanan sampai kata terakhir (CSS first/last/only-child tetap utk keadaan diam).
+- Tes: verify-videoplan-revisi 22/22 (+3: #6, #7, #8b; #5/#8a/#9 diperbarui). `tsc --noEmit` bersih. Golden
+  (verify-videoplan-builder) tetap lulus (hyperframesComposition.ts tak diubah). Seluruh verify-*.ts: hanya 6
+  gagal baseline (content-clarity, contextual-footage, pipeline-wiring, prepublish-qc, fase2-config,
+  fase3-ffmpeg-coverage; env/DB/systemd, bukan kode ini) — tanpa kegagalan baru.
+- Render: `/home/admin/hf-test-output/2026-11-05-revisi4/` (hospitality FOOTAGE_VISIBLE 1/1, laundry 3/3 termasuk
+  before-after t=3.73, animal 1/1 = CTA latar). Flag VideoPlan tetap OFF; tidak merge/deploy.
