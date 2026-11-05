@@ -126,7 +126,9 @@ function testImageToClipPrivateRunDeleted() {
 function testAllUtilityFilesWrapped() {
   const files: Array<[string, number]> = [
     ["lib/ai/transcribe.ts", 1],
-    ["lib/pipeline/qualityChecker.ts", 3],
+    // 2026-11-06: QC dulu 3 pass ffmpeg terpisah -> KONSOLIDASI jadi 1 pass (satu decode
+    // utk silence+volume+black+signalstats, hemat 2-3x decode penuh dari R2).
+    ["lib/pipeline/qualityChecker.ts", 1],
     ["lib/render/frameExtract.ts", 2],
     ["lib/render/imageToClip.ts", 1],
     ["lib/ai/beatDetect.ts", 1],
@@ -162,10 +164,14 @@ function testQualityCheckerUnchanged() {
   for (const s of exactStrings) {
     check(`qualityChecker: ${s.replace("const ", "")}`, q.includes(s));
   }
-  // Filter ffmpeg EXACT sama (tidak dilonggarkan/diubah).
+  // Filter ffmpeg EXACT sama (tidak dilonggarkan/diubah). 2026-11-06: kini digabung dalam
+  // SATU pass (-af silencedetect,volumedetect + -vf blackdetect,signalstats) - substring tiap
+  // filter tetap ada, cuma tak lagi jadi arg berdiri sendiri.
   check("qualityChecker: filter silencedetect=noise=-35dB:d= tetap", q.includes("silencedetect=noise=-35dB:d="));
-  check("qualityChecker: filter volumedetect tetap", q.includes('"volumedetect"'));
+  check("qualityChecker: filter volumedetect tetap", q.includes("volumedetect"));
   check("qualityChecker: filter blackdetect=d=1:pic_th=0.98 tetap", q.includes("blackdetect=d=1:pic_th=0.98"));
+  // 2026-11-06: signalstats YMAX ditambah utk bedakan hitam sungguhan vs adegan gelap artistik.
+  check("qualityChecker: signalstats YMAX dipakai (brightness-relative black)", q.includes("signalstats") && q.includes("YMAX"));
   // Klasifikasi fixability tetap.
   check(
     "qualityChecker: klasifikasi retry_subtitle_only|warn|hard_reject tetap",
@@ -382,20 +388,24 @@ function mkStderrMock(handler: (joinedArgs: string) => { stdout: string; stderr:
 
 async function testQcDecisionsFromMockStderr() {
   __resetSemaphore(1);
-  // Skenario A: nilai dari stderr SUKSES - 9.5dtk sunyi (warn), -38.5dB (hard), 3.0dtk hitam (warn).
+  // Skenario A (2026-11-06: QC kini SATU pass -> stderr GABUNGAN, bukan 3 call terpisah):
+  // 9.5dtk sunyi (warn), -38.5dB (hard), 3.0dtk hitam SUNGGUHAN (warn - YMAX=16 selama
+  // rentang pts 2.0-5.0, tanpa highlight).
+  const ymaxRun = (lowFrom: number, lowTo: number, lowY: number, highY: number): string => {
+    const lines: string[] = [];
+    for (let t = 0; t <= 10.0001; t += 0.5) {
+      const y = t >= lowFrom && t <= lowTo ? lowY : highY;
+      lines.push(`frame:${Math.round(t * 30)} pts_time:${t}`);
+      lines.push(`lavfi.signalstats.YMAX=${y}.000000`);
+    }
+    return lines.join("\n");
+  };
+  const combinedStderr = (blackBlock: string): string =>
+    `[silencedetect] silence_duration: 9.5\n[Parsed_volumedetect] mean_volume: -38.5 dB\nmax_volume: -12.0 dB\n${blackBlock}`;
+
   __setExecFileAsync(
-    mkStderrMock((joined) => {
-      if (joined.includes("silencedetect")) {
-        return { stdout: "", stderr: "[silencedetect] silence_start: 1.0\nsilence_duration: 9.5\nsilence_end: 10.5\n" };
-      }
-      if (joined.includes("volumedetect")) {
-        return { stdout: "", stderr: "[Parsed_volumedetect] mean_volume: -38.5 dB\nmax_volume: -12.0 dB\n" };
-      }
-      if (joined.includes("blackdetect")) {
-        return { stdout: "", stderr: "[blackdetect] black_start: 2.0\nblack_end: 5.0\nblack_duration: 3.0\n" };
-      }
-      return { stdout: "", stderr: "" };
-    })
+    // kandidat hitam 2.0-5.0 DAN YMAX=16 (tanpa highlight) -> hitam sungguhan 3.0dtk.
+    mkStderrMock(() => ({ stdout: "", stderr: combinedStderr(`[blackdetect] black_duration: 3.0\n${ymaxRun(2.0, 5.0, 16, 200)}\n`) })),
   );
 
   const a = await runVideoQualityChecks("http://mock/v.mp4", 30, 20);
@@ -406,9 +416,18 @@ async function testQcDecisionsFromMockStderr() {
   check("QC A: volume -38.5dB -> hard_reject", volA?.fixability === "hard_reject");
   check("QC A: pesan volume menyebut -38.5dB", !!volA && volA.message.includes("-38.5dB"));
   const blackA = a.structured.find((i) => i.code === "black_frames");
-  check("QC A: hitam 3.0dtk -> warn (borderline)", blackA?.fixability === "warn");
+  check("QC A: hitam sungguhan 3.0dtk -> warn (borderline)", blackA?.fixability === "warn", JSON.stringify(a.structured));
   check("QC A: hard_reject ada -> passed=false", a.passed === false);
   check("QC A: durasi 30>=20 -> tidak ada issue duration_short", !a.structured.some((i) => i.code === "duration_short"));
+
+  // Skenario A2 (2026-11-06, fix false-positive): ADEGAN GELAP disengaja (malam/bawah laut) -
+  // blackdetect TETAP menandai 3.0dtk kandidat TAPI YMAX tinggi (ada highlight) -> BUKAN
+  // hitam sungguhan -> TIDAK ditolak. Inti perbaikan item-1.
+  __setExecFileAsync(
+    mkStderrMock(() => ({ stdout: "", stderr: combinedStderr(`[blackdetect] black_duration: 3.0\n${ymaxRun(2.0, 5.0, 200, 200)}\n`) })),
+  );
+  const a2 = await runVideoQualityChecks("http://mock/v.mp4", 30, 20);
+  check("QC A2: adegan gelap (YMAX tinggi) -> TIDAK dihitung hitam (false-positive hilang)", !a2.structured.some((i) => i.code === "black_frames"), JSON.stringify(a2.structured));
 
   // Skenario B: ffmpeg GAGAL (non-zero exit) dgn stderr parsial - perilaku historis
   // "parse err.stderr, gagal cek TIDAK menggagalkan project" harus tetap.

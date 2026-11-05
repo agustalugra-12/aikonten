@@ -54,11 +54,20 @@ const MAX_SILENCE_SECONDS = 8;
 // terus-menerus, bukan jeda diam).
 const MIN_MEAN_VOLUME_DB = -35;
 
-// Ambang footage kosong/hitam (2026-08-10) - blackdetect d=1 (min 1dtk hitam SOLID,
-// pic_th=0.98 -> 98% piksel gelap) baru dihitung "black frame". Kumulatif >2dtk
-// dianggap cacat (footage gagal dimuat/klip corrupt umumnya menghasilkan hitam PENUH
-// beberapa detik, BUKAN cuma adegan gelap sesaat yg wajar ada di footage asli).
+// Ambang footage kosong/hitam (2026-08-10, direvisi 2026-11-06) - blackdetect d=1
+// (pic_th=0.98 -> 98% piksel gelap) menandai KANDIDAT hitam, TAPI itu saja tidak cukup:
+// adegan GELAP disengaja (malam, bawah laut, makhluk kegelapan) jg 98% piksel gelap ->
+// dulu ditolak keliru, buang 1,5-2 jam render (lihat insiden backlog). Sekarang kandidat
+// dikonfirmasi dgn signalstats YMAX (piksel PALING TERANG di frame): hitam SUNGGUHAN
+// (klip gagal dimuat/corrupt) = YMAX pun ~floor (limited-range black Y=16); adegan gelap
+// disengaja SELALU punya highlight (bulan/pantulan/tepi subjek) -> YMAX tinggi, dilewati.
+// Ambang relatif ke ISI frame, bukan rata-rata kecerahan global. Rentang HITAM SUNGGUHAN
+// berturut >2dtk = cacat.
 const MAX_BLACK_SECONDS = 2;
+// YMAX (0-255, 8-bit) di bawah/sama ini = frame tanpa piksel terang sama sekali = hitam
+// sungguhan. 24 = floor black 16 + margin noise kompresi. Di atas ini = ada highlight =
+// adegan gelap artistik, BUKAN footage rusak.
+const TRUE_BLACK_YMAX = 24;
 
 // Ambang panjang baris subtitle (2026-08-10) - burst ASS di-wrap maks 2 baris
 // (DEFAULT_SUBTITLE_DESIGN.maxLines, lihat subtitleDesign.ts), tapi ITU logika
@@ -74,34 +83,59 @@ const MAX_SRT_LINE_CHARS = 140;
 // Filter, threshold, & pola parse stderr (termasuk parse err.stderr saat ffmpeg gagal
 // - stderr kini di-attach ke error oleh ffmpegExec, lihat sana) SAMA PERSIS -
 // keputusan QC tidak berubah, hanya kebijakan resource eksekusinya.
-async function detectLongestSilence(videoUrl: string): Promise<number> {
+// Probe video SATU PASS (2026-11-06) - dulu 3 pass ffmpeg terpisah (silencedetect,
+// volumedetect, blackdetect), tiap pass men-decode ULANG video final dari R2 (mahal utk
+// long-form ~400dtk). Sekarang satu decode: -af silencedetect,volumedetect + -vf
+// blackdetect,signalstats. Hemat ~2-3x decode penuh per QC. Keputusan QC (ambang) TIDAK
+// berubah - cuma jumlah decode-nya. signalstats menyalurkan YMAX per-frame (via
+// metadata=print, ke stderr - buffer ffmpegExec 64MB, tidak terpotong) utk membedakan
+// hitam sungguhan vs adegan gelap artistik (lihat computeTrueBlackSeconds).
+type VideoProbe = { longestSilence: number; meanVolume: number | null; trueBlackSeconds: number };
+
+async function probeVideo(videoUrl: string): Promise<VideoProbe> {
   const { stderr } = await runFfmpeg(
-    ["-i", videoUrl, "-af", `silencedetect=noise=-35dB:d=${MAX_SILENCE_SECONDS}`, "-f", "null", "-"],
+    [
+      "-i", videoUrl,
+      "-af", `silencedetect=noise=-35dB:d=${MAX_SILENCE_SECONDS},volumedetect`,
+      "-vf", "blackdetect=d=1:pic_th=0.98,signalstats,metadata=print:key=lavfi.signalstats.YMAX",
+      "-f", "null", "-",
+    ],
     "util"
   ).catch((err) => ({ stderr: (err as { stderr?: string })?.stderr || "", stdout: "" }));
 
-  const durations = [...stderr.matchAll(/silence_duration:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
-  return durations.length > 0 ? Math.max(...durations) : 0;
+  const silences = [...stderr.matchAll(/silence_duration:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
+  const vol = stderr.match(/mean_volume:\s*(-?[\d.]+)\s*dB/);
+  // blackdetect (98% piksel gelap) = GERBANG murah: tak ada kandidat hitam sama sekali ->
+  // pasti bukan footage rusak, lewati konfirmasi YMAX. Ada kandidat -> baru dibedakan hitam
+  // SUNGGUHAN vs adegan gelap artistik lewat YMAX (computeTrueBlackSeconds). Dua sinyal.
+  const hasBlackCandidate = /black_duration:\s*[\d.]+/.test(stderr);
+  return {
+    longestSilence: silences.length > 0 ? Math.max(...silences) : 0,
+    meanVolume: vol ? parseFloat(vol[1]) : null,
+    trueBlackSeconds: hasBlackCandidate ? computeTrueBlackSeconds(stderr) : 0,
+  };
 }
 
-async function detectMeanVolume(videoUrl: string): Promise<number | null> {
-  const { stderr } = await runFfmpeg(
-    ["-i", videoUrl, "-af", "volumedetect", "-f", "null", "-"],
-    "util"
-  ).catch((err) => ({ stderr: (err as { stderr?: string })?.stderr || "", stdout: "" }));
-
-  const match = stderr.match(/mean_volume:\s*(-?[\d.]+)\s*dB/);
-  return match ? parseFloat(match[1]) : null;
-}
-
-async function detectTotalBlackSeconds(videoUrl: string): Promise<number> {
-  const { stderr } = await runFfmpeg(
-    ["-i", videoUrl, "-vf", "blackdetect=d=1:pic_th=0.98", "-an", "-f", "null", "-"],
-    "util"
-  ).catch((err) => ({ stderr: (err as { stderr?: string })?.stderr || "", stdout: "" }));
-
-  const durations = [...stderr.matchAll(/black_duration:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
-  return durations.reduce((sum, d) => sum + d, 0);
+// Rentang BERTURUT terpanjang (detik) di mana frame TAK punya piksel terang sama sekali
+// (YMAX <= TRUE_BLACK_YMAX) = hitam sungguhan. blackdetect saja menandai adegan gelap
+// artistik sbg hitam; di sini DISARING pakai YMAX (highlight tetap = bukan hitam). Durasi
+// diukur dari pts_time (bukan asumsi fps). Diekspor utk test (fase5). Parse dari stderr
+// ffmpeg combined-pass: baris "...pts_time:X" lalu "lavfi.signalstats.YMAX=Y", urut per frame.
+export function computeTrueBlackSeconds(ffmpegStderr: string): number {
+  const times = [...ffmpegStderr.matchAll(/pts_time:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
+  const ymax = [...ffmpegStderr.matchAll(/lavfi\.signalstats\.YMAX=([\d.]+)/g)].map((m) => parseFloat(m[1]));
+  const n = Math.min(times.length, ymax.length);
+  let longest = 0;
+  let runStart = -1;
+  for (let i = 0; i < n; i++) {
+    if (ymax[i] <= TRUE_BLACK_YMAX) {
+      if (runStart < 0) runStart = times[i];
+      longest = Math.max(longest, times[i] - runStart);
+    } else {
+      runStart = -1;
+    }
+  }
+  return longest;
 }
 
 // Cek subtitle di level SRT MENTAH (sebelum jadi .ass) - dipanggil sblm render
@@ -160,8 +194,23 @@ export async function runVideoQualityChecks(
     }
   }
 
+  // Satu pass ffmpeg utk silence+volume+hitam (lihat probeVideo - dulu 3 pass terpisah).
+  // Gagal probe TIDAK BOLEH menggagalkan project (mis. ffmpeg sesaat error) - dicatat
+  // warning, bukan hard_reject, drpd macet total krn pemeriksaan tambahan gagal.
+  let probe: VideoProbe | null = null;
   try {
-    const longestSilence = await detectLongestSilence(videoUrl);
+    probe = await probeVideo(videoUrl);
+  } catch (err) {
+    structured.push({
+      code: "probe_check_error",
+      message: `Gagal menjalankan cek teknis video (silence/volume/hitam): ${err instanceof Error ? err.message : String(err)}`,
+      fixability: "warn",
+    });
+  }
+
+  if (probe) {
+    const { longestSilence, meanVolume, trueBlackSeconds } = probe;
+
     if (longestSilence > SILENCE_WARN_MAX_SECONDS) {
       structured.push({
         code: "silence",
@@ -175,18 +224,7 @@ export async function runVideoQualityChecks(
         fixability: "warn",
       });
     }
-  } catch (err) {
-    // Gagal cek TIDAK BOLEH menggagalkan project (mis. ffmpeg sesaat error) - dicatat
-    // sbg warning, bukan hard_reject, drpd macet total krn pemeriksaan tambahan gagal.
-    structured.push({
-      code: "silence_check_error",
-      message: `Gagal menjalankan cek silence: ${err instanceof Error ? err.message : String(err)}`,
-      fixability: "warn",
-    });
-  }
 
-  try {
-    const meanVolume = await detectMeanVolume(videoUrl);
     if (meanVolume !== null && meanVolume < MIN_MEAN_VOLUME_DB) {
       structured.push({
         code: "mean_volume",
@@ -200,35 +238,22 @@ export async function runVideoQualityChecks(
         fixability: "warn",
       });
     }
-  } catch (err) {
-    structured.push({
-      code: "volume_check_error",
-      message: `Gagal menjalankan cek volume: ${err instanceof Error ? err.message : String(err)}`,
-      fixability: "warn",
-    });
-  }
 
-  try {
-    const totalBlack = await detectTotalBlackSeconds(videoUrl);
-    if (totalBlack > BLACK_WARN_MAX_SECONDS) {
+    // Hitam SUNGGUHAN (sudah disaring YMAX - adegan gelap artistik TIDAK masuk sini, jadi
+    // tidak lagi false-positive menolak konten bertema malam/bawah laut).
+    if (trueBlackSeconds > BLACK_WARN_MAX_SECONDS) {
       structured.push({
         code: "black_frames",
-        message: `Ada ${Math.round(totalBlack)} detik layar hitam total (footage kemungkinan gagal dimuat/corrupt)`,
+        message: `Ada ${Math.round(trueBlackSeconds)} detik layar hitam sungguhan (footage kemungkinan gagal dimuat/corrupt)`,
         fixability: "hard_reject",
       });
-    } else if (totalBlack > MAX_BLACK_SECONDS) {
+    } else if (trueBlackSeconds > MAX_BLACK_SECONDS) {
       structured.push({
         code: "black_frames",
-        message: `Ada ${Math.round(totalBlack)} detik layar hitam total (borderline, di bawah batas parah)`,
+        message: `Ada ${Math.round(trueBlackSeconds)} detik layar hitam sungguhan (borderline, di bawah batas parah)`,
         fixability: "warn",
       });
     }
-  } catch (err) {
-    structured.push({
-      code: "black_check_error",
-      message: `Gagal menjalankan cek footage kosong: ${err instanceof Error ? err.message : String(err)}`,
-      fixability: "warn",
-    });
   }
 
   const hardFails = structured.filter((i) => i.fixability === "hard_reject" || i.fixability === "retry_subtitle_only");
