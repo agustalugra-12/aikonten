@@ -287,6 +287,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!res.ok) {
       return NextResponse.json({ error: res.error }, { status: 400 });
     }
+    // Mesin render "scenes" (video Desain ~10-15 dtk) tak tersedia utk tenant eksternal
+    // (owner bukan unlimited) - 2026-11-05, durasiVideo.ts. Backend tetap otoritas: ditolak
+    // di sini SAAT DISIMPAN (plus backstop pastikanFormatDiizinkan saat generate).
+    if (res.value.renderEngine === "scenes") {
+      const [pemilik] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, existing.userId));
+      if (!pemilik?.unlimited) {
+        return NextResponse.json({ error: `Mode video Desain (scenes) menghasilkan video di bawah ${DURASI_EKSTERNAL.min} detik dan belum tersedia untuk paket ini. Pilih mesin render Standar atau HyperFrames.` }, { status: 400 });
+      }
+    }
     update.brandKit = body.brandKit === null ? null : JSON.stringify(res.value);
   }
 

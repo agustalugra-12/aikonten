@@ -21,7 +21,10 @@ const throwsOf = (f: () => void) => { try { f(); return null; } catch (e) { retu
   for (const f of ["src/components/dashboard/BuatKonten.tsx", "src/components/dashboard/BrandSettingsSidebar.tsx"]) assert.ok(src(f).includes("pilihanDurasiVideo(") && src(f).includes("ownerUnlimited === true"), f);
   assert.ok(/r\.orientation === "landscape" && unlimited && \(/.test(src("src/components/dashboard/Planner.tsx")) && src("src/app/page.tsx").includes("unlimited={currentBrand?.ownerUnlimited === true}"));
   assert.ok(src("src/app/api/brands/route.ts").includes("ownerUnlimited: !!u?.unlimited"));
-  ok("UI: eksternal hanya 30/60 dtk (Buat Konten, Pengaturan Brand, Planner); internal tetap semua preset");
+  // UI Gaya Visual (VisualStylePanel): opsi mesin render "Desain" (scenes) disembunyikan utk tenant eksternal.
+  const vsp = src("src/components/dashboard/VisualStylePanel.tsx");
+  assert.ok(/ENGINES\.filter\(\(e\) => e\.value !== "scenes"\)/.test(vsp) && vsp.includes("ownerUnlimited === true") && vsp.includes("engines.map("), "VisualStylePanel sembunyikan scenes utk eksternal");
+  ok("UI: eksternal hanya 30/60 dtk (Buat Konten, Pengaturan Brand, Planner) & engine scenes disembunyikan (Gaya Visual); internal tetap semua preset");
 
   // 2. Validasi target (API/cron/planner) sebelum kredit
   const e90 = throwsOf(() => pastikanFormatDiizinkan({ type: "video", contentFormat: null, videoDurationTarget: 90, unlimited: false }));
@@ -30,6 +33,9 @@ const throwsOf = (f: () => void) => { try { f(); return null; } catch (e) { retu
   assert.ok(e20 instanceof DurasiVideoTidakValidError && e20 instanceof VideoPanjangTidakTersediaError && /30-60 detik/.test(e20.message), String(e20));
   const eSc = throwsOf(() => pastikanFormatDiizinkan({ type: "video", contentFormat: null, videoDurationTarget: 60, unlimited: false, renderEngine: "scenes" }));
   assert.ok(eSc instanceof DurasiVideoTidakValidError && /Desain/.test(eSc.message));
+  // PATCH /api/brands menolak brandKit.renderEngine "scenes" utk tenant eksternal SAAT DISIMPAN (bukan cuma saat generate).
+  const brandRouteSrc = src("src/app/api/brands/[id]/route.ts");
+  assert.ok(brandRouteSrc.includes('res.value.renderEngine === "scenes"') && brandRouteSrc.includes("pemilik?.unlimited"), "PATCH brand tolak scenes eksternal");
   for (const a of [
     { type: "video", contentFormat: null, videoDurationTarget: 30, unlimited: false },
     { type: "video", contentFormat: null, videoDurationTarget: null, unlimited: false },
