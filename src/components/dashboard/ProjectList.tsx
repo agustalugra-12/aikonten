@@ -192,7 +192,72 @@ export function ProjectList({
         </div>
       )}
 
-      <div className="overflow-x-auto">
+      {/* HP: tabel -> kartu (2026-11-05 responsive). Data & helper sama dgn tabel. */}
+      <div className="md:hidden divide-y divide-[#e7eefe]">
+        {visible.length === 0 && (
+          <p className="py-8 text-center text-[13px] text-[#555f6d]">Tidak ada konten pada filter ini.</p>
+        )}
+        {visible.map((p) => {
+          const chip = scheduleChipFor(p, brand, projects);
+          const shortId = p.id.slice(-6).toUpperCase();
+          return (
+            <div key={p.id} className="flex gap-3 p-4">
+              <a
+                href={p.previewUrl ? proxiedUrl(p.previewUrl) : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={"relative w-16 h-16 rounded-lg overflow-hidden bg-[#e7eefe] flex items-center justify-center shrink-0 shadow-sm" + (p.previewUrl ? " cursor-pointer" : "")}
+              >
+                {p.previewType === "video" ? (
+                  <video src={proxiedUrl(p.previewUrl!)} preload="metadata" muted className="w-full h-full object-cover" />
+                ) : p.previewType === "image" ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={proxiedUrl(p.previewUrl!)} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="material-symbols-outlined text-[24px] text-[#76777d]">movie_edit</span>
+                )}
+              </a>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[11px] text-[#555f6d]">#{shortId}</span>
+                  <span className={"inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap " + statusPillClass(p.status)}>
+                    <span className={"w-1.5 h-1.5 rounded-full inline-block " + statusDotClass(p.status)} />
+                    {STATUS_LABEL[p.status]}
+                  </span>
+                </div>
+                <p className="text-[13px] font-medium text-[#151c27] line-clamp-2 mt-0.5">
+                  {p.generatedCaption || p.script || "(belum ada caption)"}
+                </p>
+                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-1.5 text-[12px] text-[#555f6d]">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px]">{typeIcon(p)}</span>
+                    {formatTypeLabel(p)}
+                  </span>
+                  {chip && (
+                    <span className="inline-flex items-center gap-1 tabular-nums">
+                      <span className="material-symbols-outlined text-[14px]">calendar_today</span>
+                      {chip.primary}
+                    </span>
+                  )}
+                  <span className="tabular-nums">{relativeTime(p.updatedAt)}</span>
+                </div>
+                {p.status === "failed" && (
+                  <button
+                    type="button"
+                    disabled={retrying === p.id}
+                    onClick={() => handleRetry(p.id)}
+                    className="mt-2 px-3 py-1.5 rounded bg-[#ffdad6] text-[#93000a] text-[12px] font-medium disabled:opacity-60"
+                  >
+                    {retrying === p.id ? "Memproses…" : "Coba Lagi"}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="overflow-x-auto hidden md:block">
         <table className="w-full text-left border-collapse min-w-[860px]">
           <thead>
             <tr className="bg-[#f0f3ff] text-[#555f6d] text-[11px] uppercase tracking-wider">

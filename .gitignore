@@ -61,3 +61,7 @@ drizzle/*.db
 *.tsbuildinfo
 next-env.d.ts
 .health-state
+
+# uji responsive (2026-11-05)
+.pw-browsers/
+test-results/
