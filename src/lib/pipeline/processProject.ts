@@ -1481,7 +1481,11 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       throw new Error("QC editorial gagal: " + edIssues.filter((i) => i.severity === "reject").map((i) => i.message).join("; "));
     }
 
+    // Timing per-tahap (2026-11-06, item 4) - render total & QC, melengkapi rincian
+    // fetch/merge/encode/upload di renderFinalVideo. Format [timing] <id> <tahap>=<ms>.
+    const tRender = Date.now();
     let rendered = await renderWithSubtitles(srt, wordTimings);
+    console.log(`[timing] ${id} render_total=${Date.now() - tRender}ms`);
 
     // Jaring pengaman TERAKHIR (2026-08-05) - cek durasi SUNGGUHAN hasil render (ffprobe,
     // bukan estimasi pre-render) tetap >= minimum wajib. Ditemukan lewat tes nyata: durasi
@@ -1538,7 +1542,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // tetap hard_reject, selaras daftar alasan reject SAH milik PRD sendiri sendiri
     // ("render/audio total failure").
     // Engine "scenes": lewati QC footage/voiceover (video frame-desain, musik-only, tanpa SRT/VO).
+    const tQc = Date.now();
     let qualityCheck = isScenesEngine ? null : await runVideoQualityChecks(rendered.videoUrl, rendered.durationSeconds, effectiveMinDuration, srt);
+    if (!isScenesEngine) console.log(`[timing] ${id} quality_check=${Date.now() - tQc}ms`);
     if (qualityCheck && !qualityCheck.passed) {
       const hardRejectIssues = qualityCheck.structured.filter((i) => i.fixability === "hard_reject");
       const subtitleIssues = qualityCheck.structured.filter((i) => i.fixability === "retry_subtitle_only");

@@ -371,6 +371,10 @@ export async function renderFinalVideo(opts: {
       ...(opts.brollClips || []).map((c) => ({ url: c.videoUrl, start: 0, end: c.durationSeconds })),
     ];
 
+    // Timing per-tahap (2026-11-06, item 4) - log [timing] <projectId> <tahap>=<ms> supaya
+    // bottleneck render (fetch/normalisasi vs merge vs encode final vs upload) kelihatan di
+    // log tanpa tebak-tebakan. Murah: cuma Date.now() + console.log.
+    const tNorm = Date.now();
     const normalizedPaths: string[] = [];
     const normalizedDurations: number[] = [];
     for (const [i, clip] of allClips.entries()) {
@@ -426,16 +430,20 @@ export async function renderFinalVideo(opts: {
     // BUKAN lagi concat demuxer polos "-c copy". WAJIB re-encode di sini (xfade tidak
     // bisa stream-copy), lebih lambat drpd demuxer tapi hasilnya ada transisi
     // sungguhan, bukan cuma hard-cut).
+    console.log(`[timing] ${opts.projectId} fetch_normalize=${Date.now() - tNorm}ms clips=${allClips.length}`);
+
     const { totalDurationSeconds: estimatedDuration, clipStartOffsets } = computeClipSequencePlan(
       normalizedDurations,
       opts.transitions || []
     );
+    const tMerge = Date.now();
     const concatenatedPath = path.join(workDir, "concatenated.mp4");
     if (normalizedPaths.length === 1) {
       await run("ffmpeg", ["-y", "-i", normalizedPaths[0], "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", concatenatedPath]);
     } else {
       await mergeClipsTree(normalizedPaths, normalizedDurations, opts.transitions || [], concatenatedPath, workDir);
     }
+    console.log(`[timing] ${opts.projectId} merge=${Date.now() - tMerge}ms clips=${normalizedPaths.length}`);
     void estimatedDuration; // dihitung ulang dari file ASLI di bawah (lebih akurat drpd estimasi filter chain)
     const videoDurationSeconds = await getDurationSeconds(concatenatedPath);
 
@@ -940,13 +948,17 @@ export async function renderFinalVideo(opts: {
     // perlu file lengkap.
     finalArgs.push("-movflags", "+faststart");
     finalArgs.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-pix_fmt", "yuv420p", finalPath);
+    const tEncode = Date.now();
     await run("ffmpeg", finalArgs);
+    console.log(`[timing] ${opts.projectId} final_encode=${Date.now() - tEncode}ms`);
 
     const durationSeconds = Math.round(await getDurationSeconds(finalPath));
 
     const buffer = await readFile(finalPath);
     const key = buildAssetKey(opts.brandId, opts.projectId, "final.mp4");
+    const tUpload = Date.now();
     const videoUrl = await uploadBuffer(key, buffer, "video/mp4");
+    console.log(`[timing] ${opts.projectId} upload=${Date.now() - tUpload}ms bytes=${buffer.length}`);
 
     return { videoUrl, durationSeconds };
   } finally {
