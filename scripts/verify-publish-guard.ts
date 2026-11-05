@@ -140,5 +140,23 @@ ok("classifyBufferError + cooldown (token 6h / rate 1h) + isInCooldown");
     assert.deepStrictEqual(r.failed, ["b"], "gagal non-breaker tak hentikan siklus");
     ok("sukses + gagal non-breaker -> lanjut, tak halt");
   }
+  // 18-19. breaker PER TOKEN (onBreaker+isBlocked): token A trip -> konten token A lain dilewati (0 call),
+  // token B tetap publish di siklus yang sama. Berlaku utk token_invalid & rate_limit.
+  for (const [err, reason] of [["Access token is not valid (UNAUTHENTICATED)", "token_invalid"], ["Too many requests (429)", "rate_limit"]] as const) {
+    const tokOf: Record<string, string> = { pA: "A", pA2: "A", qA: "A", pB: "B", qB: "B" };
+    const cands = [{ id: "a1", brandId: "pA" }, { id: "b1", brandId: "pB" }, { id: "a2", brandId: "qA" }, { id: "a3", brandId: "pA2" }, { id: "b2", brandId: "qB" }];
+    const calls: Record<string, number> = { A: 0, B: 0 };
+    const blockedTok = new Set<string>();
+    const r = await runPublishCycle(cands, async (id) => {
+      const tok = tokOf[cands.find((c) => c.id === id)!.brandId];
+      calls[tok]++;
+      return tok === "A" ? { ok: false, bufferError: err } : { ok: true };
+    }, { nowMs: now, cooldownCfg: ccfg, onBreaker: async (c) => { blockedTok.add(tokOf[c.brandId]); }, isBlocked: async (c) => blockedTok.has(tokOf[c.brandId]) });
+    assert.strictEqual(calls.A, 1, `${reason}: token A tepat 1 call (sampai trip), tak ada call lagi`);
+    assert.deepStrictEqual(r.published, ["b1", "b2"], `${reason}: token B tetap publish di siklus sama`);
+    assert.deepStrictEqual(r.blocked.map((c) => c.id), ["a2", "a3"], `${reason}: brand lain pemakai token A dilewati`);
+    assert.strictEqual(r.halted, reason); assert.strictEqual(r.haltedAt, "a1");
+    ok(`${reason} di token A -> hanya token A diblokir, token B publish di siklus sama`);
+  }
   console.log(`ALL_PUBLISH_GUARD_TESTS_PASS (${n} tes)`);
 })();

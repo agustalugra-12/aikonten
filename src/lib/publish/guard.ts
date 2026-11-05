@@ -121,24 +121,32 @@ export function windowStartMs(nowMs: number, windowMs: number, env: Record<strin
   return Math.max(nowMs - windowMs, start ?? -Infinity);
 }
 
-// === #8 Jalankan siklus publish TERURUT; berhenti SEGERA pada breaker (token/rate), jangan coba kandidat lain. ===
+// === #8 Jalankan siklus publish TERURUT dgn circuit breaker (token invalid / rate limit). ===
+// Tanpa onBreaker: berhenti SEGERA (perilaku lama). Dengan onBreaker (fix/publish-breaker-per-token): breaker
+// hanya memblokir TOKEN itu -> onBreaker memasang cooldown, kandidat berikut dicek isBlocked (brand pemakai
+// token yg sama dilewati TANPA call Buffer), brand dgn token lain tetap diproses di siklus yang sama.
 export type PublishOutcome = { ok: boolean; bufferError?: string | null };
-export async function runPublishCycle(
-  ordered: Array<{ id: string; brandId: string }>,
+export async function runPublishCycle<T extends { id: string; brandId: string }>(
+  ordered: T[],
   publishFn: (id: string) => Promise<PublishOutcome>,
-  opts: { nowMs: number; cooldownCfg: CooldownCfg },
-): Promise<{ published: string[]; failed: string[]; halted: BreakerReason | null; haltedAt: string | null; cooldownUntilMs: number | null }> {
+  opts: { nowMs: number; cooldownCfg: CooldownCfg; onBreaker?: (c: T, reason: BreakerReason) => Promise<void>; isBlocked?: (c: T) => Promise<boolean> },
+): Promise<{ published: string[]; failed: string[]; blocked: T[]; halted: BreakerReason | null; haltedAt: string | null; cooldownUntilMs: number | null }> {
   const published: string[] = [];
   const failed: string[] = [];
+  const blocked: T[] = [];
+  let halted: BreakerReason | null = null, haltedAt: string | null = null;
   for (const c of ordered) {
+    if (opts.isBlocked && (await opts.isBlocked(c))) { blocked.push(c); continue; }
     const out = await publishFn(c.id);
     if (out.ok) { published.push(c.id); continue; }
     const reason = classifyBufferError(out.bufferError);
     if (reason) {
-      // Circuit breaker: hentikan SELURUH siklus + pasang cooldown; JANGAN coba konten/akun lain.
-      return { published, failed, halted: reason, haltedAt: c.id, cooldownUntilMs: opts.nowMs + cooldownForReason(reason, opts.cooldownCfg) };
+      halted ??= reason; haltedAt ??= c.id;
+      if (!opts.onBreaker) break; // mode lama: hentikan SELURUH siklus
+      await opts.onBreaker(c, reason); // cooldown token ini; kandidat lain dgn token sama -> isBlocked
+      continue;
     }
     failed.push(c.id); // gagal non-breaker (mis. media hilang) -> catat, lanjut kandidat lain
   }
-  return { published, failed, halted: null, haltedAt: null, cooldownUntilMs: null };
+  return { published, failed, blocked, halted, haltedAt, cooldownUntilMs: halted ? opts.nowMs + cooldownForReason(halted, opts.cooldownCfg) : null };
 }
