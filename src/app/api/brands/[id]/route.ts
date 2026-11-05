@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { brands } from "@/db/schema";
+import { brands, users } from "@/db/schema";
+import { durasiTargetDiizinkan, DURASI_EKSTERNAL } from "@/lib/billing/durasiVideo";
 import { eq } from "drizzle-orm";
 import { getUserId, getOwnedBrand } from "@/lib/session";
 import { planMengizinkanAutoPosting } from "@/lib/billing/planGate";
@@ -75,6 +76,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const v = Number(body.videoDurationTarget);
     if (![30, 60, 90, 180, 300, 480].includes(v)) {
       return NextResponse.json({ error: "videoDurationTarget harus 30, 60, 90, 180, 300, atau 480" }, { status: 400 });
+    }
+    // Tenant eksternal (owner bukan unlimited) hanya 30-60 dtk (2026-11-05, durasiVideo.ts).
+    const [pemilik] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, existing.userId));
+    if (!durasiTargetDiizinkan(v, pemilik?.unlimited)) {
+      return NextResponse.json({ error: `Durasi video ${v} detik tidak tersedia untuk paket ini. Pilih ${DURASI_EKSTERNAL.min}-${DURASI_EKSTERNAL.max} detik.` }, { status: 400 });
     }
     update.videoDurationTarget = v;
   }

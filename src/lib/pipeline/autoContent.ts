@@ -13,6 +13,7 @@ import { getDurationConfig } from "@/lib/ai/clipSelect";
 import { getChannelProfile } from "@/lib/ai/youtubeEditorial";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
 import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
+import { brandKitRenderEngine } from "@/lib/render/brandKit";
 import { hitungBiayaKredit, pastikanFormatDiizinkan, VideoPanjangTidakTersediaError } from "@/lib/billing/aturanProduk";
 import { getOrGenerateDailyIdeas, markDailyIdeaUsed } from "@/lib/ai/dailyContentPlanner";
 import { applyAgustapStrategyIfActive } from "@/lib/agustap/generationStrategy";
@@ -65,6 +66,21 @@ export class AutoContentError extends Error {
   }
 }
 
+// Aturan produk (video panjang/durasi eksternal/engine) -> AutoContentError 403 ber-kodeAturan "video_panjang"
+// (cron auto-generate melewati ide ini tanpa retry, lihat route cron).
+function cekAturanFormat(type: string, contentFormat: string | null, brand: { videoDurationTarget: number; brandKit: string | null }, unlimited: boolean | null | undefined): void {
+  try {
+    pastikanFormatDiizinkan({ type, contentFormat, videoDurationTarget: brand.videoDurationTarget, unlimited, renderEngine: brandKitRenderEngine(brand.brandKit) });
+  } catch (err) {
+    if (err instanceof VideoPanjangTidakTersediaError) {
+      const e = new AutoContentError(err.message, 403);
+      (e as unknown as { kodeAturan: string }).kodeAturan = "video_panjang";
+      throw e;
+    }
+    throw err;
+  }
+}
+
 export async function runAutoContent(
   brandId: string,
   scriptOverride?: string,
@@ -108,6 +124,12 @@ export async function runAutoContent(
   const [brand] = await db.select().from(brands).where(eq(brands.id, brandId));
   if (!brand) {
     throw new AutoContentError("Brand tidak ditemukan", 404);
+  }
+  // Durasi/format video (tenant eksternal 30-60 dtk, 2026-11-05) dicek SEDINI mungkin bila tipe sudah
+  // diketahui (cron/planner kirim desiredType) - sebelum ide AI, pemilihan footage & potong kredit.
+  if (desiredType === "video") {
+    const [pemilikAwal] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, brand.userId));
+    cekAturanFormat("video", contentFormat ?? null, brand, pemilikAwal?.unlimited);
   }
 
   if (!script) {
@@ -451,16 +473,7 @@ export async function runAutoContent(
   // Aturan produk (2026-10-24): validasi format + hitung biaya carousel SEBELUM potong.
   const pfAturan = type === "video" ? (contentFormat ?? null) : (desiredType === "foto" ? "poster_feed" : null);
   const [pemilikAturan] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, brand.userId));
-  try {
-    pastikanFormatDiizinkan({ type, contentFormat: pfAturan, videoDurationTarget: brand.videoDurationTarget, unlimited: pemilikAturan?.unlimited });
-  } catch (err) {
-    if (err instanceof VideoPanjangTidakTersediaError) {
-      const e = new AutoContentError(err.message, 403);
-      (e as unknown as { kodeAturan: string }).kodeAturan = "video_panjang";
-      throw e;
-    }
-    throw err;
-  }
+  cekAturanFormat(type, pfAturan, brand, pemilikAturan?.unlimited);
   const biaya = hitungBiayaKredit(type, { contentFormat: pfAturan, carouselPhotosPerPost: brand.carouselPhotosPerPost });
   try {
     await potongKredit(brand.userId, biaya, `generate_${type}`, projectId);

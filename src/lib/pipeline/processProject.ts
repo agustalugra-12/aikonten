@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { transcribeFootage, transcribeAudioBuffer, type TranscriptSegment } from "@/lib/ai/transcribe";
 import { alertCreditDepletionIfRelevant } from "@/lib/publish/telegram";
 import { pastikanFormatDiizinkan } from "@/lib/billing/aturanProduk";
+import { batasRenderDetik, cekDurasiHasil, targetNaskahDetik } from "@/lib/billing/durasiVideo";
 import {
   selectClips,
   scoreSegments,
@@ -14,7 +15,7 @@ import {
 import { generateCaptionAndHashtags, generateCaptionForImages, buildCaptionSrt, buildSrtFromTranscriptSegments, type ContentAngle } from "@/lib/ai/generateContent";
 import { getRecentStructureAndHookUsage, isStructureOverused, isHookTypeOverused, getRecentContentTypeUsage, isContentTypeOverused } from "@/lib/ai/contentVariety";
 import { getOverusedHashtags } from "@/lib/ai/hashtagTracking";
-import { generateVoiceover, getAudioDurationSeconds } from "@/lib/ai/dubbing";
+import { generateVoiceover, getAudioDurationSeconds, sesuaikanDurasiVoiceover } from "@/lib/ai/dubbing";
 // Render video LOKAL via FFmpeg (2026-08-05, permintaan Agus - "migrasi agar prosesnya
 // free") - GANTI dari cloudinary.ts (makan kredit berbayar) ke ffmpeg.ts (gratis, pakai
 // CPU server sendiri). Signature SAMA PERSIS, cuma ganti sumber import.
@@ -140,7 +141,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // Backstop aturan produk (2026-10-24): video panjang hanya brand internal (unlimited) -
     // pengaman terakhir di jalur render tunggal (tak bisa dilewati pemanggil mana pun).
     const [pemilikBackstop] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, brand?.userId ?? ""));
-    pastikanFormatDiizinkan({ type: project.type, contentFormat: project.contentFormat, videoDurationTarget: brand?.videoDurationTarget, unlimited: pemilikBackstop?.unlimited });
+    pastikanFormatDiizinkan({ type: project.type, contentFormat: project.contentFormat, videoDurationTarget: brand?.videoDurationTarget, unlimited: pemilikBackstop?.unlimited, renderEngine: brandKitRenderEngine(brand?.brandKit) });
     // Contextual Footage (2026-09-02, PRD Agustap Studio) - blocklist finansial dipakai
     // SEMUA titik searchBrollVideo di bawah utk brand ini. Default-block (bukan panggil
     // deriveAgustapBrollQuery lagi di tiap titik - satu LLM call ekstra sudah terjadi di
@@ -631,7 +632,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         selectedText,
         brand?.knowledgeSite,
         brand?.manualKnowledge,
-        durationConfig.target,
+        // Anggaran kata naskah: tenant eksternal dijepit 32-55 dtk (aturan video 30-60 dtk, durasiVideo.ts).
+        targetNaskahDetik(durationConfig.target, pemilikBackstop?.unlimited),
         brand?.contentPillars,
         project.brandId,
         avoidStructureNames,
@@ -1051,7 +1053,14 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // Engine "scenes" (HyperFrames Pro): video frame-desain MUSIK-ONLY - tak pakai voiceover/
     // subtitle. Skip TTS + Whisper (hemat biaya tiap konten Desain; dulu digenerate lalu dibuang).
     const isScenesEngine = brandKitRenderEngine(brand?.brandKit) === "scenes";
-    const voiceoverBuffer = isScenesEngine ? Buffer.alloc(0) : await generateVoiceover(narrationText, brandKitVoice(brand?.brandKit));
+    let voiceoverBuffer = isScenesEngine ? Buffer.alloc(0) : await generateVoiceover(narrationText, brandKitVoice(brand?.brandKit));
+    // Tenant eksternal: narasi TTS nyata wajib muat video 30-60 dtk - koreksi murah (atempo/jeda) atau gagal
+    // jelas SEBELUM Whisper/render (refund kredit oleh pemanggil). Internal tak berubah.
+    if (!isScenesEngine) {
+      const dur = await sesuaikanDurasiVoiceover(voiceoverBuffer, pemilikBackstop?.unlimited);
+      voiceoverBuffer = dur.buffer;
+      if (dur.catatan) autoFixLog.push({ step: "durasi_voiceover", action: dur.catatan, result: "dikoreksi" });
+    }
     let srt: string = "";
     // wordTimings (2026-08-10, Subtitle Designer) - dari transkripsi yg SAMA (1
     // panggilan Whisper, tidak ada biaya tambahan) - dipakai renderFinalVideo utk
@@ -1455,7 +1464,8 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         // Batas keras 60dtk (2026-08-10, permintaan Agus - "jangan buat short diatas 1
         // menit ini aturannya") - jaring pengaman TERAKHIR di render (bukan gantikan
         // durationConfig.target=60 di atas yg cuma target lunak saat pemilihan klip).
-        maxDurationSeconds: isYoutubeShorts ? 60 : manifestInputs?.maxDurationSeconds,
+        // + tenant eksternal: batas keras 60 dtk (aturan 30-60 dtk, durasiVideo.ts) juga di fallback ffmpeg.
+        maxDurationSeconds: batasRenderDetik(pemilikBackstop?.unlimited, isYoutubeShorts ? 60 : manifestInputs?.maxDurationSeconds),
         // Overlay Engine (2026-08-10, PRD "AI Content Editing Engine") - progress bar
         // ikut Style Preset (2026-08-10, DIREVISI dari hardcode true - lihat
         // stylePreset.ts, preset documentary/minimal mematikannya). CTA dinamis per
@@ -1515,6 +1525,10 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           `durasi nyata sumber footage beda dari metadata - coba generate ulang.`
       );
     }
+
+    // Tenant eksternal: hasil render wajib 30-60 dtk (gerbang terakhir; gagal -> refund kredit oleh pemanggil).
+    const salahDurasi = cekDurasiHasil(rendered.durationSeconds, pemilikBackstop?.unlimited);
+    if (salahDurasi) throw new Error(salahDurasi);
 
     // Quality Checker (2026-08-10, PRD "AI Content Editing Engine" - dibangun LANGSUNG
     // stlh insiden nyata: 3 video lama dgn narasi rusak [163dtk sunyi] sempat ke-publish

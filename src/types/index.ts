@@ -9,6 +9,7 @@ export type Brand = {
   dailyCarouselCount: number;
   dailyYoutubeShortsCount: number;
   videoDurationTarget: number;
+  ownerUnlimited?: boolean; // GET /api/brands - false = tenant eksternal (video 30-60 dtk)
   carouselPhotosPerPost: number;
   videoOrientation: "portrait" | "landscape" | "square";
   stylePreset: "energetic" | "documentary" | "minimal";
