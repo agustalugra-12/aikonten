@@ -63,11 +63,18 @@ ok("subjek: hook memilih footage yg menggambarkan isinya; footage tak cocok -> a
   const ws = ["Menginap", "di", "pelani", "homstay,", "dekat", "Bedugull.", "Jalan", "pelan", "Pelangi"].map((word, i) => ({ word, start: i, end: i + 0.5 }));
   const r = applyGlossary(ws, ["Pelangi Homestay", "Bedugul"]);
   assert.deepStrictEqual(r.words.map((x) => x.word), ["Menginap", "di", "Pelangi", "Homestay,", "dekat", "Bedugul.", "Jalan", "pelan", "Pelangi"]);
-  assert.strictEqual(fixText("Liburan ke pelani", ["Pelangi Homestay"]), "Liburan ke pelangi", "bagian istilah: ejaan dikoreksi, kapital tidak (revisi-3)");
+  // Revisi-4 (#5): kata SALAH-EJA tunggal yg cocok bagian istilah brand mengambil kapitalisasi KANONIK istilah
+  // ("pelani"->"Pelangi", bukan "pelangi"; "homstay"->"Homestay"). Kata umum (ejaan benar) tetap -> lihat #9/#15.
+  assert.strictEqual(fixText("Liburan ke pelani", ["Pelangi Homestay"]), "Liburan ke Pelangi", "near-miss kata tunggal -> kapital kanonik brand");
+  assert.strictEqual(fixText("nginap di homstay", ["Pelangi Homestay"]), "nginap di Homestay", "homstay->Homestay");
   const b = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media({ words: ws.map((x, i) => ({ ...x, start: i * 0.9, end: i * 0.9 + 0.5 })) }));
-  assert.ok(b.captionLines.map((l) => l.text).join(" ").includes("Pelangi Homestay,") && !b.html.includes("pelani") && b.glossaryFixed.includes("pelani->Pelangi"));
+  // Caption TERENDER dan log glossary build.json WAJIB setuju: keduanya "Pelangi" kapital, tak ada "pelangi" kecil.
+  const capText = b.captionLines.map((l) => l.text).join(" ");
+  assert.ok(capText.includes("Pelangi Homestay,") && !capText.includes("pelani") && !capText.includes("pelangi"), capText);
+  assert.ok(b.glossaryFixed.includes("pelani->Pelangi"), b.glossaryFixed.join());
+  assert.ok(/<b id="vpc\d+w\d+">Pelangi<\/b>/.test(b.html), "kata caption terender = Pelangi (kapital), setuju dgn log");
 }
-ok("glossary: pelani homstay->Pelangi Homestay (istilah utuh), Bedugull->Bedugul; kata umum 'pelan' tetap; berlaku di caption & teks adegan");
+ok("#5 glossary: 'pelani'->'Pelangi' / 'homstay'->'Homestay' (near-miss kata tunggal ambil kapital kanonik); caption render & log build.json setuju");
 
 // 3. Hook terbaca penuh di frame 0 tanpa fade dari gelap; scrim ringan; intro lama mati.
 {
@@ -169,9 +176,10 @@ ok("footage: latar bingkai hanya tampil di jendela klipnya (tak menutup klip lai
   const ws = ["Laundry", "in", "Bali,", "laundri", "kilat"].map((word, i) => ({ word, start: i * 0.9, end: i * 0.9 + 0.5 }));
   const b = buildCompositionFromPlan(plan([S.hookFood, { ...S.room, caption: "Laundry in Bali dekat Denpasar" }, S.outro]), media({ words: ws, brand: { ...media().brand, name: "laundry in bali", mark: "LAUNDRY IN BALI" } }));
   assert.ok(b.html.includes("Laundry in Bali dekat") && !/laundry In bali|Laundry->laundry/.test(b.html + b.glossaryFixed.join()), b.glossaryFixed.join());
-  assert.ok(b.captionLines.map((l) => l.text).join(" ").startsWith("Laundry in Bali, laundry"), "laundri->laundry (ejaan, gaya huruf asli), Laundry in Bali tetap");
+  // Revisi-4 (#5): "laundri" salah-eja -> "Laundry" (kapital kanonik brand); "Laundry in Bali" tetap, mark BESAR tetap.
+  assert.ok(b.captionLines.map((l) => l.text).join(" ").startsWith("Laundry in Bali, Laundry"), "laundri->Laundry (near-miss -> kapital kanonik), Laundry in Bali tetap");
 }
-ok("glossary: perubahan huruf besar/kecil saja diabaikan; nama brand huruf kecil di DB -> nama resmi title-case; bagian istilah tak dikapitalisasi");
+ok("glossary: perubahan huruf besar/kecil saja diabaikan; nama brand huruf kecil di DB -> nama resmi title-case; near-miss kata tunggal -> kapital kanonik");
 
 // 10. Placement: proxy subjek lebar (0.16-0.85, menimpa kedua zona) -> caption TETAP tampil, tak ada yg disembunyikan.
 {
@@ -247,13 +255,26 @@ ok("#7 hook yakin: query Pexels saja/cocok lemah (<50% token) -> hook desain; de
 {
   const b = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media());
   assert.ok(!/tl\.(to|fromTo)\("#vpc\d+w\d+"/.test(b.html), "tanpa tween pada kata caption");
-  assert.ok(/tl\.set\("#vpc0w0",\{opacity:1,color:"#E8A33D"\}/.test(b.html), "kata tampil penuh + aksen sekaligus");
+  assert.ok(/tl\.set\("#vpc0w0",\{opacity:1,color:"#E8A33D"/.test(b.html), "kata tampil penuh + aksen sekaligus");
   assert.ok(/\.vpcl b\{[^}]*opacity:0;background:rgba\(8,10,14,\.8\)/.test(b.html));
   assert.ok(contrast("#FFFFFF", CAP_PILL_WORST) >= 7 && contrast("#E8A33D", CAP_PILL_WORST) >= 4.5);
   const dark = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media({ brand: { ...media().brand, accent: "#1B4332" } }));
-  assert.ok(/tl\.set\("#vpc0w0",\{opacity:1,color:"#FFFFFF"\}/.test(dark.html) && !dark.html.includes('color:"#1B4332"'), "aksen gelap tak dipakai di pil gelap");
+  assert.ok(/tl\.set\("#vpc0w0",\{opacity:1,color:"#FFFFFF"/.test(dark.html) && !dark.html.includes('color:"#1B4332"'), "aksen gelap tak dipakai di pil gelap");
 }
 ok("#8 caption: kata muncul instan & penuh (tak pernah pudar), pil gelap .8 (kontras putih ≥7 di atas footage putih), aksen kontras rendah -> putih");
+
+// 14b. (#8b) Ujung kanan pil caption selalu bulat: kata yg muncul membulatkan ujung kanannya; kata sebelumnya diratakan.
+{
+  const words = "Menginap di Pelangi Homestay dekat kebun".split(" ").map((word, i) => ({ word, start: i * 0.4, end: i * 0.4 + 0.3 }));
+  const b = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media({ words }));
+  // kata muncul -> ujung kanan dibulatkan (pil tak kotak di kanan sebelum kata terakhir)
+  assert.ok(/tl\.set\("#vpc0w0",\{opacity:1,color:"[^"]+",borderTopRightRadius:"\d+px",borderBottomRightRadius:"\d+px"\}/.test(b.html), "kata w0 bulat kanan saat muncul");
+  // kata berikut muncul -> kata sebelumnya tak lagi terkanan -> ujung kanannya diratakan
+  assert.ok(/tl\.set\("#vpc0w0",\{borderTopRightRadius:"0px",borderBottomRightRadius:"0px"\}/.test(b.html), "w0 diratakan saat w1 muncul");
+  // CSS awal tetap bulatkan first/last/only child (keadaan diam)
+  assert.ok(/\.vpcl b:first-child\{border-radius:\d+px 0 0 \d+px;\}/.test(b.html) && /\.vpcl b:last-child\{border-radius:0 \d+px \d+px 0;\}/.test(b.html));
+}
+ok("#8b pil caption: ujung kanan selalu bulat (kata terkanan membulatkan ujungnya, kata lama diratakan) -> tak pernah kotak di kanan");
 
 // 15. (#9) Kapitalisasi glossary hanya istilah utuh.
 {
@@ -300,11 +321,16 @@ ok("#11 pil caption per kata: tumbuh kata demi kata tanpa ruang kosong, posisi b
   const f = media().footage;
   const b = buildCompositionFromPlan(plan([{ ...S.hookFood, footageRef: "food" }, S.room, S.outro]), media({ footage: { food: { ...f.food, analysis: LO }, room: { ...f.room, analysis: { ...f.room.analysis!, sharp: 12 } } } }));
   const k = b.clipScenes.indexOf("hook");
-  assert.ok(new RegExp(`#cw${k}::before\\{content:"";position:absolute;width:478px;height:850px;left:301px;top:535px;border-radius:28px;box-shadow:0 24px 60px`).test(b.html));
+  assert.ok(new RegExp(`#cw${k}::before\\{content:"";position:absolute;width:478px;height:850px;left:301px;top:535px;border-radius:28px;box-shadow:`).test(b.html));
   assert.ok(!new RegExp(`#bg${k}\\{[^}]*box-shadow`).test(b.html), "bayangan tak lagi di <video>");
   assert.ok(b.html.includes(`tl.set("#cw${k}",{visibility:"visible"},s);`), "bayangan hanya tampil di jendela klip (gerbang wrapper)");
+  // Revisi-4 (#8a): bayangan terlihat di latar gelap MAUPUN terang -> cincin putih tebal (>=5px, opacity >=.5) utk
+  // latar gelap + drop/glow gelap (opacity >=.4) utk latar terang.
+  const bs = new RegExp(`#cw${k}::before\\{[^}]*box-shadow:([^;]+);`).exec(b.html)![1];
+  assert.ok(/0 0 0 [5-9]px rgba\(255,255,255,\.(?:[5-9]|\d\d)\)/.test(bs), `cincin putih kuat (latar gelap): ${bs}`);
+  assert.ok(/rgba\(0,0,0,\.[4-9]\d*\)/.test(bs), `bayangan gelap kuat (latar terang): ${bs}`);
 }
-ok("#12 bingkai: bayangan+garis di ::before wrapper (bertahan di render), hanya tampil di jendela klipnya");
+ok("#12 bingkai: bayangan+cincin di ::before wrapper (bertahan di render, jelas di latar gelap & terang), hanya tampil di jendela klipnya");
 
 // 19. (#13) Klip terbingkai: tanpa upscale (sumber ≥40% lebar), tanpa transisi zoom/whip (scale) maupun Ken Burns.
 {
@@ -319,4 +345,37 @@ ok("#12 bingkai: bayangan+garis di ::before wrapper (bertahan di render), hanya 
   assert.ok(new RegExp(`tl\\.fromTo\\("#cw${kg}",\\{xPercent`).test(b.html), "zoom -> slide");
 }
 ok("#13 klip buram terbingkai: tanpa upscale (≤ sumber, min 40% lebar), transisi zoom/whip -> slide (tanpa scale)");
+
+// ===== Revisi-4 (2026-11-05) =====
+// 20. (#6) Non-hook klaim subjek: footage query Pexels -> adegan desain; footage vision (ber-tags) cocok -> footage.
+{
+  const q = { description: "vampire finch pecking seabird blood feeding", tags: [] as string[], source: "query" as const };
+  const vis = { description: "Burung finch kecil mematuk burung laut", tags: ["burung", "finch"], source: "vision" as const };
+  const meet = { id: "meet", type: "footage-caption", duration: 3, transition: "zoom", footageRef: "food", subject: "burung finch", caption: "Vampire finch, Galapagos" };
+  const hook = { ...S.hookFood, footageRef: "room", subject: "kamar" };
+  const mk = (meta: { description: string; tags: string[]; source: "vision" | "query" }) => media({ footage: { ...media().footage, food: { ...media().footage.food, subject: meta } } });
+  // Footage hanya query Pexels (isi frame tak dijamin) -> klaim subjek "burung finch" jatuh ke adegan desain.
+  const bq = buildCompositionFromPlan(plan([hook, meet, S.room, S.outro]), mk(q));
+  assert.ok(bq.designScenes.includes("meet") && !bq.clipScenes.includes("meet"), `query -> meet desain: design=${bq.designScenes} clips=${bq.clipScenes}`);
+  assert.ok(!bq.html.includes("./m/food.mp4"), "footage query tak dipakai utk klaim subjek");
+  // Footage vision (deskripsi isi frame + tags) yg cocok -> dipakai sbg footage adegan.
+  const bv = buildCompositionFromPlan(plan([hook, meet, S.room, S.outro]), mk(vis));
+  assert.ok(bv.clipScenes.includes("meet") && !bv.designScenes.includes("meet"), `vision -> meet footage: design=${bv.designScenes} clips=${bv.clipScenes}`);
+  assert.ok(bv.html.includes("./m/food.mp4"), "footage vision cocok dipakai");
+}
+ok("#6 non-hook: klaim subjek (subject/caption footage) wajib footage vision (isi frame), bukan query Pexels -> query jadi adegan desain");
+
+// 21. (#7) Before-after tanpa footage cocok -> visual DESAIN (2 panel + label mengisi frame), bukan frame nyaris kosong.
+{
+  const ba = { id: "ba", type: "before-after", duration: 3.5, transition: "whip", subject: "pakaian cucian", before: { label: "Cucian numpuk", footageRef: "garden" }, after: { label: "Dilipat rapi", footageRef: "garden" } };
+  const b = buildCompositionFromPlan(plan([S.hookFood, ba, S.room, S.outro]), media());
+  assert.ok(b.designScenes.includes("ba"), `ba harus desain (footage tak cocok): ${b.designScenes}`);
+  const idx = b.windows.findIndex((w) => w.scene.id === "ba");
+  assert.ok(new RegExp(`<div id="sc${idx}" class="vp-ba2">`).test(b.html), "before-after desain = panel split (bukan hanya label di latar)");
+  assert.ok(b.html.includes(">Cucian numpuk</div>") && b.html.includes(">Dilipat rapi</div>"), "kedua label tampil di panel");
+  assert.ok(new RegExp(`#sc${idx} \\.pnl\\{[^}]*min-height:\\d+px`).test(b.html), "panel mengisi area tengah (tak kosong)");
+  assert.ok(b.html.includes(`id="vpd${idx}"`), "latar brand (designBg) di belakang panel");
+}
+ok("#7 before-after tanpa footage: visual desain 2 panel + label mengisi frame (lolos QC tekstur), bukan latar kosong");
+
 console.log(`ALL_VIDEOPLAN_REVISI_TESTS_PASS (${n} tes)`);

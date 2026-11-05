@@ -93,6 +93,7 @@ export function captionLayer(words: HfWord[], o: { offset: number; total: number
   const { lines, size } = captionLines(words, { ...o, font: o.brand.font });
   const sa = safeArea(o.w, o.h);
   const active = contrast(o.brand.accent, CAP_PILL_WORST) >= 4.5 ? o.brand.accent : "#FFFFFF";
+  const r = Math.round(size * 0.3), py = Math.round(size * 0.1), px = Math.round(size * 0.18);
   const html: string[] = [], tl: string[] = [];
   lines.forEach((ln, i) => {
     if (!ln.zone) return;
@@ -101,10 +102,13 @@ export function captionLayer(words: HfWord[], o: { offset: number; total: number
     tl.push(`tl.set("#vpc${i}",{visibility:"visible"},${f3(ln.start)});`, `tl.set("#vpc${i}",{visibility:"hidden"},${f3(ln.end)});`);
     ln.words.forEach((wd, j) => {
       const t = Math.max(ln.start, o.offset + wd.start - 0.08), te = Math.max(t + 0.1, o.offset + wd.end);
-      tl.push(`tl.set("#vpc${i}w${j}",{opacity:1,color:"${active}"},${f3(t)});`, `tl.set("#vpc${i}w${j}",{color:"#FFFFFF"},${f3(te)});`);
+      // Kata muncul = jadi kata TERKANAN yg tampil -> ujung kanannya dibulatkan (pil tak pernah kotak di kanan
+      // sampai kata terakhir); kata sebelumnya tak lagi terkanan -> ujung kanannya diratakan. Posisi/opacity instan.
+      tl.push(`tl.set("#vpc${i}w${j}",{opacity:1,color:"${active}",borderTopRightRadius:"${r}px",borderBottomRightRadius:"${r}px"},${f3(t)});`);
+      if (j > 0) tl.push(`tl.set("#vpc${i}w${j - 1}",{borderTopRightRadius:"0px",borderBottomRightRadius:"0px"},${f3(t)});`);
+      tl.push(`tl.set("#vpc${i}w${j}",{color:"#FFFFFF"},${f3(te)});`);
     });
   });
-  const r = Math.round(size * 0.3), py = Math.round(size * 0.1), px = Math.round(size * 0.18);
   return {
     lines,
     html: html.join(""),

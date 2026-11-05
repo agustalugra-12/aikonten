@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { buildComposition, type HfClip, type HfCompositionInput, type HfWord } from "@/lib/render/hyperframesComposition";
 import type { Scene, VideoPlan } from "./videoPlan";
 import { designBg, flashLayer, renderScene, safeHex, type BrandColors, type Layer } from "./sceneLibrary";
-import { applyGlossary, fixText, freeZone, hookConfidence, isBlurry, MIN_FRAME_SHARP, officialName, subjectScore, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
+import { applyGlossary, fixText, freeZone, hookConfidence, isBlurry, MIN_FRAME_SHARP, officialName, subjectScore, subjectSource, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
 import { captionLayer, hookLayer } from "./planText";
 
 // mediaStart = awal segmen di sumber; subject = metadata isi (footage_bank/Pexels); analysis = ketajaman & letak subjek.
@@ -93,8 +93,14 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     const subj = s.subject || (isHook && s.type === "hook" ? s.text : "");
     const meta = m.footage[r].subject;
     if (isHook) { const c = hookConfidence(subj, meta); hookWhy[r] = sharpOk(r) ? c.reason : "buram"; return c.ok && sharpOk(r); }
-    if (!s.subject) return true;
-    return !meta || subjectScore(s.subject, meta) > 0;
+    // Klaim subjek (subject adegan, caption berlabel footage-caption, atau before-after) WAJIB footage ber-metadata
+    // isi frame (source=="vision" / ber-tags), bukan query Pexels atau tanpa metadata -> kalau tidak, adegan desain
+    // (sama seperti hook: klip query "vampire finch" ternyata burung kecil di tangan). Tanpa klaim subjek ->
+    // footage bebas (pemakaian latar / plan lama tanpa subject tetap diterima).
+    const claim = !!s.subject || (s.type === "footage-caption" && !!s.caption) || s.type === "before-after";
+    if (!claim) return true;
+    if (subjectSource(meta) !== "vision") return false;
+    return !s.subject || subjectScore(s.subject, meta) > 0;
   };
   const hook = windows[0].scene;
   // Hero hanya bila YAKIN (hookConfidence: metadata isi frame, bukan query Pexels; cakupan subjek ≥50%) & tak buram.
@@ -211,7 +217,9 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     // ikut gerbang waktu wrapper -> hanya tampil di jendela klip.
     const gate = `((d)=>{const s=+d.start,e=s+ +d.duration;tl.set("#cw${k}",{visibility:"hidden"},0);tl.set("#cw${k}",{visibility:"visible"},s);tl.set("#cw${k}",{visibility:"hidden"},e);})(document.getElementById("bg${k}").dataset);`;
     const box = `width:${f.fw}px;height:${f.fh}px;left:${f.left}px;top:${f.top}px;border-radius:28px;`;
-    layers.push({ html: "", tl: [gate], css: `#cw${k}{background:radial-gradient(120% 85% at 50% 30%,${brand.primary},${brand.bg2});}#cw${k}::before{content:"";position:absolute;${box}box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 4px rgba(255,255,255,.22);}#bg${k}{${box.replace(/;/g, "!important;").replace("border-radius:28px!important;", "border-radius:28px;")}transform:none!important;}` });
+    // Bayangan bingkai WAJIB terlihat di latar brand gelap MAUPUN terang (bertahan di render JPG): cincin putih
+    // tebal (nampak di latar gelap) + garis gelap tipis di luarnya + drop/glow gelap (nampak di latar terang).
+    layers.push({ html: "", tl: [gate], css: `#cw${k}{background:radial-gradient(120% 85% at 50% 30%,${brand.primary},${brand.bg2});}#cw${k}::before{content:"";position:absolute;${box}box-shadow:0 28px 70px rgba(0,0,0,.6),0 0 0 5px rgba(255,255,255,.5),0 0 0 7px rgba(0,0,0,.3),0 0 42px 14px rgba(0,0,0,.4);}#bg${k}{${box.replace(/;/g, "!important;").replace("border-radius:28px!important;", "border-radius:28px;")}transform:none!important;}` });
   });
   // Mode plan: intro lama dimatikan (hook pakai hookLayer), scrim layar penuh diperingan; nama brand dlm pil.
   layers.push({ html: "", tl: [], css: `#introLayer{display:none;}#scrim{background:linear-gradient(180deg,rgba(6,12,24,.2) 0%,rgba(6,12,24,0) 22%,rgba(6,12,24,0) 70%,rgba(6,12,24,.28) 100%);}#mark{left:50%;right:auto;transform:translateX(-50%);white-space:nowrap;background:rgba(8,10,14,.72);padding:10px 28px;border-radius:999px;text-shadow:none;}` });

@@ -112,9 +112,13 @@ export function applyGlossary(words: HfWord[], terms: string[]): { words: HfWord
       });
       i += t.parts.length; continue;
     }
-    // Bagian istilah multi-kata: koreksi ejaan saja (≥5 huruf, beda ≥1), tanpa menaikkan kapital.
-    const p = T.filter((x) => x.parts.length > 1).flatMap((x) => x.parts).find((q) => norm(sp[i][2]) !== norm(q) && near(sp[i][2], q));
-    if (p) put(i, styleLike(sp[i][2], p));
+    // Bagian istilah: kata SALAH-EJA (near-miss) yg cocok sebuah bagian istilah dikoreksi ejaan DAN mengambil
+    // kapitalisasi KANONIK istilah ber-casing ("pelani"->"Pelangi", "homstay"->"Homestay"). Kata ditulis BESAR
+    // semua (gaya mark) hanya dikoreksi ejaan. Kata yg ejaannya sudah benar (beda kapital saja) TIDAK masuk sini
+    // (norm sama) -> kata umum "nasi"/"homestay" tetap. Istilah 1 kata ditangani cabang istilah utuh di atas.
+    const o = sp[i][2], allCaps = o.length > 1 && o === o.toUpperCase();
+    const hit = T.filter((x) => x.parts.length > 1).flatMap((x) => x.parts.map((q) => ({ q, cased: x.cased }))).find(({ q }) => norm(o) !== norm(q) && near(o, q));
+    if (hit) put(i, hit.cased && !allCaps ? hit.q : styleLike(o, hit.q));
     i++;
   }
   return { words: out, fixed };

@@ -186,6 +186,19 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
     case "before-after": {
       const half = c.start + c.dur / 2;
       const ls = Math.round(c.w * 0.045);
+      if (c.design) {
+        // Footage before/after tak ada/tak cocok -> visual DESAIN (bukan frame nyaris kosong): dua panel bertumpuk
+        // (sebelum = panel gelap, sesudah = panel aksen) + panah turun + label besar, mengisi area tengah frame
+        // (lolos QC tekstur). Latar brand (designBg) disuntik terpisah oleh builder.
+        const longest = [scene.before.label, scene.after.label].reduce((a, b) => (a.length > b.length ? a : b), "");
+        const ds = fitFont(longest, maxW - Math.round(c.w * 0.1), Math.round(c.w * 0.072), Math.round(c.w * 0.044), 1, st.head);
+        const pnl = (k: string, txt: string, bgc: string) => `<div class="pnl" id="${id}${k}" style="background:${bgc};color:${pickInk(bgc)};">${esc(txt)}</div>`;
+        return {
+          html: `<div id="${id}" class="vp-ba2">${pnl("b", scene.before.label, c.brand.bg2)}<div class="ar" id="${id}ar">${svgArrow(pickInk(c.brand.primary), Math.round(c.w * 0.085))}</div>${pnl("a", scene.after.label, c.brand.accent)}</div>`,
+          css: `#${id}{position:absolute;left:${sa.x0}px;right:${c.w - sa.x1}px;top:${Math.round(c.h * 0.27)}px;z-index:560;visibility:hidden;opacity:0;display:flex;flex-direction:column;gap:${Math.round(c.w * 0.028)}px;}#${id} .pnl{min-height:${Math.round(c.h * 0.155)}px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:${st.radius + 10}px;padding:${Math.round(c.w * 0.05)}px;font:${st.headW} ${ds}px/1.1 ${head};${up}overflow-wrap:anywhere;box-shadow:0 18px 50px rgba(0,0,0,.4);}#${id} .ar{display:flex;justify-content:center;transform:rotate(90deg);}`,
+          tl: [...inOut(`#${id}`, c, st), `tl.fromTo("#${id}a",{opacity:.35,scale:.95},{opacity:1,scale:1,duration:.5,ease:"${st.ease}"},${f3(half)});`],
+        };
+      }
       const tag = (k: string, txt: string, side: string) => `<div id="${id}${k}" class="vp-ba" style="${side}">${esc(txt)}</div>`;
       return {
         html: `${tag("b", scene.before.label, `left:${sa.x0}px`)}${tag("a", scene.after.label, `right:${c.w - sa.x1}px`)}<div id="${id}w" class="vp-wipe"></div>`,
