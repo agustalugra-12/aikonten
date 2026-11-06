@@ -4,6 +4,8 @@
 // CTA). Pola seek-safe: master timeline paused + window.__timelines; footage/audio = timed clip
 // (id + class=clip). Dirender di worker terpisah (lihat hyperframesClient.ts). Overlay via GSAP.
 
+import { punchIn, whipPan, flash, textReveal, countUp, lowerThirdInOut, type MotionPackConfig } from "./motionPack";
+
 export type HfWord = { word: string; start: number; end: number };
 export type HfClip = { videoUrl: string; durationSeconds: number; mediaStart?: number };
 export type HfCompositionInput = {
@@ -33,6 +35,10 @@ export type HfCompositionInput = {
   topBar?: boolean;                // garis aksen tipis tepi ATAS - DEFAULT OFF (cacat nyata: garis kuning)
   busy?: Array<[number, number]>;  // jendela waktu yg dipakai adegan -> callout tak menimpa
   layers?: Array<{ html: string; css: string; tl: string[] }>; // overlay adegan (sceneLibrary)
+  // Motion Pack 1 (2026-11-06): config ter-resolve (motionPack.ts). TIDAK diisi (undefined) =
+  // jalur lama, output buildComposition byte-identik (dijaga golden test). Diisi = 6 motion
+  // dirutekan lewat pack (intensitas/ease/flash per tone). Resolve dari brandKit.motionPack.
+  motionPack?: MotionPackConfig;
 };
 
 const DIM = { portrait: { w: 1080, h: 1920 }, landscape: { w: 1920, h: 1080 }, square: { w: 1080, h: 1080 } };
@@ -106,6 +112,8 @@ export function buildComposition(input: HfCompositionInput): string {
     stat = null, stats = null, lowerThird = null, look = "clean", pacing = "medium", emphasisPhrases = [],
     transitions, musicVolume = 0.13, layers = [], topBar = false,
   } = input;
+  // Motion Pack 1 (opt-in): undefined => semua cabang di bawah ambil jalur lama (identik).
+  const mp = input.motionPack;
   // Fase 5 (data blocks): render BEBERAPA statOverlays AI (bukan cuma 1), staggered di
   // tengah video, tiap blok pop+punch lalu hilang. Fallback ke `stat` tunggal (back-compat).
   const statsArr = (stats && stats.length ? stats : stat ? [stat] : [])
@@ -228,7 +236,9 @@ export function buildComposition(input: HfCompositionInput): string {
     g.forEach((wd, wi) => {
       const t = Math.max(introSeconds, introSeconds + wd.start - CAP_LEAD), te = introSeconds + wd.end;
       // Pop-in (scale+y) + karaoke: kata aktif warna aksen saat diucapkan, balik ink di akhir.
-      tlLines.push(`tl.fromTo("#g${gi}w${wi}",{opacity:0,scale:.5,y:22},{opacity:1,scale:1,y:0,duration:.16,ease:"back.out(2)"},${t.toFixed(3)});`);
+      // Motion Pack: tiered text-reveal (intensitas/ease per tone) kalau aktif; else jalur lama.
+      if (mp?.enabled.textReveal) tlLines.push(...textReveal({ target: `#g${gi}w${wi}`, at: t, intensity: mp.intensity, ease: mp.eases.pop }));
+      else tlLines.push(`tl.fromTo("#g${gi}w${wi}",{opacity:0,scale:.5,y:22},{opacity:1,scale:1,y:0,duration:.16,ease:"back.out(2)"},${t.toFixed(3)});`);
       tlLines.push(`tl.set("#g${gi}w${wi}",{color:"${accent}"},${t.toFixed(3)});`);
       tlLines.push(`tl.set("#g${gi}w${wi}",{color:"${ink}"},${te.toFixed(3)});`);
     });
@@ -237,8 +247,11 @@ export function buildComposition(input: HfCompositionInput): string {
   });
   if (lowerThird) {
     const lt = introSeconds + (lowerThird.atSeconds ?? 1.5), ld = lowerThird.durationSeconds ?? 3.5;
-    tlLines.push(`tl.fromTo("#lt",{opacity:0,y:30},{opacity:1,y:0,duration:.4,ease:"power3.out"},${lt.toFixed(3)});`);
-    tlLines.push(`tl.to("#lt",{opacity:0,duration:.35,ease:"power2.in"},${(lt + ld).toFixed(3)});`);
+    if (mp?.enabled.lowerThird) tlLines.push(...lowerThirdInOut({ target: "#lt", inAt: lt, outAt: lt + ld, intensity: mp.intensity, easeIn: mp.eases.cam }));
+    else {
+      tlLines.push(`tl.fromTo("#lt",{opacity:0,y:30},{opacity:1,y:0,duration:.4,ease:"power3.out"},${lt.toFixed(3)});`);
+      tlLines.push(`tl.to("#lt",{opacity:0,duration:.35,ease:"power2.in"},${(lt + ld).toFixed(3)});`);
+    }
   }
   if (statsArr.length) {
     const n = statsArr.length;
@@ -249,7 +262,10 @@ export function buildComposition(input: HfCompositionInput): string {
       const st = base + j * slot;
       tlLines.push(`tl.fromTo("#statCard${j}",{opacity:0,scale:.7,y:24},{opacity:1,scale:1,y:0,duration:.42,ease:"back.out(2)"},${st.toFixed(3)});`);
       const p = statParsed[j];
-      if (p) tlLines.push(`var o${j}={v:0};tl.to(o${j},{v:${p.num},duration:.9,ease:"power2.out",onUpdate:function(){document.getElementById("num${j}").textContent=fmtNum(o${j}.v,${p.grouped});}},${st.toFixed(3)});`);
+      if (p) {
+        if (mp?.enabled.countUp) tlLines.push(...countUp({ varName: `o${j}`, numId: `num${j}`, num: p.num, grouped: p.grouped, at: st, intensity: mp.intensity }));
+        else tlLines.push(`var o${j}={v:0};tl.to(o${j},{v:${p.num},duration:.9,ease:"power2.out",onUpdate:function(){document.getElementById("num${j}").textContent=fmtNum(o${j}.v,${p.grouped});}},${st.toFixed(3)});`);
+      }
       tlLines.push(`tl.to("#statCard${j}",{opacity:0,scale:.92,duration:.3,ease:"power2.in"},${(st + hold).toFixed(3)});`);
     });
   }
@@ -292,11 +308,26 @@ export function buildComposition(input: HfCompositionInput): string {
         const trans = transitions?.[i] !== undefined ? (PT[transitions[i]] ?? 0) : i % 4; // 0 crossfade · 1 slide · 2 zoom · 3 whip (gantian -> terasa "diedit")
         if (trans === 1) tlLines.push(`tl.fromTo("#cw${i}",{xPercent:${d2 * 100}},{xPercent:0,duration:.5,ease:"power3.out"},${v.estart.toFixed(3)});`);
         else if (trans === 2) tlLines.push(`tl.fromTo("#cw${i}",{scale:1.35,opacity:0},{scale:1,opacity:1,duration:.45,ease:"power3.out"},${v.estart.toFixed(3)});`);
-        else if (trans === 3) tlLines.push(`tl.fromTo("#cw${i}",{xPercent:${d2 * 65},scale:1.12,opacity:.3},{xPercent:0,scale:1,opacity:1,duration:.3,ease:"power4.out"},${v.estart.toFixed(3)});`);
+        // Motion Pack: whip-pan (jarak lempar per intensitas/ease per tone) kalau aktif; else jalur lama.
+        else if (trans === 3) {
+          if (mp?.enabled.whipPan) tlLines.push(...whipPan({ target: `#cw${i}`, at: v.estart, intensity: mp.intensity, dir: d2, ease: mp.eases.whip }));
+          else tlLines.push(`tl.fromTo("#cw${i}",{xPercent:${d2 * 65},scale:1.12,opacity:.3},{xPercent:0,scale:1,opacity:1,duration:.3,ease:"power4.out"},${v.estart.toFixed(3)});`);
+        }
         else tlLines.push(`tl.fromTo("#cw${i}",{opacity:0},{opacity:1,duration:${XFADE},ease:"power1.inOut"},${v.estart.toFixed(3)});`);
       }
-      tlLines.push(`tl.fromTo("#bg${i}",{scale:${v.s0},xPercent:${v.x0},yPercent:${v.y0}},{scale:${v.s1},xPercent:${v.x1},yPercent:${v.y1},duration:${v.edur.toFixed(3)},ease:"power1.out"},${v.estart.toFixed(3)});`);
+      // Motion Pack: punch-in (Ken Burns per intensitas/ease per tone) kalau aktif; else jalur lama.
+      if (mp?.enabled.punchIn) tlLines.push(...punchIn({ target: `#bg${i}`, at: v.estart, duration: v.edur, intensity: mp.intensity, zoomIn: i % 2 === 0, dir: i % 2 === 0 ? 1 : -1, ease: mp.eases.cam }));
+      else tlLines.push(`tl.fromTo("#bg${i}",{scale:${v.s0},xPercent:${v.x0},yPercent:${v.y0}},{scale:${v.s1},xPercent:${v.x1},yPercent:${v.y1},duration:${v.edur.toFixed(3)},ease:"power1.out"},${v.estart.toFixed(3)});`);
     });
+    // Motion Pack: flash putih cepat di titik cut (whip / cut eksplisit). Opt-in via tone
+    // (playful) / toggle. Overlay #flash murni opacity -> jalur cepat BeginFrame (bukan screenshot).
+    if (mp?.enabled.flash) {
+      clipWins.forEach((v, i) => {
+        if (i === 0) return;
+        const isWhip = transitions?.[i] !== undefined ? transitions[i] === "whip" : i % 4 === 3;
+        if (isWhip || transitions?.[i] === "cut") tlLines.push(...flash({ at: v.estart, intensity: mp.intensity }));
+      });
+    }
   }
   // Faceless bg: 2 blob lembut drift PELAN satu arah sepanjang video (ambient, bukan loop
   // "breathing" yg terlihat AI-generated). Gerak halus = latar "hidup" tanpa footage.
@@ -329,7 +360,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 .clipwrap{position:absolute;inset:0;overflow:hidden;will-change:transform,opacity;}
 .bg{position:absolute;left:0;top:0;width:${w}px;height:${h}px;object-fit:cover;filter:${lk.filter};}
 #grade{position:absolute;inset:0;z-index:250;pointer-events:none;background:${lk.tint || "transparent"};mix-blend-mode:${lk.blend || "normal"};opacity:${lk.op ?? 0};}
-#vignette{position:absolute;inset:0;z-index:310;pointer-events:none;background:radial-gradient(ellipse 78% 72% at 50% 42%,transparent 48%,rgba(0,0,0,${lk.vig}) 100%);}
+#vignette{position:absolute;inset:0;z-index:310;pointer-events:none;background:radial-gradient(ellipse 78% 72% at 50% 42%,transparent 48%,rgba(0,0,0,${lk.vig}) 100%);}${mp?.enabled.flash ? `\n#flash{position:absolute;inset:0;z-index:720;pointer-events:none;background:#fff;opacity:0;}` : ""}
 #facelessBg{position:absolute;inset:0;z-index:0;background:radial-gradient(120% 90% at 50% 10%,var(--bg1),var(--bg2));}
 .blob{position:absolute;z-index:0;width:${Math.round(w * 0.9)}px;height:${Math.round(w * 0.9)}px;border-radius:50%;filter:blur(90px);}
 #blob1{top:${Math.round(h * 0.04)}px;left:${Math.round(w * 0.08)}px;background:var(--accent);opacity:.26;}
@@ -368,7 +399,7 @@ ${layers.map((L) => L.css + "\n").join("")}#cta span{display:inline-flex;align-i
     ${lowerThird ? `<div id="lt"><div class="t">${esc(lowerThird.title || "")}</div>${lowerThird.subtitle ? `<div class="s">${esc(lowerThird.subtitle)}</div>` : ""}</div>` : ""}
     ${statsArr.map((s, j) => { const p = statParsed[j]; const v = p ? `${esc(p.prefix)}<span id="num${j}">${esc(p.display)}</span>${esc(p.suffix)}` : esc(s.value || ""); return `<div class="statCard" id="statCard${j}"><span class="v">${v}</span><span class="l">${esc(s.label || "")}</span></div>`; }).join("")}
     ${callouts.map((c, j) => `<div class="callout" id="callout${j}">${esc(c.text)}</div>`).join("")}${layers.map((L) => L.html).join("")}
-    ${topBar ? `<div class="bar" id="bar"></div>` : ""}
+    ${mp?.enabled.flash ? `<div id="flash"></div>\n    ` : ""}${topBar ? `<div class="bar" id="bar"></div>` : ""}
     ${logoUrl ? `<img class="brandlogo" id="brandlogo" src="${esc(logoUrl)}" alt=""/>` : ""}${mark ? `<div class="mark" id="mark">${esc(mark)}</div>` : ""}
     <div id="introLayer"><div id="introText">${hookSpans}</div></div>
     ${cta ? `<div id="cta"><span>${esc(cta)} &#8594;</span></div>` : ""}

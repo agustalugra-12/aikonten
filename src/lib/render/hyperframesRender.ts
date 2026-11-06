@@ -3,6 +3,7 @@
 // (ffmpeg) supaya downstream processProject (quality check, media_assets) tak berubah.
 import { createHash } from "node:crypto";
 import { buildComposition, type HfClip, type HfWord } from "./hyperframesComposition";
+import { resolveMotionPackConfig } from "./motionPack";
 import { renderComposition } from "./hyperframesClient";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { getAudioDurationSeconds } from "@/lib/ai/dubbing";
@@ -96,6 +97,8 @@ export async function renderViaHyperframes(
     stats: (opts.statOverlays || []).map((s) => ({ label: s.label, value: s.value })), // Fase 5 data blocks (semua, staggered)
     stat: opts.statOverlays && opts.statOverlays[0] ? { label: opts.statOverlays[0].label, value: opts.statOverlays[0].value } : null,
     lowerThird: opts.lowerThird ? { title: opts.lowerThird.name, subtitle: opts.lowerThird.tagline, atSeconds: 1.2, durationSeconds: 4 } : null,
+    // Motion Pack 1 (2026-11-06): null (default-off) -> undefined -> buildComposition jalur lama (identik).
+    motionPack: resolveMotionPackConfig((bk as { motionPack?: unknown }).motionPack) ?? undefined,
   });
 
   // Gerbang 2: queueOpts selalu diteruskan; renderComposition abaikan kalau flag HYPERFRAMES_QUEUE_ENABLED off

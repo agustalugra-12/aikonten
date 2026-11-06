@@ -52,6 +52,7 @@ import {
 import { isBrandTransitionStyle, type BrandTransitionStyle } from "./transitions";
 import { DEFAULT_KINETIC_DESIGN, type KineticDesign } from "./kineticText";
 import { DEFAULT_BG_DESIGN, type BgDesign } from "./bgAnimation";
+import { isMotionTone, resolveMotionPackConfig, MOTION_IDS, type MotionTone, type MotionPackConfig } from "./motionPack";
 
 // Brand Kit (2026-10-25, Phase 2). Tipografi & palet per-tenant yg DISIMPAN sbg 1 kolom
 // JSON `brandKit` di tabel brands (lihat schema.ts). SEMUA field opsional - yg kosong
@@ -122,6 +123,16 @@ export type BrandKit = {
   videoPlanMode?: "off";
   // Profil kategori footage per-brand (planHeroAndClips domain). unset = universal (ditandai unknown di log).
   footageDomain?: "animal" | "hospitality" | "laundry" | "business";
+  // Motion Pack 1 (2026-11-06) - 6 motion kohesif tone-aware di jalur HyperFrames (GSAP).
+  // DEFAULT-OFF: enabled!=true -> buildComposition pakai jalur lama (byte-identik). tone atur
+  // motion aktif + intensitas + ease + flash on/off; intensity (0-100) override global;
+  // motions.* override per-motion. Lihat motionPack.ts.
+  motionPack?: {
+    enabled?: boolean;
+    tone?: MotionTone; // premium | friendly | playful
+    intensity?: number; // 0-100 (override intensitas default tone)
+    motions?: { punchIn?: boolean; whipPan?: boolean; flash?: boolean; textReveal?: boolean; countUp?: boolean; lowerThird?: boolean };
+  };
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -316,6 +327,38 @@ export function validateBrandKit(input: unknown): { ok: true; value: BrandKit } 
     if (!DOMAINS.includes(o.footageDomain as string)) return { ok: false, error: "footageDomain harus animal/hospitality/laundry/business" };
     out.footageDomain = o.footageDomain as BrandKit["footageDomain"];
   }
+  // Motion Pack 1 (2026-11-06) - validasi ketat tiap sub-field (enum/bool/range).
+  if ("motionPack" in o && o.motionPack !== undefined && o.motionPack !== null) {
+    if (typeof o.motionPack !== "object" || Array.isArray(o.motionPack)) return { ok: false, error: "motionPack harus object" };
+    const m = o.motionPack as Record<string, unknown>;
+    const om: NonNullable<BrandKit["motionPack"]> = {};
+    if ("enabled" in m && m.enabled !== undefined) {
+      if (typeof m.enabled !== "boolean") return { ok: false, error: "motionPack.enabled harus boolean" };
+      om.enabled = m.enabled;
+    }
+    if ("tone" in m && m.tone !== undefined) {
+      if (!isMotionTone(m.tone)) return { ok: false, error: "motionPack.tone harus premium/friendly/playful" };
+      om.tone = m.tone as MotionTone;
+    }
+    if ("intensity" in m && m.intensity !== undefined) {
+      const v = Number(m.intensity);
+      if (!Number.isFinite(v) || v < 0 || v > 100) return { ok: false, error: "motionPack.intensity harus 0-100" };
+      om.intensity = v;
+    }
+    if ("motions" in m && m.motions !== undefined && m.motions !== null) {
+      if (typeof m.motions !== "object" || Array.isArray(m.motions)) return { ok: false, error: "motionPack.motions harus object" };
+      const mo = m.motions as Record<string, unknown>;
+      const out2: NonNullable<NonNullable<BrandKit["motionPack"]>["motions"]> = {};
+      for (const key of MOTION_IDS) {
+        if (key in mo && mo[key] !== undefined) {
+          if (typeof mo[key] !== "boolean") return { ok: false, error: `motionPack.motions.${key} harus boolean` };
+          out2[key] = mo[key] as boolean;
+        }
+      }
+      om.motions = out2;
+    }
+    out.motionPack = om;
+  }
   return { ok: true, value: out };
 }
 
@@ -347,6 +390,10 @@ export type ResolvedBrandKit = {
   // Price Overlay (2026-10-29). priceOverlayEnabled=false => tak dirender (default-off).
   priceOverlayEnabled: boolean;
   priceOverlayLabel?: string;
+  // Motion Pack 1 (2026-11-06). motionPackEnabled=false => buildComposition jalur lama
+  // (byte-identik). config != null hanya kalau enabled -> di-plumb ke HfCompositionInput.motionPack.
+  motionPackEnabled: boolean;
+  motionPackConfig: MotionPackConfig | null;
 };
 
 // Dipakai renderer (processProject). json = kolom brands.brandKit mentah. null/kosong/
@@ -392,6 +439,9 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
   if (heading.usedFallback) usedFallbacks.push(`heading font (${String(bk.headingFont)}/${String(bk.headingWeight)} -> ${heading.family}/${heading.weight})`);
   if (titleAnim.usedFallback) usedFallbacks.push(`title preset (${String(bk.title?.preset)} -> ${titleAnim.animation})`);
 
+  // Motion Pack 1: null kalau tak enabled (jalur lama). Resolve tone -> motion aktif/intensitas/ease.
+  const motionPackConfig = resolveMotionPackConfig(bk.motionPack);
+
   return {
     subtitleDesign,
     titleCardDesign,
@@ -425,6 +475,8 @@ export function resolveBrandKit(json: string | null | undefined): ResolvedBrandK
     },
     priceOverlayEnabled: bk.priceOverlay?.enabled === true,
     priceOverlayLabel: bk.priceOverlay?.label,
+    motionPackEnabled: motionPackConfig !== null,
+    motionPackConfig,
   };
 }
 
