@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { brands } from "@/db/schema";
+import { brands, users } from "@/db/schema";
+import { durasiTargetDiizinkan, DURASI_EKSTERNAL } from "@/lib/billing/durasiVideo";
 import { eq } from "drizzle-orm";
 import { getUserId, getOwnedBrand } from "@/lib/session";
 import { planMengizinkanAutoPosting } from "@/lib/billing/planGate";
@@ -75,6 +76,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const v = Number(body.videoDurationTarget);
     if (![30, 60, 90, 180, 300, 480].includes(v)) {
       return NextResponse.json({ error: "videoDurationTarget harus 30, 60, 90, 180, 300, atau 480" }, { status: 400 });
+    }
+    // Tenant eksternal (owner bukan unlimited) hanya 30-60 dtk (2026-11-05, durasiVideo.ts).
+    const [pemilik] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, existing.userId));
+    if (!durasiTargetDiizinkan(v, pemilik?.unlimited)) {
+      return NextResponse.json({ error: `Durasi video ${v} detik tidak tersedia untuk paket ini. Pilih ${DURASI_EKSTERNAL.min}-${DURASI_EKSTERNAL.max} detik.` }, { status: 400 });
     }
     update.videoDurationTarget = v;
   }
@@ -280,6 +286,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const res = validateBrandKit(body.brandKit);
     if (!res.ok) {
       return NextResponse.json({ error: res.error }, { status: 400 });
+    }
+    // Mesin render "scenes" (video Desain ~10-15 dtk) tak tersedia utk tenant eksternal
+    // (owner bukan unlimited) - 2026-11-05, durasiVideo.ts. Backend tetap otoritas: ditolak
+    // di sini SAAT DISIMPAN (plus backstop pastikanFormatDiizinkan saat generate).
+    if (res.value.renderEngine === "scenes") {
+      const [pemilik] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, existing.userId));
+      if (!pemilik?.unlimited) {
+        return NextResponse.json({ error: `Mode video Desain (scenes) menghasilkan video di bawah ${DURASI_EKSTERNAL.min} detik dan belum tersedia untuk paket ini. Pilih mesin render Standar atau HyperFrames.` }, { status: 400 });
+      }
     }
     update.brandKit = body.brandKit === null ? null : JSON.stringify(res.value);
   }

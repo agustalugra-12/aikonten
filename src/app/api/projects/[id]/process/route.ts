@@ -7,6 +7,7 @@ import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/stat
 import { db } from "@/db";
 import { brands, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { brandKitRenderEngine } from "@/lib/render/brandKit";
 import { hitungBiayaKredit, pastikanFormatDiizinkan, VideoPanjangTidakTersediaError } from "@/lib/billing/aturanProduk";
 import { gateGenerateManual } from "@/lib/billing/generateGate";
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const [brandProj] = await db.select().from(brands).where(eq(brands.id, project.brandId));
   const [pemilikProj] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, userId));
   try {
-    pastikanFormatDiizinkan({ type: project.type, contentFormat: project.contentFormat, videoDurationTarget: brandProj?.videoDurationTarget, unlimited: pemilikProj?.unlimited });
+    pastikanFormatDiizinkan({ type: project.type, contentFormat: project.contentFormat, videoDurationTarget: brandProj?.videoDurationTarget, unlimited: pemilikProj?.unlimited, renderEngine: brandKitRenderEngine(brandProj?.brandKit) });
   } catch (err) {
     if (err instanceof VideoPanjangTidakTersediaError) return NextResponse.json({ error: err.message }, { status: 403 });
     throw err;

@@ -7,6 +7,7 @@ import type { Brand, ProjectDetail } from "@/types";
 import { UploadModal } from "@/components/dashboard/UploadModal";
 import { createZip } from "@/lib/zip";
 import { FootageSwapModal } from "@/components/dashboard/FootageSwapModal";
+import { pilihanDurasiVideo } from "@/lib/billing/durasiVideo";
 
 // Buat Konten "Studio" 2-kolom - port Stitch §6-19 (2026-09-11, PRD Stitch UI rebuild).
 // UI mengikuti Stitch; GENERATE memanggil engine NYATA existing:
@@ -393,7 +394,7 @@ export function BuatKonten({
           <div className="mb-4">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-[#555f6d] mb-1.5">Durasi</p>
             <div className="flex gap-2">
-              {(orientation === "landscape" ? [30, 60, 90, 180, 300, 480] : [30, 60]).map((d) => (
+              {pilihanDurasiVideo(orientation, brand?.ownerUnlimited === true).map((d) => (
                 <button key={d} type="button" onClick={() => setDuration(d)}
                   className={"rounded-lg px-3 py-1.5 text-[12px] font-semibold ring-1 transition " + (duration === d ? "bg-black text-white ring-black" : "bg-white text-[#151c27] ring-[#e7eefe] hover:ring-[#c6c6cd]")}>
                   {d < 120 ? `${d} detik` : `${d / 60} menit`}

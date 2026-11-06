@@ -15,6 +15,9 @@ import {
 import { toast } from "sonner";
 import type { Brand } from "@/types";
 import { TTS_VOICES } from "@/lib/ai/ttsVoices";
+import { pilihanDurasiVideo } from "@/lib/billing/durasiVideo";
+
+const DURASI_LABEL: Record<number, string> = { 30: "30 detik", 60: "60 detik", 90: "1 menit 30 detik", 180: "3 menit (YT panjang)", 300: "5 menit (YT panjang)", 480: "8 menit (YT panjang)" };
 
 // Pilar konten (2026-11-02, T10) - parse brands.contentPillars JSON ke baris editable.
 function parsePillarRows(json: string | null | undefined): { name: string; percent: number }[] {
@@ -669,12 +672,10 @@ export function BrandSettingsSidebar({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="30">30 detik</SelectItem>
-                  <SelectItem value="60">60 detik</SelectItem>
-                  <SelectItem value="90">1 menit 30 detik</SelectItem>
-                  <SelectItem value="180">3 menit (YT panjang)</SelectItem>
-                  <SelectItem value="300">5 menit (YT panjang)</SelectItem>
-                  <SelectItem value="480">8 menit (YT panjang)</SelectItem>
+                  {/* Tenant eksternal (owner bukan unlimited): hanya 30-60 dtk (durasiVideo.ts); backend tetap memvalidasi. */}
+                  {pilihanDurasiVideo("landscape", brand?.ownerUnlimited === true).map((d) => (
+                    <SelectItem key={d} value={String(d)}>{DURASI_LABEL[d] ?? `${d} detik`}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               {Number(videoDuration) >= 180 && (

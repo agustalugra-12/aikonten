@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 type Kit = Record<string, unknown>;
-type Brand = { id: string; brandKit?: string | null };
+type Brand = { id: string; brandKit?: string | null; ownerUnlimited?: boolean };
 
 const FEATURES: { key: string; label: string; desc: string }[] = [
   { key: "title", label: "Animated Title", desc: "Judul/hook beranimasi di awal video" },
@@ -48,6 +48,8 @@ export function VisualStylePanel({ brandId }: { brandId: string }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tenant eksternal (owner bukan unlimited) tak boleh engine "scenes" (video Desain < 30 dtk) - 2026-11-05.
+  const [unlimited, setUnlimited] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +63,7 @@ export function VisualStylePanel({ brandId }: { brandId: string }) {
         if (b?.brandKit) {
           try { parsed = JSON.parse(b.brandKit) as Kit; } catch { parsed = {}; }
         }
-        if (!cancelled) { setKit(parsed); setBaseline(JSON.stringify(parsed)); setLoading(false); }
+        if (!cancelled) { setKit(parsed); setBaseline(JSON.stringify(parsed)); setUnlimited(b?.ownerUnlimited === true); setLoading(false); }
       } catch {
         if (!cancelled) { setError("Gagal memuat Gaya Visual."); setLoading(false); }
       }
@@ -120,6 +122,8 @@ export function VisualStylePanel({ brandId }: { brandId: string }) {
 
   const dirty = JSON.stringify(kit) !== baseline;
   const engine = typeof kit.renderEngine === "string" ? kit.renderEngine : ""; // "" = Standar/ffmpeg
+  // Sembunyikan "Desain" (scenes) utk tenant eksternal (backend PATCH /api/brands jg menolaknya).
+  const engines = unlimited ? ENGINES : ENGINES.filter((e) => e.value !== "scenes");
   const hf = engine === "hyperframes";
   const look = typeof kit.look === "string" ? kit.look : "";
 
@@ -135,7 +139,7 @@ export function VisualStylePanel({ brandId }: { brandId: string }) {
             </p>
           </div>
           <div className="flex rounded-full border border-border overflow-hidden w-fit">
-            {ENGINES.map((e) => {
+            {engines.map((e) => {
               const active = engine === e.value;
               return (
                 <button

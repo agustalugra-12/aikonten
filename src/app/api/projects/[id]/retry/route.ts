@@ -9,6 +9,7 @@ import { getUserId, getOwnedProject } from "@/lib/session";
 import { gateGenerateManual } from "@/lib/billing/generateGate";
 import { potongKredit, isiUlangKredit, SaldoTidakCukupError, CREDIT_COST_GENERATE } from "@/lib/billing/credits";
 import { pastikanAkunBolehGenerate, AkunTerbatasError } from "@/lib/billing/statusGate";
+import { brandKitRenderEngine } from "@/lib/render/brandKit";
 import { hitungBiayaKredit, pastikanFormatDiizinkan, VideoPanjangTidakTersediaError } from "@/lib/billing/aturanProduk";
 
 // "Coba Lagi" pintar (2026-08-07, permintaan Agus - konten yg SUDAH jadi videonya/
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const [brandRetry] = await db.select().from(brands).where(eq(brands.id, project.brandId));
   const [pemilikRetry] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, userId));
   try {
-    pastikanFormatDiizinkan({ type: project.type, contentFormat: project.contentFormat, videoDurationTarget: brandRetry?.videoDurationTarget, unlimited: pemilikRetry?.unlimited });
+    pastikanFormatDiizinkan({ type: project.type, contentFormat: project.contentFormat, videoDurationTarget: brandRetry?.videoDurationTarget, unlimited: pemilikRetry?.unlimited, renderEngine: brandKitRenderEngine(brandRetry?.brandKit) });
   } catch (err) {
     if (err instanceof VideoPanjangTidakTersediaError) return NextResponse.json({ error: err.message }, { status: 403 });
     throw err;

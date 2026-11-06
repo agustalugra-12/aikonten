@@ -6,6 +6,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { runFfmpeg } from "@/lib/render/ffmpegExec";
 import { resolveVoice } from "./ttsVoices";
+import { rencanaDurasiVoiceover, DURASI_EKSTERNAL } from "@/lib/billing/durasiVideo";
 
 const execFileAsync = promisify(execFile);
 
@@ -159,5 +160,40 @@ export async function getAudioDurationSeconds(buffer: Buffer): Promise<number> {
     return duration;
   } finally {
     await unlink(tmpFile).catch(() => {});
+  }
+}
+
+// Durasi narasi tenant eksternal (2026-11-05, aturan 30-60 dtk - lihat durasiVideo.ts): ukur audio TTS NYATA,
+// koreksi murah (ffmpeg atempo <=1.15x / jeda di akhir <=8 dtk) lalu ukur ULANG; di luar batas koreksi -> lempar
+// error jelas (pemanggil processProject -> project failed + refund kredit di route/autoContent). Internal: apa adanya.
+// deps hanya utk tes (tanpa ffmpeg/ffprobe).
+export async function sesuaikanDurasiVoiceover(
+  buffer: Buffer,
+  unlimited: boolean | null | undefined,
+  deps: { durasi?: (b: Buffer) => Promise<number>; ubah?: (b: Buffer, filter: string) => Promise<Buffer> } = {},
+): Promise<{ buffer: Buffer; catatan: string | null }> {
+  if (unlimited) return { buffer, catatan: null };
+  const durasi = deps.durasi ?? getAudioDurationSeconds, ubah = deps.ubah ?? ubahAudio;
+  const detik = await durasi(buffer);
+  const r = rencanaDurasiVoiceover(detik, unlimited);
+  if (r.aksi === "ok") return { buffer, catatan: null };
+  if (r.aksi === "gagal") throw new Error(r.pesan);
+  const filter = r.aksi === "percepat" ? `atempo=${r.tempo}` : `apad=whole_dur=${(DURASI_EKSTERNAL.min + 0.3).toFixed(1)}`;
+  const out = await ubah(buffer, filter);
+  const detik2 = await durasi(out);
+  const r2 = rencanaDurasiVoiceover(detik2, unlimited);
+  if (r2.aksi !== "ok") throw new Error(`Durasi narasi ${detik2.toFixed(1)} detik masih di luar batas ${DURASI_EKSTERNAL.min}-${DURASI_EKSTERNAL.max} detik setelah koreksi. Kredit dikembalikan; coba generate ulang.`);
+  return { buffer: out, catatan: `${r.aksi} ${detik.toFixed(1)}s -> ${detik2.toFixed(1)}s (${filter})` };
+}
+async function ubahAudio(buffer: Buffer, filter: string): Promise<Buffer> {
+  const workDir = await mkdtemp(path.join(tmpdir(), "kontenpilot_tts_dur_"));
+  try {
+    const inP = path.join(workDir, "in.mp3"), outP = path.join(workDir, "out.mp3");
+    await writeFile(inP, buffer);
+    await runFfmpeg(["-y", "-i", inP, "-af", filter, "-c:a", "libmp3lame", "-b:a", "160k", outP], "util");
+    const { readFile } = await import("fs/promises");
+    return await readFile(outP);
+  } finally {
+    await rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
 }

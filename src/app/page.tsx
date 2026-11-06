@@ -225,7 +225,7 @@ function DashboardContent() {
               </Card>
             </div>
           ) : activeView === "rencana" ? (
-            <Planner brandId={selectedBrandId} onGoBuat={() => setActiveView("buat")} />
+            <Planner brandId={selectedBrandId} unlimited={currentBrand?.ownerUnlimited === true} onGoBuat={() => setActiveView("buat")} />
           ) : activeView === "kanal" ? (
             <KanalTerhubung brandId={selectedBrandId} />
           ) : activeView === "kompetitor" ? (

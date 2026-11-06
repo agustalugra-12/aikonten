@@ -1,5 +1,6 @@
 import { db } from "@/db";
-import { contentPlan, projects, brands } from "@/db/schema";
+import { contentPlan, projects, brands, users } from "@/db/schema";
+import { durasiTargetDiizinkan } from "@/lib/billing/durasiVideo";
 import { eq } from "drizzle-orm";
 import { runAutoContent } from "./autoContent";
 
@@ -24,7 +25,9 @@ export async function runPlanRowGenerate(row: Row): Promise<string> {
     const [brandRow] = await db.select().from(brands).where(eq(brands.id, row.brandId));
     const effOri = row.orientation || brandRow?.videoOrientation || "portrait";
     const allowedDur = effOri === "landscape" ? [30, 60, 90, 180, 300, 480] : [30, 60];
-    if (allowedDur.includes(row.videoDuration)) brandPatch.videoDurationTarget = row.videoDuration;
+    // Tenant eksternal: durasi baris di luar 30-60 dtk diabaikan (brand tetap pakai target valid-nya).
+    const [pemilik] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, brandRow?.userId ?? ""));
+    if (allowedDur.includes(row.videoDuration) && durasiTargetDiizinkan(row.videoDuration, pemilik?.unlimited)) brandPatch.videoDurationTarget = row.videoDuration;
   }
   if (Object.keys(brandPatch).length > 0) {
     await db.update(brands).set(brandPatch).where(eq(brands.id, row.brandId));

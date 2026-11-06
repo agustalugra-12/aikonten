@@ -42,7 +42,7 @@ function statusBadge(status: string): string {
 const cell = "w-full bg-transparent text-[12px] text-[#151c27] placeholder:text-[#c6c6cd] rounded px-1.5 py-1 hover:bg-[#f0f3ff] focus:bg-white focus:ring-1 focus:ring-[#c6c6cd] outline-none";
 const PAGE_SIZE = 30;
 
-export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () => void }) {
+export function Planner({ brandId, onGoBuat, unlimited = false }: { brandId: string; onGoBuat: () => void; unlimited?: boolean }) {
   const [rows, setRows] = useState<PlanRow[] | null>(null);
   const [size, setSize] = useState(60);
   const [page, setPage] = useState(0);
@@ -340,7 +340,8 @@ export function Planner({ brandId, onGoBuat }: { brandId: string; onGoBuat: () =
                           <option value="">Default</option>
                           <option value="30">30 dtk</option>
                           <option value="60">60 dtk</option>
-                          {r.orientation === "landscape" && (
+                          {/* >60 dtk hanya brand internal (tenant eksternal 30-60 dtk, durasiVideo.ts) */}
+                          {r.orientation === "landscape" && unlimited && (
                             <>
                               <option value="90">90 dtk</option>
                               <option value="180">3 mnt</option>

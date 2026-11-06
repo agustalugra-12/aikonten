@@ -1,4 +1,5 @@
 import { CREDIT_COST_GENERATE } from "./credits";
+import { DURASI_EKSTERNAL, durasiTargetDiizinkan } from "./durasiVideo";
 
 // Aturan produk (2026-10-24). (1) Biaya carousel = jumlah slide yang BENAR-BENAR dirender.
 // (2) Video panjang (long-form) hanya untuk brand internal (akun `unlimited`), bukan tenant
@@ -40,8 +41,8 @@ export function apakahVideoPanjang(
 
 export class VideoPanjangTidakTersediaError extends Error {
   readonly status = 403;
-  constructor() {
-    super("Video panjang sementara tidak tersedia untuk paket ini. Silakan gunakan video pendek (maksimal 60 detik), foto, atau carousel.");
+  constructor(message = "Video panjang sementara tidak tersedia untuk paket ini. Silakan gunakan video pendek (maksimal 60 detik), foto, atau carousel.") {
+    super(message);
     this.name = "VideoPanjangTidakTersediaError";
   }
 }
@@ -53,9 +54,26 @@ export function pastikanFormatDiizinkan(args: {
   contentFormat: string | null | undefined;
   videoDurationTarget: number | null | undefined;
   unlimited: boolean | null | undefined;
+  renderEngine?: string | null;
 }): void {
   if (apakahVideoPanjang(args.type, args.contentFormat, args.videoDurationTarget) && !args.unlimited) {
     throw new VideoPanjangTidakTersediaError();
+  }
+  // Durasi tenant eksternal 30-60 dtk (2026-11-05, lihat durasiVideo.ts). Dicek SEBELUM potong kredit &
+  // sebelum proses mahal; subclass VideoPanjangTidakTersediaError -> semua pemanggil (route 403, cron
+  // kodeAturan "video_panjang" = lewati ide tanpa retry) menanganinya tanpa perubahan.
+  if (args.type !== "video" || args.unlimited) return;
+  const target = args.contentFormat === "youtube_shorts" ? 60 : (args.videoDurationTarget ?? 60);
+  if (!durasiTargetDiizinkan(target, args.unlimited)) throw new DurasiVideoTidakValidError(`Durasi video ${target} detik tidak tersedia untuk paket ini. Pilih durasi ${DURASI_EKSTERNAL.min}-${DURASI_EKSTERNAL.max} detik.`);
+  // Engine "scenes" = video desain musik-only ~10-15 dtk, tak bisa dikoreksi murah ke >=30 dtk -> tolak jelas.
+  if (args.renderEngine === "scenes") throw new DurasiVideoTidakValidError(`Mode video Desain (scenes) menghasilkan video di bawah ${DURASI_EKSTERNAL.min} detik dan belum tersedia untuk paket ini. Ganti mesin render di Brand Kit ke standar.`);
+}
+
+export class DurasiVideoTidakValidError extends VideoPanjangTidakTersediaError {
+  readonly kodeAturan = "durasi_video";
+  constructor(message: string) {
+    super(message);
+    this.name = "DurasiVideoTidakValidError";
   }
 }
 

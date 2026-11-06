@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { brands } from "@/db/schema";
+import { brands, users } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { getUserId, canCreateAnotherBrand } from "@/lib/session";
 import { desc, eq } from "drizzle-orm";
@@ -12,7 +12,9 @@ import { desc, eq } from "drizzle-orm";
 export async function GET(req: NextRequest) {
   const userId = getUserId(req);
   const rows = await db.select().from(brands).where(eq(brands.userId, userId)).orderBy(desc(brands.createdAt));
-  return NextResponse.json(rows);
+  // ownerUnlimited (2026-11-05): UI membatasi pilihan durasi tenant eksternal ke 30-60 dtk (backend tetap otoritas).
+  const [u] = await db.select({ unlimited: users.unlimited }).from(users).where(eq(users.id, userId));
+  return NextResponse.json(rows.map((r) => ({ ...r, ownerUnlimited: !!u?.unlimited })));
 }
 
 export async function POST(req: NextRequest) {
