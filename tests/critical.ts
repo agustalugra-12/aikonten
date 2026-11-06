@@ -564,6 +564,75 @@ async function run() {
     return r.duplicates.length === 1 && r.duplicates[0].postId === "P9";
   })());
 
+  // ---- competitorAnalysis: saringan aktif + benchmark_profile terbaca (fix/competitor-analysis-inputs) ----
+  const ca = await import("../src/lib/ai/competitorAnalysis");
+  const CA_PROF = JSON.stringify({
+    hookPattern: "Buka dengan janji angka konkret",
+    storytellingPattern: "Satu taktik sampai tuntas",
+    contentAngle: "Bantu UMKM naikkan omset",
+    pacing: "Cepat dan padat",
+    ctaPattern: "Ajakan tunggal ke konsultasi",
+    visualPattern: "Judul besar tebal di atas frame",
+    audiencePattern: "Pemilik usaha kecil Indonesia",
+  });
+  const caRow = (over: Record<string, unknown>) =>
+    ({ id: "c", name: "X", notes: null, role: null, benchmarkProfile: null, benchmarkActive: false, ...over }) as any;
+
+  ok("compAnalysis: pembanding NONAKTIF dibuang walau profilnya kaya", (() => {
+    const sel = ca.selectCompetitorsForPrompt([caRow({ name: "Lama", benchmarkActive: false, benchmarkProfile: CA_PROF, notes: "[ANALISIS ASLI - dari konten publik nyata]" })]);
+    return sel.length === 0;
+  })());
+
+  ok("compAnalysis: aktif + profil (notes pendek) tetap masuk", (() => {
+    const sel = ca.selectCompetitorsForPrompt([caRow({ name: "Baru", benchmarkActive: true, benchmarkProfile: CA_PROF, notes: "-" })]);
+    return sel.length === 1 && sel[0].name === "Baru";
+  })());
+
+  ok("compAnalysis: aktif + hanya notes panjang tetap masuk (brand lama tak rusak)", (() =>
+    ca.selectCompetitorsForPrompt([caRow({ name: "NotesOnly", benchmarkActive: true, notes: "posting tiap hari, banyak reels promo" })]).length === 1)());
+
+  ok("compAnalysis: aktif tapi tanpa substansi (notes pendek, tanpa profil) dibuang", (() =>
+    ca.selectCompetitorsForPrompt([caRow({ benchmarkActive: true, notes: "-" })]).length === 0)());
+
+  ok("compAnalysis: REGRESI agustap - 6 aktif dari 12 baris, 6 nonaktif tak masuk prompt", (() => {
+    const rows = [
+      ...["Alex Hormozi", "Justin Welsh", "Neil Patel", "Seth Godin", "Vanessa Lau", "Victoria Wong"].map((n) =>
+        caRow({ name: n, benchmarkActive: false, benchmarkProfile: CA_PROF, notes: "[ANALISIS ASLI - via Inspiration Analyzer]" })),
+      ...["Dewa Eka Prayoga", "Tjokro Wimantara", "Kevin Christabel", "Leo Givanni", "Belajar AI with Guru", "Bukit Vista"].map((n) =>
+        caRow({ name: n, benchmarkActive: true, benchmarkProfile: CA_PROF, notes: "[SEED MANUAL - dari riset web Nov 2026]" })),
+    ];
+    const sel = ca.selectCompetitorsForPrompt(rows);
+    const brief = sel.map(ca.buildCompetitorBrief).join("\n\n");
+    return sel.length === 6 && !brief.includes("Alex Hormozi") && !brief.includes("Seth Godin") && brief.includes("Bukit Vista");
+  })());
+
+  ok("compAnalysis: brief MEMUAT isi benchmark_profile + role", (() => {
+    const b = ca.buildCompetitorBrief(caRow({ name: "Dewa", benchmarkActive: true, role: "kosakata pemilik usaha", benchmarkProfile: CA_PROF }));
+    return b.includes("Peran pembanding: kosakata pemilik usaha")
+      && b.includes("Pola hook: Buka dengan janji angka konkret")
+      && b.includes("Pola CTA: Ajakan tunggal ke konsultasi")
+      && b.includes("Profil audiens: Pemilik usaha kecil Indonesia")
+      && b.includes("POLA KONTEN TERAMATI");
+  })());
+
+  ok("compAnalysis: notes dilabeli ASAL DATA (metadata), bukan pengamatan konten", (() => {
+    const b = ca.buildCompetitorBrief(caRow({ name: "Dewa", benchmarkActive: true, benchmarkProfile: CA_PROF, notes: "[SEED MANUAL - dari riset web Nov 2026] @dewa (Instagram)" }));
+    return b.indexOf("KETERANGAN ASAL DATA (metadata, BUKAN pengamatan konten)") > b.indexOf("POLA KONTEN TERAMATI")
+      && b.includes("[SEED MANUAL");
+  })());
+
+  ok("compAnalysis: benchmark_profile JSON rusak -> null, tidak throw", (() =>
+    ca.parseBenchmarkProfile("{bukan json") === null
+    && ca.parseBenchmarkProfile("[]") === null
+    && ca.parseBenchmarkProfile("{}") === null
+    && ca.parseBenchmarkProfile(null) === null
+    && ca.buildCompetitorBrief(caRow({ benchmarkActive: true, benchmarkProfile: "{rusak", notes: "catatan cukup panjang utk lolos" })).includes("belum ada profil benchmark"))());
+
+  ok("compAnalysis: parse buang field non-string/kosong/tak dikenal", (() => {
+    const p = ca.parseBenchmarkProfile(JSON.stringify({ hookPattern: "ok", pacing: "   ", ctaPattern: 5, lain: "abaikan" }));
+    return !!p && p.hookPattern === "ok" && p.pacing === undefined && p.ctaPattern === undefined && (p as any).lain === undefined;
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
