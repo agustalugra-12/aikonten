@@ -1,3 +1,4 @@
+import { appBaseUrl } from "@/lib/appUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import {
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
   const brandId = req.nextUrl.searchParams.get("state");
   const oauthError = req.nextUrl.searchParams.get("error_message") || req.nextUrl.searchParams.get("error");
 
-  const appUrl = process.env.APP_URL || req.nextUrl.origin;
+  const appUrl = appBaseUrl() || req.nextUrl.origin;
 
   if (oauthError) {
     return NextResponse.redirect(`${appUrl}/?meta_error=${encodeURIComponent(oauthError)}`);

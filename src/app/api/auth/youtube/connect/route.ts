@@ -1,3 +1,4 @@
+import { appBaseUrl } from "@/lib/appUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUserIdOrNull, getOwnedBrand } from "@/lib/session";
 
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
   }
 
   const clientId = process.env.YOUTUBE_CLIENT_ID;
-  const appUrl = process.env.APP_URL;
+  const appUrl = appBaseUrl();
   if (!clientId || !appUrl) {
     return NextResponse.json({ error: "YOUTUBE_CLIENT_ID/APP_URL belum diisi di .env" }, { status: 500 });
   }

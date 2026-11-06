@@ -1,3 +1,4 @@
+import { appBaseUrl } from "@/lib/appUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUserIdOrNull, getOwnedBrand } from "@/lib/session";
 
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
   }
 
   const appId = process.env.META_APP_ID;
-  const appUrl = process.env.APP_URL;
+  const appUrl = appBaseUrl();
   if (!appId || !appUrl) {
     return NextResponse.json({ error: "META_APP_ID/APP_URL belum diisi di .env" }, { status: 500 });
   }

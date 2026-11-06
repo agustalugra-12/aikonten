@@ -3,14 +3,15 @@ import { db } from "@/db";
 import { billingLog } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyTripayCallback } from "@/lib/billing/tripay";
-import { aktivasiPaketSetelahBayar } from "@/lib/billing/activation";
-import { isiUlangKredit } from "@/lib/billing/credits";
+import { prosesPembayaranSukses } from "@/lib/billing/activation";
 
 // Webhook callback Tripay (2026-10-23). DIKECUALIKAN dari gate sesi + injeksi x-user-id di
 // proxy.ts (prefix /api/webhooks/ - gateway tak punya cookie). PENGAMAN UTAMA: verifikasi
 // signature (HMAC-SHA256 body mentah pakai private key) SEBELUM proses apa pun. merchant_ref
-// yang di-set saat buat transaksi = billingLog.id -> lookup by id. aktivasiPaketSetelahBayar()
-// & isiUlangKredit() idempotent -> aman kalau Tripay retry (maks 3x). WAJIB balas {"success":true}.
+// yang di-set saat buat transaksi = billingLog.id -> lookup by id.
+// (2026-11-06 P0) prosesPembayaranSukses ATOMIK + EXACTLY-ONCE (kunci ref_billing_id) -> aman
+// kalau Tripay retry (maks 3x) TANPA bergantung status "sukses" saja, dan bisa self-heal tagihan
+// sukses-tanpa-kredit. WAJIB balas {"success":true}.
 export async function POST(req: NextRequest) {
   // Body MENTAH utk signature (JSON.parse sesudahnya - jangan re-serialize sebelum verifikasi).
   const raw = await req.text();
@@ -40,18 +41,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (status === "PAID") {
-    if (log.status === "sukses") {
-      return NextResponse.json({ success: true }); // idempotent - sudah diproses
-    }
     if (reference && !log.gatewayRef) {
       await db.update(billingLog).set({ gatewayRef: reference }).where(eq(billingLog.id, log.id));
     }
-    if (log.jenis === "topup") {
-      await isiUlangKredit(log.userId, log.kreditTopup ?? 0, `top-up ${log.kreditTopup ?? 0} kredit`);
-      await db.update(billingLog).set({ status: "sukses" }).where(eq(billingLog.id, log.id));
-    } else {
-      await aktivasiPaketSetelahBayar(log.id); // idempotent
-    }
+    await prosesPembayaranSukses(log.id); // atomik + exactly-once (ref) + self-heal
   } else if (log.status === "pending") {
     // FAILED / EXPIRED / REFUND - tandai gagal (jangan timpa yang sudah sukses).
     await db.update(billingLog).set({ status: "gagal" }).where(eq(billingLog.id, log.id));

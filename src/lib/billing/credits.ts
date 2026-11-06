@@ -3,6 +3,10 @@ import { users, creditTransactions } from "@/db/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 
+// Tipe argumen transaksi Drizzle (diturunkan dari db.transaction) - supaya _grantOnTx bisa
+// dipanggil DI DALAM transaksi aktivasi/paket maupun transaksinya sendiri, tetap type-safe.
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 // Primitif ledger kredit (2026-09-08, Fase 1 Alur B) - "Setiap kali generate konten,
 // potong kredit". `saldoKredit` di users adalah CACHE (dibaca cepat), creditTransactions
 // adalah SUMBER KEBENARAN AUDIT (pola sama dgn payment_log/amount_due di PMS Pelangi) -
@@ -71,18 +75,24 @@ export async function potongKredit(
   return { saldoSetelah };
 }
 
-// Isi ulang kredit (langganan bulanan otomatis / refund proses gagal / penyesuaian
-// manual Admin) - `jumlah` selalu POSITIF di sini juga (ledger mencatatnya apa adanya).
+// Isi ulang kredit (penyesuaian manual Admin / refund proses gagal) - `jumlah` selalu POSITIF.
+// (2026-11-06, P0.2) ATOMIK: increment lewat SATU statement SQL ber-WHERE (pola sama
+// potongKredit), BUKAN read-then-write - cegah lost-update saat 2 grant akun sama bersamaan.
+// CATATAN: fungsi ini TIDAK idempotent (tiap panggilan menambah). Untuk grant dari pembayaran
+// (yg bisa di-retry gateway), pakai grantCreditIdempotent / prosesPembayaranSukses yang
+// ber-kunci refBillingId - JANGAN pakai isiUlangKredit langsung di jalur webhook.
 export async function isiUlangKredit(
   userId: string, jumlah: number, alasan: string
 ): Promise<{ saldoSetelah: number }> {
   if (jumlah <= 0) throw new Error("jumlah isi ulang kredit harus > 0");
 
-  const [user] = await db.select().from(users).where(eq(users.id, userId));
-  if (!user) throw new Error(`User ${userId} tidak ditemukan`);
-
-  const saldoSetelah = user.saldoKredit + jumlah;
-  await db.update(users).set({ saldoKredit: saldoSetelah }).where(eq(users.id, userId));
+  const updated = await db
+    .update(users)
+    .set({ saldoKredit: sql`${users.saldoKredit} + ${jumlah}` })
+    .where(eq(users.id, userId))
+    .returning({ saldoKredit: users.saldoKredit });
+  if (updated.length === 0) throw new Error(`User ${userId} tidak ditemukan`);
+  const saldoSetelah = updated[0].saldoKredit;
   await db.insert(creditTransactions).values({
     id: newId("credtx"),
     userId,
@@ -93,4 +103,43 @@ export async function isiUlangKredit(
     createdAt: new Date(),
   });
   return { saldoSetelah };
+}
+
+// (2026-11-06, P0.1/0.3) Grant kredit EXACTLY-ONCE ber-kunci refBillingId, di DALAM `tx` yang
+// diberikan pemanggil (dipakai aktivasi paket & top-up supaya status+user+kredit 1 transaksi).
+// Idempotensi NYATA: kalau sudah ada credit_transactions.ref_billing_id = refBillingId ->
+// tidak menambah apa-apa (return false). Jadi retry webhook / pemulihan aman dari double-credit
+// TANPA bergantung pada status "sukses" saja. Increment saldo = 1 statement SQL (tak lost-update).
+export function _grantOnTx(
+  tx: Tx,
+  userId: string, jumlah: number, alasan: string, refBillingId: string
+): boolean {
+  if (jumlah <= 0) return false;
+  const existing = tx.select({ id: creditTransactions.id }).from(creditTransactions)
+    .where(eq(creditTransactions.refBillingId, refBillingId)).all();
+  if (existing.length > 0) return false; // sudah di-grant utk tagihan ini - jangan dobel
+  const updated = tx.update(users)
+    .set({ saldoKredit: sql`${users.saldoKredit} + ${jumlah}` })
+    .where(eq(users.id, userId))
+    .returning({ saldoKredit: users.saldoKredit }).all();
+  if (updated.length === 0) throw new Error(`User ${userId} tidak ditemukan`);
+  tx.insert(creditTransactions).values({
+    id: newId("credtx"),
+    userId,
+    jumlah,
+    alasan,
+    saldoSetelah: updated[0].saldoKredit,
+    refProjectId: null,
+    refBillingId,
+    createdAt: new Date(),
+  }).run();
+  return true;
+}
+
+// Bungkus _grantOnTx dalam transaksi sendiri - dipakai jalur PEMULIHAN (recover-stranded-credits)
+// di mana tak ada transaksi aktivasi/paket yang lebih besar untuk digabung.
+export function grantCreditIdempotent(
+  userId: string, jumlah: number, alasan: string, refBillingId: string
+): boolean {
+  return db.transaction((tx) => _grantOnTx(tx, userId, jumlah, alasan, refBillingId));
 }

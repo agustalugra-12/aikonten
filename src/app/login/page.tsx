@@ -98,6 +98,7 @@ export default function LoginPage() {
           {error && <p className="kp-err">{error}</p>}
           <button type="submit" className="kp-btn" disabled={loading}>{loading ? "Masuk…" : "Masuk"}</button>
         </form>
+        <p className="kp-alt" style={{ marginTop: 12 }}><Link href="/forgot">Lupa password?</Link></p>
         </>
         ) : (
         <>

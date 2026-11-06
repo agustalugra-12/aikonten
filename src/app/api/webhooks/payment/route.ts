@@ -3,14 +3,14 @@ import { db } from "@/db";
 import { billingLog } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyCallbackSignature } from "@/lib/billing/duitku";
-import { aktivasiPaketSetelahBayar } from "@/lib/billing/activation";
-import { isiUlangKredit } from "@/lib/billing/credits";
+import { prosesPembayaranSukses } from "@/lib/billing/activation";
 
 // Webhook callback Duitku (2026-09-30, T3). DIKECUALIKAN dari gate sesi + injeksi x-user-id
 // di proxy.ts (gateway tak punya cookie login). PENGAMAN UTAMA: verifikasi signature dulu -
 // hanya callback dgn signature cocok (dihitung pakai apiKey RAHASIA kita) yang boleh memicu
-// aktivasi paket. aktivasiPaketSetelahBayar() idempotent -> aman kalau Duitku kirim callback
-// berkali-kali. merchantOrderId yang kita set = billingLog.id, jadi lookup langsung by id.
+// aktivasi. merchantOrderId yang kita set = billingLog.id, jadi lookup langsung by id.
+// (2026-11-06 P0) prosesPembayaranSukses ATOMIK + EXACTLY-ONCE (kunci ref_billing_id) -> aman
+// kalau Duitku kirim callback berkali-kali, tanpa double-credit.
 //
 // Duitku mengirim callback sbg application/x-www-form-urlencoded (bukan JSON).
 export async function POST(req: NextRequest) {
@@ -37,19 +37,10 @@ export async function POST(req: NextRequest) {
 
   // 3. Proses sesuai hasil pembayaran. resultCode "00" = sukses (settlement).
   if (resultCode === "00") {
-    if (log.status === "sukses") {
-      return NextResponse.json({ ok: true }); // idempotent - sudah diproses (paket/topup)
-    }
     if (reference && !log.gatewayRef) {
       await db.update(billingLog).set({ gatewayRef: reference }).where(eq(billingLog.id, log.id));
     }
-    if (log.jenis === "topup") {
-      // Top-up: tambah kredit + tandai sukses (guard status di atas jaga idempotensi callback dobel).
-      await isiUlangKredit(log.userId, log.kreditTopup ?? 0, `top-up ${log.kreditTopup ?? 0} kredit`);
-      await db.update(billingLog).set({ status: "sukses" }).where(eq(billingLog.id, log.id));
-    } else {
-      await aktivasiPaketSetelahBayar(log.id); // idempotent
-    }
+    await prosesPembayaranSukses(log.id); // atomik + exactly-once (ref) + self-heal
   } else if (log.status === "pending") {
     // Gagal/expire/batal - tandai gagal (jangan timpa yang sudah "sukses").
     await db.update(billingLog).set({ status: "gagal" }).where(eq(billingLog.id, log.id));

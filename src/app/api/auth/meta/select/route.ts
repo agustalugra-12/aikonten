@@ -1,3 +1,4 @@
+import { appBaseUrl } from "@/lib/appUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { takePendingSelection, storePendingSelection, saveMetaAccountsForBrand } from "@/lib/publish/metaAuth";
 import { getSessionUserIdOrNull } from "@/lib/session";
@@ -9,7 +10,7 @@ import { getSessionUserIdOrNull } from "@/lib/session";
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
   const pageId = req.nextUrl.searchParams.get("pageId");
-  const appUrl = process.env.APP_URL || req.nextUrl.origin;
+  const appUrl = appBaseUrl() || req.nextUrl.origin;
 
   if (!token) {
     return NextResponse.redirect(`${appUrl}/?meta_error=missing_token`);

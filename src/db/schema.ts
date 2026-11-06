@@ -53,6 +53,21 @@ export const creditTransactions = sqliteTable("credit_transactions", {
   alasan: text("alasan").notNull(),
   saldoSetelah: integer("saldo_setelah").notNull(),
   refProjectId: text("ref_project_id"),
+  // (2026-11-06, P0) Kunci idempotensi grant dari pembayaran = billingLog.id. UNIQUE (indeks
+  // parsial di migrasi) -> satu tagihan tak bisa meng-grant kredit dua kali (anti double-credit
+  // saat webhook retry). NULL utk transaksi non-pembayaran (potong generate / penyesuaian manual).
+  refBillingId: text("ref_billing_id"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+// (2026-11-06, P1.6) Token reset password mandiri. Disimpan sbg HASH (sha256) - token mentah
+// hanya ada di tautan email, tak pernah di DB. Sekali pakai (usedAt) + kedaluwarsa (expiresAt).
+export const passwordResetTokens = sqliteTable("password_reset_tokens", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  usedAt: integer("used_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
