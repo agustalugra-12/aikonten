@@ -1352,6 +1352,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           brandId: project.brandId,
           orientation: (isYoutubeShorts ? "portrait" : (brand?.videoOrientation ?? "portrait")) as "portrait" | "landscape" | "square",
           brandName: brand?.name,
+          logoUrl: brand?.logoUrl ?? null, // cacat-3: logo brand dipakai ganti tulisan nama di tepi atas
           brandKitRaw: brand?.brandKit,
           hookText,
           brollClips,

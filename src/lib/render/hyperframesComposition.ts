@@ -10,6 +10,7 @@ export type HfCompositionInput = {
   orientation?: "portrait" | "landscape" | "square";
   brand?: {
     primary?: string; bg2?: string; accent?: string; ink?: string; cta?: string; font?: string; mark?: string;
+    logoUrl?: string; // logo brand (brands.logo_url) - dipakai MENGGANTI tulisan nama brand kalau ada
   };
   hook?: string;
   introSeconds?: number;
@@ -29,6 +30,7 @@ export type HfCompositionInput = {
   transitions?: string[];          // transisi masuk per klip (index klip): cut|crossfade|slide|zoom|whip
   tileMax?: number;                // override panjang potongan (plan: 99 = potong persis di batas adegan)
   musicVolume?: number;            // volume musik latar (default 0.13)
+  topBar?: boolean;                // garis aksen tipis tepi ATAS - DEFAULT OFF (cacat nyata: garis kuning)
   busy?: Array<[number, number]>;  // jendela waktu yg dipakai adegan -> callout tak menimpa
   layers?: Array<{ html: string; css: string; tl: string[] }>; // overlay adegan (sceneLibrary)
 };
@@ -36,6 +38,20 @@ export type HfCompositionInput = {
 const DIM = { portrait: { w: 1080, h: 1920 }, landscape: { w: 1920, h: 1080 }, square: { w: 1080, h: 1080 } };
 function esc(s: unknown): string {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+// Kapitalisasi nama brand utk fallback TANPA logo: "laundry in bali" -> "Laundry in Bali".
+// Nama yg sudah ALL-CAPS atau sudah berkapital dibiarkan apa adanya. Berlaku SEMUA brand.
+const MINOR_WORDS = new Set(["in", "on", "of", "and", "the", "di", "ke", "dan", "untuk"]);
+export function titleCase(s: string): string {
+  const t = String(s ?? "").trim();
+  if (!t) return "";
+  if (t === t.toUpperCase() && /[A-Z]/.test(t)) return t;
+  return t.split(/\s+/).map((w, i) => {
+    const lw = w.toLowerCase();
+    if (i > 0 && MINOR_WORDS.has(lw)) return lw;
+    if (/[A-Z]/.test(w)) return w;
+    return lw.charAt(0).toUpperCase() + lw.slice(1);
+  }).join(" ");
 }
 
 // Grup word-timings: 2-4 kata, pecah di jeda >=0.18s / akhir kalimat / batas kata.
@@ -88,7 +104,7 @@ export function buildComposition(input: HfCompositionInput): string {
     orientation = "portrait", brand = {}, hook = "", introSeconds = 3,
     clips = [], audioUrl = null, musicUrl = null, audioDurationSeconds = 10, words = [], cta = "",
     stat = null, stats = null, lowerThird = null, look = "clean", pacing = "medium", emphasisPhrases = [],
-    transitions, musicVolume = 0.13, layers = [],
+    transitions, musicVolume = 0.13, layers = [], topBar = false,
   } = input;
   // Fase 5 (data blocks): render BEBERAPA statOverlays AI (bukan cuma 1), staggered di
   // tengah video, tiap blok pop+punch lalu hilang. Fallback ke `stat` tunggal (back-compat).
@@ -101,12 +117,20 @@ export function buildComposition(input: HfCompositionInput): string {
     if (!m) return null;
     const num = parseInt(m[2].replace(/[.,]/g, ""), 10);
     if (!Number.isFinite(num) || num <= 0) return null;
-    return { prefix: m[1], num, suffix: m[3], grouped: /[.,]/.test(m[2]) };
+    const grouped = /[.,]/.test(m[2]);
+    // display = nilai AKHIR terformat gaya Indonesia (titik ribuan). Dipakai sbg isi AWAL <span> supaya
+    // kartu tak pernah tampil "0"/digit mentah kalau tween count-up tak jalan (cacat nyata "000").
+    const display = grouped ? num.toLocaleString("id-ID") : String(num);
+    return { prefix: m[1], num, suffix: m[3], grouped, display };
   });
 
   const { w, h } = DIM[orientation] || DIM.portrait;
   const bg1 = brand.primary || "#14213D", bg2 = brand.bg2 || "#0c1526", accent = brand.accent || "#FFD84D";
-  const ink = brand.ink || "#FFFFFF", ctaColor = brand.cta || "#CC1F1F", font = brand.font || "Poppins", mark = brand.mark || "";
+  const ink = brand.ink || "#FFFFFF", ctaColor = brand.cta || "#CC1F1F", font = brand.font || "Poppins";
+  // Identitas brand di tepi atas: UTAMAKAN logo (brands.logo_url). Tanpa logo -> JANGAN tulis nama
+  // mentah huruf kecil (mis "pelangi"); rapikan kapitalisasinya. Berlaku SEMUA brand.
+  const logoUrl = (brand.logoUrl || "").trim();
+  const mark = logoUrl ? "" : titleCase(brand.mark || "");
   const total = introSeconds + audioDurationSeconds;
 
   // Fase 3 (Look system): grade sinematik per brand. CSS filter di footage (.bg) + tint
@@ -173,7 +197,10 @@ export function buildComposition(input: HfCompositionInput): string {
   }).join("\n    ");
 
   const tlLines: string[] = [];
-  tlLines.push(`tl.fromTo("#bar",{scaleX:0},{scaleX:1,duration:.5,ease:"power2.inOut"},0);`);
+  // Garis aksen tepi atas: DEFAULT OFF (cacat nyata). Opt-in via input topBar, berlaku semua brand.
+  if (topBar) tlLines.push(`tl.fromTo("#bar",{scaleX:0},{scaleX:1,duration:.5,ease:"power2.inOut"},0);`);
+  // Logo: opacity + translate saja (tetap jalur cepat BeginFrame, TIDAK memaksa motion-blur/screenshot).
+  if (logoUrl) tlLines.push(`tl.fromTo("#brandlogo",{opacity:0,y:-10},{opacity:1,y:0,duration:.35,ease:"power4.out"},.3);`);
   if (mark) tlLines.push(`tl.fromTo("#mark",{opacity:0,filter:"blur(6px)"},{opacity:1,filter:"blur(0px)",duration:.35,ease:"power4.out"},.3);`);
   // Hook pendek (2026-11-03): hookText AI sering 1 kalimat penuh -> menutupi footage. Batasi
   // tampilan intro ke <=7 kata + buang kata sambung di ujung (dangling) biar hook punchy.
@@ -310,6 +337,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 #scrim{position:absolute;inset:0;z-index:300;background:linear-gradient(180deg,rgba(12,21,38,.22) 0%,rgba(12,21,38,.06) 40%,rgba(12,21,38,.78) 100%);}
 .bar{position:absolute;top:0;left:0;height:12px;width:100%;background:var(--accent);z-index:650;transform-origin:left;}
 .mark{position:absolute;top:70px;left:0;right:0;text-align:center;color:var(--accent);font-weight:800;font-size:${Math.round(w * 0.04)}px;letter-spacing:.05em;z-index:650;opacity:0;text-shadow:0 2px 12px rgba(0,0,0,.5);}
+.brandlogo{position:absolute;top:60px;left:50%;transform:translateX(-50%);height:${Math.round(h * 0.035)}px;width:auto;max-width:${Math.round(w * 0.42)}px;object-fit:contain;z-index:650;opacity:0;filter:drop-shadow(0 2px 10px rgba(0,0,0,.45));}
 #introLayer{position:absolute;inset:0;z-index:600;background:${introBg};display:flex;align-items:center;justify-content:center;text-align:center;padding:0 80px;}
 #introText{color:var(--ink);font-weight:800;font-size:${introFont}px;line-height:1.02;letter-spacing:-.03em;overflow:visible;}
 #introText .hw{display:inline-block;opacity:0;}
@@ -338,10 +366,10 @@ ${layers.map((L) => L.css + "\n").join("")}#cta span{display:inline-flex;align-i
     ${bgmEl}
     ${capHtml}
     ${lowerThird ? `<div id="lt"><div class="t">${esc(lowerThird.title || "")}</div>${lowerThird.subtitle ? `<div class="s">${esc(lowerThird.subtitle)}</div>` : ""}</div>` : ""}
-    ${statsArr.map((s, j) => { const p = statParsed[j]; const v = p ? `${esc(p.prefix)}<span id="num${j}">0</span>${esc(p.suffix)}` : esc(s.value || ""); return `<div class="statCard" id="statCard${j}"><span class="v">${v}</span><span class="l">${esc(s.label || "")}</span></div>`; }).join("")}
+    ${statsArr.map((s, j) => { const p = statParsed[j]; const v = p ? `${esc(p.prefix)}<span id="num${j}">${esc(p.display)}</span>${esc(p.suffix)}` : esc(s.value || ""); return `<div class="statCard" id="statCard${j}"><span class="v">${v}</span><span class="l">${esc(s.label || "")}</span></div>`; }).join("")}
     ${callouts.map((c, j) => `<div class="callout" id="callout${j}">${esc(c.text)}</div>`).join("")}${layers.map((L) => L.html).join("")}
-    <div class="bar" id="bar"></div>
-    ${mark ? `<div class="mark" id="mark">${esc(mark)}</div>` : ""}
+    ${topBar ? `<div class="bar" id="bar"></div>` : ""}
+    ${logoUrl ? `<img class="brandlogo" id="brandlogo" src="${esc(logoUrl)}" alt=""/>` : ""}${mark ? `<div class="mark" id="mark">${esc(mark)}</div>` : ""}
     <div id="introLayer"><div id="introText">${hookSpans}</div></div>
     ${cta ? `<div id="cta"><span>${esc(cta)} &#8594;</span></div>` : ""}
 </div>

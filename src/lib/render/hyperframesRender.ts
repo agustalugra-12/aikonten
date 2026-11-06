@@ -19,6 +19,7 @@ export type HyperframesRenderOpts = {
   brandId: string;
   orientation?: "portrait" | "landscape" | "square";
   brandName?: string | null;
+  logoUrl?: string | null;   // brands.logo_url - logo brand di tepi atas video (mengganti tulisan nama)
   brandKitRaw?: string | null;   // brand.brandKit (JSON mentah) - diparse di sini
   hookText?: string | null;
   brollClips?: Array<{ videoUrl: string; durationSeconds: number }>;
@@ -74,7 +75,10 @@ export async function renderViaHyperframes(
       ink: str(bk.subtitleColor, "#FFFFFF"),
       cta: str(bk.ctaColor, "#CC1F1F"),
       font: HF_FONT[str(bk.subtitleFont, "poppins")] || "Poppins",
-      mark: (opts.brandName || "").toUpperCase(),
+      // Nama brand MENTAH (bukan .toUpperCase()) - komposisi yang merapikan kapitalisasi; kalau brand
+      // punya logo, logo dipakai MENGGANTI tulisan nama. Berlaku semua brand.
+      mark: opts.brandName || "",
+      logoUrl: opts.logoUrl || "",
     },
     hook: opts.hookText || "",
     introSeconds: INTRO_SECONDS,

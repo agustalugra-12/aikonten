@@ -564,6 +564,52 @@ async function run() {
     return r.duplicates.length === 1 && r.duplicates[0].postId === "P9";
   })());
 
+  // ---- 4 cacat video nyata (fix/video-defects-4) ----
+  const akk = await import("../src/lib/ai/angkaKeKata");
+  ok("cacat1 TTS: Rp350.000 -> kata wajar", akk.angkaKeKata("Rp350.000") === "tiga ratus lima puluh ribu rupiah");
+  ok("cacat1 TTS: Rp350,000 (koma ribuan Inggris) TIDAK jadi 'nol nol nol'", (() => {
+    const r = akk.angkaKeKata("Rp350,000");
+    return r === "tiga ratus lima puluh ribu rupiah" && !/nol/.test(r);
+  })());
+  ok("cacat1 TTS: 1,250,000 -> juta (bukan desimal)", akk.angkaKeKata("1,250,000") === "satu juta dua ratus lima puluh ribu");
+  ok("cacat1 TTS: desimal asli 3,5 tetap 'tiga koma lima'", akk.angkaKeKata("3,5") === "tiga koma lima");
+  ok("cacat1 TTS: tak ada digit tersisa", !akk.adaAngkaTersisa(akk.angkaKeKata("Rp350,000 dan 1.000 dan 30%")));
+
+  const hfc = await import("../src/lib/render/hyperframesComposition");
+  const bi = { orientation: "portrait" as const, brand: { mark: "laundry in bali" }, hook: "Hook uji",
+    audioDurationSeconds: 8, words: [], clips: [{ videoUrl: "u", durationSeconds: 5 }] };
+  ok("cacat4: garis aksen atas DEFAULT OFF", (() => {
+    const h = hfc.buildComposition(bi);
+    return !h.includes('class="bar"') && !h.includes("#bar");
+  })());
+  ok("cacat4: topBar:true -> opt-in muncul", (() => {
+    const h = hfc.buildComposition({ ...bi, topBar: true });
+    return h.includes('class="bar"') && h.includes("#bar");
+  })());
+  ok("cacat3: tanpa logo -> nama dikapitalisasi (bukan huruf kecil mentah)", (() => {
+    const h = hfc.buildComposition(bi);
+    return h.includes("Laundry in Bali") && !h.includes(">laundry in bali<");
+  })());
+  ok("cacat3: ada logoUrl -> pakai <img> logo, TANPA tulisan nama", (() => {
+    const h = hfc.buildComposition({ ...bi, brand: { mark: "laundry in bali", logoUrl: "https://x/logo.png" } });
+    return h.includes('id="brandlogo"') && h.includes("logo.png") && !h.includes('id="mark"');
+  })());
+  ok("cacat1 layar: kartu stat mulai dari nilai terformat id-ID (bukan '0')", (() => {
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Harga", value: "Rp350.000" }] });
+    return h.includes(">350.000<") && !h.includes('id="num0">0<');
+  })());
+  ok("cacat1 layar: nilai koma-Inggris 350,000 tetap tampil 350.000", (() => {
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Harga", value: "Rp350,000" }] });
+    return h.includes(">350.000<");
+  })());
+  ok("cacat3: titleCase tak merusak ALL-CAPS / yg sudah berkapital",
+    hfc.titleCase("PELANGI") === "PELANGI" && hfc.titleCase("Pelangi Homestay") === "Pelangi Homestay");
+  ok("semua cacat: motion-blur TETAP off (tak ada yg memaksa screenshot)", (() => {
+    const h = hfc.buildComposition({ ...bi, topBar: true, brand: { mark: "x", logoUrl: "https://x/l.png" },
+      stats: [{ label: "Harga", value: "Rp350,000" }] });
+    return h.includes('data-motion-blur="off"') && !h.includes('data-motion-blur="on"');
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
