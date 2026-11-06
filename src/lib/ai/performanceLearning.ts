@@ -21,10 +21,13 @@ import { ensureFreshYoutubeAccessToken } from "@/lib/publish/youtubeAuth";
 // Metrik Buffer tak update real-time; post lama dari 30 hari pun insights-nya tak tersedia di
 // Buffer free -> tak ada gunanya terus di-retry (dulu post lama "metrik permanen hilang" kepilih
 // ulang tiap sync & menghabiskan slot + kuota).
-const RESYNC_INTERVAL_MS = 72 * 60 * 60 * 1000;
+const RESYNC_INTERVAL_MS = 20 * 60 * 60 * 1000; // feat/buffer-quota-saver: kini dipanggil cron harian -> refresh ~tiap hari (data learning <=24 jam), dibatasi limit(10)/brand/run + budget cron.
 const RECENT_WINDOW_MS = 35 * 24 * 60 * 60 * 1000;
 
-export async function syncBrandPerformance(brandId: string): Promise<void> {
+type FetchPostMetrics = typeof getPostMetrics;
+
+// fetchMetrics injectable (default = Buffer getPostMetrics) -> testable tanpa jaringan.
+export async function syncBrandPerformance(brandId: string, fetchMetrics: FetchPostMetrics = getPostMetrics): Promise<void> {
   const now = new Date();
   const staleThreshold = new Date(now.getTime() - RESYNC_INTERVAL_MS);
 
@@ -53,7 +56,7 @@ export async function syncBrandPerformance(brandId: string): Promise<void> {
 
   for (const p of candidateProjects) {
     try {
-      await syncProjectPerformance(p.id);
+      await syncProjectPerformance(p.id, fetchMetrics);
     } catch (err) {
       // Best-effort - 1 project gagal sync (mis. Buffer API error sementara) TIDAK
       // BOLEH gagalkan seluruh alur generate ide harian yg memanggil fungsi ini.
@@ -68,7 +71,7 @@ export async function syncBrandPerformance(brandId: string): Promise<void> {
   }
 }
 
-async function syncProjectPerformance(projectId: string): Promise<void> {
+async function syncProjectPerformance(projectId: string, fetchMetrics: FetchPostMetrics): Promise<void> {
   const logs = await db
     .select({ id: publishLogs.id, platformPostId: publishLogs.platformPostId, socialAccountId: publishLogs.socialAccountId })
     .from(publishLogs)
@@ -101,7 +104,7 @@ async function syncProjectPerformance(projectId: string): Promise<void> {
         continue;
       }
     } else {
-      metrics = await getPostMetrics(log.platformPostId, account?.accessToken, { brandId: account?.brandId ?? null, channelId: account?.bufferChannelId ?? null });
+      metrics = await fetchMetrics(log.platformPostId, account?.accessToken, { brandId: account?.brandId ?? null, channelId: account?.bufferChannelId ?? null });
     }
     if (!metrics) continue;
     anyMetricsFound = true;

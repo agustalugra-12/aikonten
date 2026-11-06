@@ -522,6 +522,48 @@ async function run() {
     try { await tp.getPaymentChannels(100000); return false; } catch { return true; }
   })());
 
+  // ---------- feat/buffer-quota-saver: cache dashboard 24 jam ----------
+  const ac = await import("../src/lib/analyticsCache.ts");
+  ok("analyticsCache: DASHBOARD_CACHE_MS = 24 jam", ac.DASHBOARD_CACHE_MS === 24 * 60 * 60 * 1000);
+  ok("analyticsCache: <=24 jam -> fresh (pakai cache)", ac.isDashboardCacheFresh(Date.now() - 23 * 3600e3) === true);
+  ok("analyticsCache: >24 jam -> stale (refetch, data tak hilang)", ac.isDashboardCacheFresh(Date.now() - 25 * 3600e3) === false);
+  ok("analyticsCache: belum pernah cache -> fetch", ac.isDashboardCacheFresh(null) === false);
+
+  // ---------- feat/buffer-quota-saver: learning insight MURNI dari DB (fungsi pure, 0 call Buffer) ----------
+  const pl = await import("../src/lib/ai/performanceLearning.ts");
+  ok("learning: insight kosong saat data <3 (fail-soft)", pl.buildPerformanceInsightBlock([{ pillar: "A", angle: null, performanceViews: 10 }]) === "");
+  ok("learning: insight dari data DB (>=3), urut performa", (() => {
+    const b = pl.buildPerformanceInsightBlock([
+      { pillar: "Promo", angle: null, performanceViews: 300 },
+      { pillar: "Edukasi", angle: null, performanceViews: 100 },
+      { pillar: "Promo", angle: null, performanceViews: 200 },
+    ]);
+    return b.includes("PERFORMA KONTEN NYATA") && b.indexOf("Promo") < b.indexOf("Edukasi");
+  })());
+
+  // ---------- feat/buffer-quota-saver: sweep reconcile aman (prasyarat sebelum dinyalakan) ----------
+  const sw = await import("../src/lib/publish/sweep.ts");
+  ok("sweep: default OFF (jalur lama tetap)", sw.sweepEnabled() === false);
+  ok("sweep: hanya channel ber-pending yang disapu", JSON.stringify(sw.channelsToSweep([{ channelId: "c1" }, { channelId: "c1" }, { channelId: "c2" }])) === JSON.stringify(["c1", "c2"]));
+  ok("sweep: post 'sent' lewat jendela dup -> confirmed", (() => {
+    const cfg = { nowMs: 1_000_000, dupWindowMs: 5 * 60_000, stuckMs: 20 * 60_000 };
+    const r = sw.reconcileSweep([{ id: "pc1", platformPostId: "P1", text: "t", createdAtMs: cfg.nowMs - 6 * 60_000, dupHandled: false }],
+      [{ id: "P1", text: "t", status: "sent" }], new Set(["P1"]), cfg);
+    return r.confirmed.length === 1 && r.errored.length === 0 && r.duplicates.length === 0;
+  })());
+  ok("sweep: post 'error' -> errored (koreksi, bukan diam2 sukses)", (() => {
+    const cfg = { nowMs: 1_000_000, dupWindowMs: 5 * 60_000, stuckMs: 20 * 60_000 };
+    const r = sw.reconcileSweep([{ id: "pc2", platformPostId: "P2", text: "t", createdAtMs: cfg.nowMs - 60_000, dupHandled: false }],
+      [{ id: "P2", text: "t", status: "error" }], new Set(["P2"]), cfg);
+    return r.errored.length === 1 && r.confirmed.length === 0;
+  })());
+  ok("sweep: duplikat (post lain teks sama, bukan milik kita) terdeteksi", (() => {
+    const cfg = { nowMs: 1_000_000, dupWindowMs: 5 * 60_000, stuckMs: 20 * 60_000 };
+    const r = sw.reconcileSweep([{ id: "pc3", platformPostId: "P3", text: "dup", createdAtMs: cfg.nowMs - 6 * 60_000, dupHandled: false }],
+      [{ id: "P3", text: "dup", status: "sent" }, { id: "P9", text: "dup", status: "sent" }], new Set(["P3"]), cfg);
+    return r.duplicates.length === 1 && r.duplicates[0].postId === "P9";
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

@@ -2,7 +2,6 @@ import { db } from "@/db";
 import { dailyIdeas, brands, projects, manualIdeas, socialAccounts, competitors } from "@/db/schema";
 import { and, eq, desc, asc, inArray } from "drizzle-orm";
 import { suggestScoredContentIdeas, todayDateKeyWita } from "./researchTopics";
-import { syncBrandPerformance } from "./performanceLearning";
 import { getChannelProfile, generateYoutubeDailyIdeas } from "./youtubeEditorial";
 import { newId } from "@/lib/ids";
 import { runWithUsageContext } from "./usageContext";
@@ -97,9 +96,10 @@ export async function getOrGenerateDailyIdeas(brandId: string): Promise<DailyIde
   // lihat performanceLearning.ts) SEKALI per hari, bareng dgn generate ide harian -
   // best-effort, JANGAN gagalkan seluruh alur ide kalau sync gagal (mis. Buffer API
   // down sementara).
-  await syncBrandPerformance(brandId).catch((err) => {
-    console.error(`[dailyContentPlanner] gagal sync performa brand ${brandId}:`, err);
-  });
+  // feat/buffer-quota-saver (2026-11-06): sync performa DIPINDAH ke cron daily-analytics
+  // (sekali/hari, budget-gated). Generate TAK lagi call Buffer utk learning - insight dibaca
+  // dari DB (projects.performanceViews via getBrandPerformanceInsight). Generate lebih cepat
+  // & tetap jalan saat Buffer rate-limited.
 
   // Histori lebih lebar drpd "Ide Konten" on-demand (15 -> 30 skrip terakhir) - batch
   // 10 ide sekaligus butuh lebih banyak konteks anti-pengulangan drpd cuma 3-5 ide.

@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { socialAccounts, analytics } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { getAggregatedMetrics } from "@/lib/publish/bufferAuth";
+import { syncBrandPerformance } from "@/lib/ai/performanceLearning";
 import { newId } from "@/lib/ids";
 import { ledgerReady, missingLedgerTables, getTokenCooldownUntil, countCalls30d } from "@/lib/publish/ledger";
 import { budgetVerdict, defaultBudgetCfg } from "@/lib/publish/guard";
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
   const windowStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);
 
   const results: Array<{ accountId: string; username: string; ok: boolean; error?: string }> = [];
+  const brandTokens = new Map<string, string | null>(); // brand sehat (lolos cooldown+budget) utk snapshot per-posting di bawah
 
   for (const acc of accounts) {
     if (acc.publishVia !== "buffer" || !acc.bufferChannelId) {
@@ -58,6 +60,7 @@ export async function POST(req: NextRequest) {
       results.push({ accountId: acc.id, username: acc.username, ok: false, error: "dilewati: budget Buffer di reserve (publish diprioritaskan)" });
       continue;
     }
+    if (!brandTokens.has(acc.brandId)) brandTokens.set(acc.brandId, acc.accessToken);
     try {
       const metrics = await getAggregatedMetrics(
         acc.bufferChannelId,
@@ -107,5 +110,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ dateRecorded, results });
+  // feat/buffer-quota-saver (2026-11-06): snapshot metrik PER-POSTING sekali/hari DI SINI
+  // (dipindah dari jalur generate - dulu syncBrandPerformance dipanggil live tiap generate).
+  // Learning loop kini BACA dari DB (projects.performanceViews); generate tak call Buffer lagi.
+  // Budget-gated (non-esensial, berhenti di reserve) -> tak pernah makan jatah publish.
+  const perPostSync: Array<{ brandId: string; ok: boolean; error?: string }> = [];
+  for (const [brandId, token] of brandTokens) {
+    if (await getTokenCooldownUntil(token, nowMs)) { perPostSync.push({ brandId, ok: false, error: "cooldown" }); continue; }
+    if (!budgetVerdict(await countCalls30d(token, nowMs), budgetCfg).allowNonEssential) { perPostSync.push({ brandId, ok: false, error: "budget reserve" }); continue; }
+    try { await syncBrandPerformance(brandId); perPostSync.push({ brandId, ok: true }); }
+    catch (err) { perPostSync.push({ brandId, ok: false, error: err instanceof Error ? err.message : String(err) }); }
+  }
+
+  return NextResponse.json({ dateRecorded, results, perPostSync });
 }

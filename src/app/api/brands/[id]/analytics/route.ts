@@ -4,6 +4,7 @@ import { socialAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getAggregatedMetrics } from "@/lib/publish/bufferAuth";
 import { getUserId, getOwnedBrand } from "@/lib/session";
+import { isDashboardCacheFresh } from "@/lib/analyticsCache";
 
 // Analitik "ambil dari Buffer saja" (keputusan Agus - bukan integrasi terpisah ke tiap
 // API platform native). Cuma berlaku utk akun yg publishVia="buffer" - akun native
@@ -25,7 +26,7 @@ const DEFAULT_WINDOW_DAYS = 30;
 // endpoint ini ikut menghabiskan kuota 250-request/hari Buffer - dashboard yg dibuka
 // berkali-kali sehari sebelumnya manggil API asli TIAP KALI, padahal datanya "tidak
 // berubah setiap saat"). Bukan per-jam presisi, cukup "sudah lewat setengah hari".
-const CACHE_MS = 12 * 60 * 60 * 1000;
+// Cache dashboard -> lib/analyticsCache.ts (DASHBOARD_CACHE_MS = 24 jam, feat/buffer-quota-saver).
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = getUserId(req);
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         return { ...base, available: false as const };
       }
 
-      const isFresh = acc.cachedMetricsAt && now.getTime() - acc.cachedMetricsAt.getTime() < CACHE_MS;
+      const isFresh = isDashboardCacheFresh(acc.cachedMetricsAt, now.getTime());
       if (isFresh && acc.cachedMetrics) {
         return { ...base, available: true as const, metrics: JSON.parse(acc.cachedMetrics), cachedAt: acc.cachedMetricsAt };
       }
