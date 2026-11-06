@@ -20,6 +20,10 @@ import type { MonthlyReportData } from "@/lib/reports/monthlyReportData";
 //      video-native", "menerapkan analisis gaya yang kredibel" - itu metode pengumpulan
 //      data, bukan perilaku). Sekarang notes diberi label tegas sbg metadata + prompt
 //      melarang memperlakukannya sebagai temuan.
+//   4. TAMBAHAN 2026-11-07 (disetujui Agus): `brandContext` - identitas brand sendiri
+//      sebagai KONTEKS relevansi. Tanpa ini AI tidak tahu brand menjual alat software
+//      atau jasa, sehingga SWOT-nya cuma membandingkan performa per tipe konten dan
+//      terasa generik. Lihat buildBrandContext() untuk penjagaan harga/paket/kredit.
 export type Competitor = {
   id: string;
   name: string;
@@ -110,10 +114,162 @@ export function buildCompetitorBrief(c: Competitor): string {
   return lines.join("\n");
 }
 
+// =====================================================================================
+// brandContext - identitas brand sendiri sebagai KONTEKS relevansi (2026-11-07)
+// =====================================================================================
+// SENGAJA TIDAK menyuntik `manual_knowledge` mentah (di agustap studio 14 ribu karakter):
+// prompt jadi encer, biaya naik ~4x, dan isinya memuat copy marketing + case study yang
+// gampang diperlakukan AI sebagai fakta terbukti. Yang dipakai = kolom pendek terstruktur
+// yang sudah ada di tabel `brands` (total ~500 karakter, stabil lintas tenant).
+
+export type BrandIdentity = {
+  niche?: string | null;
+  positioning?: string | null;
+  targetAudience?: string | null;
+  toneOfVoice?: string | null;
+  contentPillars?: string | null; // JSON {"pillars":[...]} atau teks bebas
+  manualKnowledge?: string | null; // HANYA jalur cadangan, dipotong di IDENTITAS BRAND
+};
+
+const MAX_BRAND_CONTEXT = 1200;
+const MAX_CONTEXT_LINE = 240;
+
+// PENJAGAAN KERAS (perintah Agus 2026-11-07): brandContext TIDAK BOLEH memuat harga,
+// nama paket, atau jumlah kredit. Analisis kompetitor sama sekali tidak butuh harga, dan
+// harga basi di dalam prompt justru kelas bug yang baru kita bersihkan (brand ini
+// menerbitkan paket agensi lama Rp1,5-2,5 juta yang sudah tidak dijual). Satu baris yang
+// kena pola di bawah DIBUANG UTUH - tidak disensor sebagian, supaya tidak ada sisa angka.
+const PRICE_LINE_RE = new RegExp(
+  [
+    "rp\\s*\\.?\\s*\\d", // Rp149.000 / Rp 149000
+    "\\d{1,3}[.,]\\d{3}", // 149.000 / 1,500 (pemisah ribuan)
+    "\\b\\d{4,}\\b", // 149000
+    "\\b\\d+(?:[.,]\\d+)?\\s*(?:rb|ribu|jt|juta|k|m)\\b", // 149rb / 1,5 juta / 350K
+    "\\bkredit\\b|\\bcredits?\\b", // jumlah kredit
+    "\\bharga\\b|\\bpaket\\b|\\bpackage\\b|\\bpricing\\b|\\btarif\\b|\\bbiaya\\b",
+    "\\blangganan\\b|\\bsubscription\\b|\\bper\\s*bulan\\b|/\\s*bulan\\b|/\\s*bln\\b",
+    // nama tier paket
+    "\\bstarter\\b|\\bpro\\b|\\bpremium\\b|\\bbasic\\b|\\bagency\\b|\\benterprise\\b|\\bunlimited\\b",
+  ].join("|"),
+  "i"
+);
+
+/** Buang SETIAP baris yang menyinggung harga / nama paket / jumlah kredit. */
+export function redactPriceLines(block: string): string {
+  return block
+    .split("\n")
+    .filter((l) => !PRICE_LINE_RE.test(l))
+    .join("\n");
+}
+
+const SEPARATOR_RE = /^(?:[=\-_*#]{5,})$/;
+const HEADING_RE = /^[^a-z]{4,}$/; // baris tanpa satu pun huruf kecil = judul seksi
+
+/** Ambil HANYA seksi `IDENTITAS BRAND` dari manual_knowledge, dipotong TEGAS di
+ *  pemisah/judul seksi berikutnya supaya tidak pernah merembet ke PAKET HARGA.
+ *  Kalau seksinya tidak ada -> "" (bukan menebak seksi lain). */
+export function extractIdentitySection(manualKnowledge: string | null | undefined): string {
+  if (!manualKnowledge) return "";
+  const lines = manualKnowledge.split("\n");
+  const start = lines.findIndex((l) => /^\s*IDENTITAS BRAND\s*$/.test(l));
+  if (start < 0) return "";
+  const body: string[] = [];
+  for (const raw of lines.slice(start + 1)) {
+    const line = raw.trim();
+    if (!line) {
+      if (body.length > 0) body.push("");
+      continue;
+    }
+    if (SEPARATOR_RE.test(line)) {
+      if (body.length === 0) continue; // pemisah PEMBUKA judul, bukan penutup seksi
+      break;
+    }
+    if (HEADING_RE.test(line)) break; // judul seksi berikutnya -> STOP
+    body.push(raw.trimEnd());
+  }
+  return body.join("\n").trim();
+}
+
+function parsePillars(raw?: string | null): string {
+  const t = (raw || "").trim();
+  if (!t) return "";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(t);
+  } catch {
+    return t; // teks bebas, bukan JSON
+  }
+  const arr: unknown[] = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && Array.isArray((parsed as { pillars?: unknown }).pillars)
+      ? (parsed as { pillars: unknown[] }).pillars
+      : [];
+  return arr
+    .filter((x): x is string => typeof x === "string" && x.trim() !== "")
+    .map((s) => s.trim())
+    .join(", ");
+}
+
+/** Blok identitas brand yang pendek & aman untuk prompt. Sumber utama = kolom pendek
+ *  tabel `brands`. Jalur cadangan (hanya kalau SEMUA kolom itu kosong) = seksi
+ *  IDENTITAS BRAND dari manual_knowledge. Apa pun jalurnya, hasil akhir selalu lewat
+ *  redactPriceLines() lalu diplafon MAX_BRAND_CONTEXT karakter. */
+export function buildBrandContext(brand: BrandIdentity): string {
+  const parts: string[] = [];
+  const add = (label: string, v?: string | null) => {
+    const t = (v || "").replace(/\s+/g, " ").trim();
+    if (t) parts.push(`${label}: ${t.slice(0, MAX_CONTEXT_LINE)}`);
+  };
+  add("Niche", brand.niche);
+  add("Positioning", brand.positioning);
+  add("Target audiens", brand.targetAudience);
+  add("Tone of voice", brand.toneOfVoice);
+  add("Pilar konten", parsePillars(brand.contentPillars));
+
+  if (parts.length === 0) {
+    const identity = extractIdentitySection(brand.manualKnowledge);
+    if (identity) parts.push(identity);
+  }
+
+  const block = redactPriceLines(parts.join("\n")).trim();
+  if (block.length <= MAX_BRAND_CONTEXT) return block;
+  const cut = block.slice(0, MAX_BRAND_CONTEXT);
+  const nl = cut.lastIndexOf("\n");
+  return (nl > 0 ? cut.slice(0, nl) : cut).trim();
+}
+
+const normEcho = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const MIN_ECHO = 12; // di bawah ini frasa terlalu generik utk dianggap gemaan
+
+/** Jaring pengaman deterministik: buang item "temuan kompetitor" yang sebenarnya cuma
+ *  menggemakan brandContext. Prompt sudah melarang, ini lapis kedua di kode karena
+ *  kepatuhan prompt tidak bisa dijamin. Dicocokkan PER-NILAI brandContext (bukan seluruh
+ *  blok) dan dua arah, supaya gemaan SEBAGIAN ikut tertangkap - mis. tone brand
+ *  "Edukatif & Berbobot" muncul jadi "Edukatif & Berbobot dalam membawakan materi".
+ *  Nilai pendek (<12 karakter ternormalisasi) dilewati supaya frasa generik tidak
+ *  ikut membuang temuan kompetitor yang sah; pilar konten SENGAJA dicocokkan sebagai
+ *  satu nilai gabungan, bukan per-pilar, karena tumpang-tindih satu pilar dengan
+ *  kompetitor itu wajar dan bukan kebocoran.
+ *  Hanya dipakai untuk contentGap (competitorDoing/competitorMissing = klaim TENTANG
+ *  kompetitor); `opportunities` dan `swot` memang BOLEH dibentuk konteks brand sendiri. */
+export function stripBrandContextEcho(items: string[], brandContext?: string | null): string[] {
+  const values = (brandContext || "")
+    .split("\n")
+    .map((l) => normEcho(l.replace(/^[^:]{1,30}:\s*/, ""))) // buang label "Niche: " dst
+    .filter((v) => v.length >= MIN_ECHO);
+  if (values.length === 0) return items;
+  return items.filter((it) => {
+    const n = normEcho(it);
+    if (n.length < MIN_ECHO) return true;
+    return !values.some((v) => n.includes(v) || v.includes(n));
+  });
+}
+
 export async function generateCompetitorIntelligence(
   brandName: string,
   competitors: Competitor[],
-  ownPerformance: MonthlyReportData
+  ownPerformance: MonthlyReportData,
+  brandContext?: string | null
 ): Promise<CompetitorIntelligence> {
   // Tidak ada pembanding AKTIF yang punya substansi - jangan paksa AI menyimpulkan dari
   // kekosongan (pola sama dgn guard "data < 3" di monthlyStrategicRecommendation).
@@ -124,6 +280,7 @@ export async function generateCompetitorIntelligence(
 
   const client = getOpenAIClient();
   const briefPembanding = eligible.map(buildCompetitorBrief).join("\n\n");
+  const konteksBrand = (brandContext || "").trim();
   const performaSendiri = `
 Total konten tayang (${ownPerformance.windowDays} hari terakhir): ${ownPerformance.totalContent}
 Total views: ${ownPerformance.totalViews}
@@ -149,6 +306,12 @@ Performa per Tipe Konten: ${ownPerformance.byContentType.map((b) => `${b.label} 
           "pihak ketiga, atau seed manual). Itu BUKAN pengamatan tentang konten " +
           "pembanding. JANGAN PERNAH memparafrasekannya sebagai perilaku, gaya, atau " +
           "temuan kompetitor. Pakai hanya untuk menilai seberapa kuat buktinya.\n" +
+          "PENTING soal IDENTITAS BRAND (kalau ada): itu KONTEKS tentang brand SENDIRI, " +
+          "BUKAN sumber fakta kompetitor. Pakai hanya untuk menimbang apa yang RELEVAN " +
+          "bagi brand ini. JANGAN PERNAH menyalin atau memparafrasekan isinya sebagai " +
+          "perilaku/temuan kompetitor di contentGap, dan jangan mengulangnya apa adanya " +
+          "sebagai hasil analisis. Blok itu juga TIDAK memuat harga - jangan menyebut, " +
+          "menebak, atau mengarang harga/paket/kredit apa pun.\n" +
           "Hasilkan: (A) Content Gap - apa yang pembanding SERING lakukan (dari POLA " +
           "KONTEN TERAMATI), apa yang JARANG/TIDAK PERNAH mereka lakukan (hanya kalau " +
           "pola mereka memang menunjukkan ketidakhadiran itu), dan peluang konten yang " +
@@ -164,6 +327,9 @@ Performa per Tipe Konten: ${ownPerformance.byContentType.map((b) => `${b.label} 
         role: "user",
         content:
           `PEMBANDING AKTIF (${eligible.length}):\n${briefPembanding}\n\n` +
+          (konteksBrand
+            ? `IDENTITAS BRAND (konteks relevansi, BUKAN sumber fakta kompetitor):\n${konteksBrand}\n\n`
+            : "") +
           `PERFORMA BRAND SENDIRI:\n${performaSendiri}\n\n` +
           `Balas HARUS JSON valid (tanpa markdown code fence): {"contentGap": ` +
           `{"competitorDoing": ["..."], "competitorMissing": ["..."], "opportunities": ["..."]}, ` +
@@ -177,10 +343,12 @@ Performa per Tipe Konten: ${ownPerformance.byContentType.map((b) => `${b.label} 
   const cleaned = raw.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
   try {
     const parsed = JSON.parse(cleaned);
+    const doing = Array.isArray(parsed?.contentGap?.competitorDoing) ? parsed.contentGap.competitorDoing : [];
+    const missing = Array.isArray(parsed?.contentGap?.competitorMissing) ? parsed.contentGap.competitorMissing : [];
     return {
       contentGap: {
-        competitorDoing: Array.isArray(parsed?.contentGap?.competitorDoing) ? parsed.contentGap.competitorDoing : [],
-        competitorMissing: Array.isArray(parsed?.contentGap?.competitorMissing) ? parsed.contentGap.competitorMissing : [],
+        competitorDoing: stripBrandContextEcho(doing, konteksBrand),
+        competitorMissing: stripBrandContextEcho(missing, konteksBrand),
         opportunities: Array.isArray(parsed?.contentGap?.opportunities) ? parsed.contentGap.opportunities : [],
       },
       swot: {

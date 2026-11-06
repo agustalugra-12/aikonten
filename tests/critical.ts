@@ -633,6 +633,130 @@ async function run() {
     return !!p && p.hookPattern === "ok" && p.pacing === undefined && p.ctaPattern === undefined && (p as any).lain === undefined;
   })());
 
+  // ---- brandContext: konteks identitas brand, WAJIB bebas harga/paket/kredit ----
+  // (`ca` = modul competitorAnalysis, sudah di-import di blok tes sebelumnya)
+  const MK_AGUSTAP = [
+    "IDENTITAS BRAND",
+    "",
+    "Agustap Studio adalah perusahaan pembuat perangkat lunak.",
+    "Produknya bernama KontenPilot.",
+    "Agustap Studio BUKAN agensi. Pelanggan memakai alatnya sendiri.",
+    "",
+    "==================================================",
+    "PAKET HARGA",
+    "==================================================",
+    "",
+    "STARTER Rp 149.000/bulan - 60 kredit",
+    "PRO Rp 299.000/bulan - 120 kredit",
+    "AGENCY Rp 550.000/bulan - 180 kredit",
+  ].join("\n");
+  const TERLARANG = /149|299|550|\bRp\b|kredit|starter|\bpro\b|agency|paket|harga/i;
+
+  ok("brandContext: dibangun dari kolom pendek, manual_knowledge TIDAK dipakai", (() => {
+    const ctx = ca.buildBrandContext({
+      niche: "Marketing & strategi konten untuk UMKM dan bisnis lokal",
+      positioning: "Agustap Studio = akun yang membedah masalah marketing bisnis",
+      targetAudience: "UMKM, bisnis lokal, entrepreneur",
+      toneOfVoice: "Edukatif & Berbobot",
+      contentPillars: JSON.stringify({ pillars: ["Bedah UMKM", "Marketing Mistakes", "Case Study"], targetPercent: {} }),
+      manualKnowledge: MK_AGUSTAP,
+    });
+    return ctx.includes("Niche: Marketing & strategi konten")
+      && ctx.includes("Positioning: Agustap Studio =")
+      && ctx.includes("Target audiens: UMKM, bisnis lokal")
+      && ctx.includes("Tone of voice: Edukatif & Berbobot")
+      && ctx.includes("Pilar konten: Bedah UMKM, Marketing Mistakes, Case Study")
+      && !ctx.includes("perangkat lunak") // kolom ada -> jalur cadangan TIDAK dipakai
+      && ctx.length < 600;
+  })());
+
+  ok("brandContext: harga/nama paket/jumlah kredit DIBUANG dari kolom yang tercemar", (() => {
+    const ctx = ca.buildBrandContext({
+      niche: "Jasa konten",
+      positioning: "Paket Starter Rp149.000 per bulan berisi 60 kredit",
+      targetAudience: "UMKM yang butuh 120 kredit/bulan",
+      toneOfVoice: "Santai",
+      contentPillars: JSON.stringify({ pillars: ["Promo Agency 550.000", "Edukasi"] }),
+    });
+    return !TERLARANG.test(ctx) && ctx.includes("Jasa konten") && ctx.includes("Santai");
+  })());
+
+  ok("brandContext: jalur cadangan dipotong TEGAS di IDENTITAS BRAND, tak merembet ke PAKET HARGA", (() => {
+    const ctx = ca.buildBrandContext({
+      niche: null, positioning: "", targetAudience: null, toneOfVoice: null,
+      contentPillars: null, manualKnowledge: MK_AGUSTAP,
+    });
+    return ctx.includes("perangkat lunak")
+      && ctx.includes("BUKAN agensi")
+      && !ctx.includes("PAKET HARGA")
+      && !TERLARANG.test(ctx);
+  })());
+
+  ok("brandContext: harga DI DALAM seksi IDENTITAS BRAND pun tetap dibuang", (() => {
+    const ctx = ca.buildBrandContext({
+      manualKnowledge: [
+        "IDENTITAS BRAND", "",
+        "Kami perusahaan software.",
+        "Paket Starter Rp149.000 per bulan, 60 kredit.",
+        "Kami bukan agensi.", "",
+        "==================================================", "PAKET HARGA",
+      ].join("\n"),
+    });
+    return ctx.includes("perusahaan software") && ctx.includes("bukan agensi") && !TERLARANG.test(ctx);
+  })());
+
+  ok("extractIdentitySection: berhenti di pemisah; seksi tak ada -> kosong", (() => {
+    const sec = ca.extractIdentitySection(MK_AGUSTAP);
+    return sec.includes("BUKAN agensi")
+      && !sec.includes("PAKET")
+      && !sec.includes("149.000")
+      && ca.extractIdentitySection("PRODUK UTAMA\nKontenPilot halo") === ""
+      && ca.extractIdentitySection(null) === ""
+      && ca.extractIdentitySection("==========\nIDENTITAS BRAND\n==========\nKami software.\n==========\nPAKET HARGA") === "Kami software.";
+  })());
+
+  ok("brandContext: diplafon 1200 karakter dan tiap baris dipotong", (() => {
+    const panjang = "x".repeat(5000);
+    const semua = ca.buildBrandContext({
+      niche: panjang, positioning: panjang, targetAudience: panjang,
+      toneOfVoice: panjang, contentPillars: panjang,
+    });
+    const satu = ca.buildBrandContext({ niche: panjang });
+    return semua.length <= 1200 && semua.includes("Niche: xxx") && satu.length < 260;
+  })());
+
+  ok("brandContext: pilar JSON di-parse; objek tanpa pillars diabaikan; brand kosong -> kosong", (() => {
+    return ca.buildBrandContext({ contentPillars: JSON.stringify(["Satu", "Dua"]) }) === "Pilar konten: Satu, Dua"
+      && ca.buildBrandContext({ contentPillars: JSON.stringify({ targetPercent: {} }) }) === ""
+      && ca.buildBrandContext({ contentPillars: "pilar teks bebas" }) === "Pilar konten: pilar teks bebas"
+      && ca.buildBrandContext({}) === ""
+      && ca.buildBrandContext({ niche: null, manualKnowledge: null }) === "";
+  })());
+
+  ok("brandContext TIDAK BOCOR: gemaan brandContext dibuang dari competitorDoing", (() => {
+    const bc = "Niche: Marketing untuk UMKM dan bisnis lokal\nTone of voice: Edukatif & Berbobot";
+    const kept = ca.stripBrandContextEcho(
+      ["Marketing untuk UMKM dan bisnis lokal", "Edukatif & Berbobot dalam membawakan materi", "Pembanding rajin bikin carousel bedah angka"],
+      bc
+    );
+    return kept.length === 1 && kept[0].startsWith("Pembanding rajin");
+  })());
+
+  ok("stripBrandContextEcho: item pendek & brandContext kosong tidak mengubah apa pun", (() => {
+    const bc = "Niche: Marketing untuk UMKM dan bisnis lokal";
+    return ca.stripBrandContextEcho(["UMKM"], bc).length === 1
+      && ca.stripBrandContextEcho(["Marketing untuk UMKM dan bisnis lokal"], "").length === 1
+      && ca.stripBrandContextEcho(["Marketing untuk UMKM dan bisnis lokal"], null).length === 1;
+  })());
+
+  ok("route competitor-analysis BENAR-BENAR meneruskan brandContext (anti lupa-sambung)", (() => {
+    const fsRoute = require("node:fs").readFileSync(
+      "src/app/api/brands/[id]/competitor-analysis/route.ts", "utf8"
+    ) as string;
+    return fsRoute.includes("buildBrandContext")
+      && /generateCompetitorIntelligence\(\s*brand\.name,\s*comps,\s*ownPerformance,\s*brandContext\s*\)/.test(fsRoute);
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
