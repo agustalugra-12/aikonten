@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { buildComposition, type HfClip, type HfCompositionInput, type HfWord } from "@/lib/render/hyperframesComposition";
 import type { Scene, VideoPlan } from "./videoPlan";
 import { designBg, flashLayer, renderScene, safeHex, type BrandColors, type Layer } from "./sceneLibrary";
-import { applyGlossary, fixText, freeZone, hookConfidence, isBlurry, MIN_FRAME_SHARP, officialName, subjectScore, subjectSource, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
+import { applyGlossary, fixText, freeZone, hookConfidence, isBlurry, MIN_FRAME_SHARP, officialName, overclaimsSpecific, subjectScore, subjectSource, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
 import { captionLayer, hookLayer } from "./planText";
 
 // mediaStart = awal segmen di sumber; subject = metadata isi (footage_bank/Pexels); analysis = ketajaman & letak subjek.
@@ -92,7 +92,12 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     if (!r) return false;
     const subj = s.subject || (isHook && s.type === "hook" ? s.text : "");
     const meta = m.footage[r].subject;
-    if (isHook) { const c = hookConfidence(subj, meta); hookWhy[r] = sharpOk(r) ? c.reason : "buram"; return c.ok && sharpOk(r); }
+    if (isHook) {
+      const label = s.type === "hook" ? s.text : subj;
+      const c = hookConfidence(subj, meta), over = overclaimsSpecific(label, meta);
+      hookWhy[r] = !sharpOk(r) ? "buram" : over ? "klaim spesies tak terbukti" : c.reason;
+      return c.ok && sharpOk(r) && !over;
+    }
     // Klaim subjek (subject adegan, caption berlabel footage-caption, atau before-after) WAJIB footage ber-metadata
     // isi frame (source=="vision" / ber-tags), bukan query Pexels atau tanpa metadata -> kalau tidak, adegan desain
     // (sama seperti hook: klip query "vampire finch" ternyata burung kecil di tangan). Tanpa klaim subjek ->
@@ -100,7 +105,10 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     const claim = !!s.subject || (s.type === "footage-caption" && !!s.caption) || s.type === "before-after";
     if (!claim) return true;
     if (subjectSource(meta) !== "vision") return false;
-    return !s.subject || subjectScore(s.subject, meta) > 0;
+    if (s.subject && subjectScore(s.subject, meta) === 0) return false;
+    // Label (subject/caption) tak boleh klaim SPESIES spesifik yg tak terbukti di klip (revisi-6) -> adegan desain.
+    const label = s.type === "footage-caption" ? s.caption ?? "" : "";
+    return !overclaimsSpecific(s.subject ?? "", meta) && !overclaimsSpecific(label, meta);
   };
   const hook = windows[0].scene;
   // Hero hanya bila YAKIN (hookConfidence: metadata isi frame, bukan query Pexels; cakupan subjek ≥50%) & tak buram.
@@ -141,7 +149,9 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
     const s = win.scene;
     if (s.transition === "flash" && i > 0) flashes.push(win.start);
     if (s.type === "before-after") {
-      const ok = [s.before.footageRef, s.after.footageRef].every((r) => known(r) && fits(s, r, false));
+      // Tiap sisi: footage cocok DAN label sisi tak klaim spesies yg tak ada di klipnya (revisi-6).
+      const okSide = (sd: { label: string; footageRef: string }) => !!known(sd.footageRef) && fits(s, sd.footageRef, false) && !overclaimsSpecific(sd.label, m.footage[sd.footageRef].subject);
+      const ok = okSide(s.before) && okSide(s.after);
       if (ok) {
         push(s.before.footageRef, win.dur / 2, s.before.mediaStart, s.transition, s.id);
         push(s.after.footageRef, win.dur / 2, s.after.mediaStart, "slide", s.id);

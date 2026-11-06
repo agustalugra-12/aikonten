@@ -325,7 +325,11 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 #cta{position:absolute;left:0;right:0;bottom:${Math.round(h * 0.075)}px;text-align:center;z-index:700;opacity:0;}
 ${layers.map((L) => L.css + "\n").join("")}#cta span{display:inline-flex;align-items:center;gap:14px;background:var(--cta);color:#fff;font-weight:700;font-size:${Math.round(w * 0.046)}px;padding:26px 46px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.4);}
 </style></head><body>
-<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="on">
+<!-- Revisi-6 2026-11-06: motion-blur root DEFAULT off. Nilai "on" memaksa capture html-in-canvas (screenshot) yg
+     mematikan jalur cepat BeginFrame worker. Terukur di worker (no GPU, software GL): blur-on screenshot 216s vs
+     blur-off 185s (~+14%), ~+41% dibanding jalur cepat penuh; blur nyaris tak kelihatan di 30fps SDR utk komposisi
+     ini. Opt-in bila suatu komposisi perlu: ganti nilainya di sini. -->
+<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="off">
     ${videoEls}${facelessHtml}
     ${gradeHtml}
     <div id="scrim"></div>

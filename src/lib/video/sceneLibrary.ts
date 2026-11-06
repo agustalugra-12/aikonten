@@ -34,6 +34,22 @@ export const safeHex = (h: string | undefined, d: string) => (h && /^#[0-9a-f]{6
 export const pickInk = (bg: string) => (contrast("#FFFFFF", bg) >= contrast("#000000", bg) ? "#FFFFFF" : "#000000"); // hitam MURNI: min teoretis 4.58 utk warna apa pun
 // Aksen dipakai sbg warna teks hanya bila kontrasnya cukup; kalau tidak, jatuh ke ink.
 const accentOr = (accent: string, bg: string) => (contrast(accent, bg) >= 4.5 ? accent : pickInk(bg));
+// Campur hex menuju target (0..1). f=0 -> hex, f=1 -> target.
+function mix(hex: string, target: string, f: number): string {
+  const [r, g, b] = rgb(hex), [tr, tg, tb] = rgb(target);
+  const c = (a: number, z: number) => Math.round(a + (z - a) * f).toString(16).padStart(2, "0");
+  return `#${c(r, tr)}${c(g, tg)}${c(b, tb)}`;
+}
+// Dasar latar ADEGAN DESAIN (revisi-6 2026-11-06): brand TERANG (primary terang -> ink hitam) dulu bikin latar
+// PUCAT/washed. Gelapkan primary ke tone brand yg DALAM (tetap ber-hue brand) -> frame kaya, ink putih aman.
+// Brand GELAP: primary + bg2 lama apa adanya (dark tetap IDENTIK dgn sebelumnya).
+export function designBase(b: BrandColors): { base: string; base2: string; ink: string } {
+  const light = pickInk(b.primary) === "#000000"; // primary terang
+  const base = light ? mix(b.primary, "#0B1020", 0.72) : b.primary;
+  const base2 = light ? mix(base, "#000000", 0.3) : b.bg2;
+  return { base, base2, ink: pickInk(base) };
+}
+export const designInk = (b: BrandColors) => designBase(b).ink;
 
 // ---------- tipografi ----------
 // Lebar rata-rata glyph (em) per font untuk estimasi wrap. Font tak dikenal -> Poppins (fallback lokal).
@@ -105,16 +121,20 @@ export function designBg(id: string, start: number, dur: number, b: BrandColors)
   // Warna elemen HARUS kontras thd primary (brand terang MAUPUN gelap): ring/tekstur ikut accentOr (aksen bila
   // vivid, kalau tidak hitam/putih); blob2 pakai CTA bila kontras cukup, kalau tidak ikut ring. (Bug revisi-5a:
   // brand primary terang -> dots aksen & blob2=primary jadi tak terlihat -> frame bland.)
-  const ring = accentOr(b.accent, b.primary), blob2 = contrast(b.cta, b.primary) >= 2.2 ? b.cta : ring;
+  // Revisi-6: warna & kontras dinilai thd DASAR latar (base), bukan primary mentah -> brand terang tak lagi pucat.
+  const { base, base2 } = designBase(b);
+  const ring = accentOr(b.accent, base), blob2 = contrast(b.cta, base) >= 2.2 ? b.cta : ring;
   const d = f3(Math.max(0.5, dur));
   return {
     html: `<div id="${id}" class="vp-design"><i class="b1"></i><i class="b2"></i><i class="rg"></i></div>`,
     css:
-      `#${id}{position:absolute;inset:0;z-index:400;visibility:hidden;overflow:hidden;background:linear-gradient(152deg,${b.primary} 0%,${b.bg2} 100%);}` +
+      `#${id}{position:absolute;inset:0;z-index:400;visibility:hidden;overflow:hidden;background:linear-gradient(152deg,${base} 0%,${base2} 100%);}` +
       `#${id}::after{content:"";position:absolute;inset:0;background-image:radial-gradient(${ring} 2.6px,transparent 2.8px);background-size:54px 54px;opacity:.18;}` +
       `#${id} .b1{position:absolute;width:92%;aspect-ratio:1;left:-24%;top:-16%;border-radius:50%;background:${b.accent};opacity:.30;filter:blur(55px);}` +
       `#${id} .b2{position:absolute;width:78%;aspect-ratio:1;right:-26%;bottom:-18%;border-radius:48% 52% 50% 50%;background:${blob2};opacity:.26;filter:blur(66px);}` +
-      `#${id} .rg{position:absolute;width:86%;aspect-ratio:1;left:7%;top:28%;border-radius:50%;border:12px solid ${ring};opacity:.42;}`,
+      // Revisi-6: cincin DIPERJELAS (bukan dihapus) -> tebal 14px, opacity .7, halo drop-shadow = elemen DESAIN yg
+      // jelas disengaja (bukan garis samar "belum jadi" lama opacity .42).
+      `#${id} .rg{position:absolute;width:86%;aspect-ratio:1;left:7%;top:28%;border-radius:50%;border:14px solid ${ring};opacity:.7;filter:drop-shadow(0 0 22px ${ring});}`,
     tl: [
       `tl.set("#${id}",{visibility:"visible"},${f3(start)});`,
       `tl.fromTo("#${id} .b1",{scale:.9},{scale:1.12,duration:${d},ease:"sine.inOut"},${f3(start)});`,
@@ -145,7 +165,7 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
     case "footage-caption": {
       if (!scene.caption) return c.design ? designBg(`${id}d`, c.start, c.dur, c.brand) : null;
       if (c.design) {
-        const bg = designBg(`${id}d`, c.start, c.dur, c.brand), dInk = pickInk(c.brand.primary);
+        const bg = designBg(`${id}d`, c.start, c.dur, c.brand), dInk = designInk(c.brand);
         const ds = fitFont(scene.caption, maxW, Math.round(c.w * 0.085), Math.round(c.w * 0.05), 3, st.head);
         return {
           html: bg.html + `<div id="${id}" class="vp-dcap">${esc(scene.caption)}</div>`,
@@ -214,13 +234,15 @@ export function renderScene(scene: Scene, c: SceneCtx): Layer | null {
         // Revisi-5 (PRIORITAS 3): panel "kotor/kontras rendah" (sebelumnya before=bg2 yg menyatu dgn latar desain).
         // before = slab kontras-tinggi thd latar (putih/hitam) dgn teks brand; after = aksen brand (atau CTA bila
         // aksen menyatu dgn primary). Keduanya pasti ≥4.5:1 (pickInk) & jelas beda dari latar + bingkai pemisah.
-        const beforeBg = pickInk(c.brand.primary);
-        const beforeInk = contrast(c.brand.primary, beforeBg) >= 4.5 ? c.brand.primary : pickInk(beforeBg);
-        const afterBg = contrast(c.brand.accent, c.brand.primary) >= 1.8 ? c.brand.accent : c.brand.cta;
+        // Revisi-6: kontras panel dinilai thd DASAR latar desain (base), bukan primary -> brand terang aman.
+        const dBase = designBase(c.brand).base;
+        const beforeBg = pickInk(dBase);
+        const beforeInk = contrast(dBase, beforeBg) >= 4.5 ? dBase : pickInk(beforeBg);
+        const afterBg = contrast(c.brand.accent, dBase) >= 1.8 ? c.brand.accent : c.brand.cta;
         const afterInk = pickInk(afterBg);
         const pnl = (k: string, txt: string, bgc: string, inkc: string) => `<div class="pnl" id="${id}${k}" style="background:${bgc};color:${inkc};">${esc(txt)}</div>`;
         return {
-          html: `<div id="${id}" class="vp-ba2">${pnl("b", scene.before.label, beforeBg, beforeInk)}<div class="ar" id="${id}ar">${svgArrow(pickInk(c.brand.primary), Math.round(c.w * 0.085))}</div>${pnl("a", scene.after.label, afterBg, afterInk)}</div>`,
+          html: `<div id="${id}" class="vp-ba2">${pnl("b", scene.before.label, beforeBg, beforeInk)}<div class="ar" id="${id}ar">${svgArrow(pickInk(dBase), Math.round(c.w * 0.085))}</div>${pnl("a", scene.after.label, afterBg, afterInk)}</div>`,
           css: `#${id}{position:absolute;left:${sa.x0}px;right:${c.w - sa.x1}px;top:${Math.round(c.h * 0.27)}px;z-index:560;visibility:hidden;opacity:0;display:flex;flex-direction:column;gap:${Math.round(c.w * 0.028)}px;}#${id} .pnl{min-height:${Math.round(c.h * 0.155)}px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:${st.radius + 10}px;padding:${Math.round(c.w * 0.05)}px;font:${st.headW} ${ds}px/1.1 ${head};${up}overflow-wrap:anywhere;border:3px solid rgba(0,0,0,.18);box-shadow:0 18px 50px rgba(0,0,0,.4);}#${id} .ar{display:flex;justify-content:center;transform:rotate(90deg);}`,
           // After panel TETAP opak penuh (hanya pop skala di half) -> tak ada frame semi-transparan yg muddy/kotor
           // (revisi-5a: opacity .35 sebelum reveal membuat panel "Dilipat rapi" olive/kontras rendah di atas latar).

@@ -31,16 +31,55 @@ const SYN: Record<string, string> = {
   taman: "taman", garden: "taman", kebun: "taman", danau: "danau", lake: "danau", gunung: "gunung", mountain: "gunung",
   jemput: "antar", pickup: "antar", antar: "antar", delivery: "antar", kurir: "antar", motor: "antar",
 };
-export function subjectTokens(s: string): Set<string> {
+export function subjectTokens(s: string, opts: { literal?: boolean } = {}): Set<string> {
   const out = new Set<string>();
   for (const raw of s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9\s-]/g, " ").split(/[\s-]+/)) {
     if (raw.length < 3 || STOP.has(raw)) continue;
     const t = raw.replace(/(nya|kan|an)$/, (m) => (raw.length - m.length >= 4 ? "" : m));
+    if (opts.literal) { out.add(t); continue; } // literal = token apa adanya (tanpa sinonim payung) untuk cek klaim spesifik
     const syn = SYN[raw] ?? SYN[t];
     if (syn === "") continue;
     out.add(syn ?? t);
   }
   return out;
+}
+
+// ---------- klaim LABEL vs isi klip (revisi-6 2026-11-06) ----------
+// Masalah: label boleh mengklaim SPESIES spesifik yg tak ada di klip ("VAMPIRE FINCH, GALAPAGOS" di klip burung
+// generik; "PECKS LARGER SEABIRDS" di klip gagak). subjectScore pakai sinonim PAYUNG (finch/seabird -> "burung"),
+// jadi klip burung generik "cocok" klaim finch. Untuk LABEL, sebut spesies spesifik -> WAJIB terbukti LITERAL di
+// metadata isi klip (deskripsi/judul/tags/slug), bukan cuma lewat payung.
+// Daftar SPESIES saja (bukan tempat/sifat spt "galapagos"/"vampire") -> MEMISAHKAN over-claim spesies dari sinonim
+// TERJEMAHAN biasa (food<->makan, room<->kamar) yg tak boleh ikut ditolak (brand kuliner/hospitality lintas-bahasa).
+// ponytail: daftar kurasi konten satwa, bukan taksonomi penuh; tambah entri saat muncul over-claim baru, atau naikkan
+// ke basis-pengetahuan spesies bila butuh cakupan luas.
+const SPECIFIC_SPECIES = new Set([
+  "finch", "seabird", "sparrow", "robin", "crow", "raven", "magpie", "owl", "eagle", "hawk", "falcon", "heron",
+  "pelican", "penguin", "flamingo", "peacock", "parrot", "woodpecker", "hummingbird", "kingfisher", "vulture", "stork",
+  "swan", "goose", "duck", "gull", "albatross", "cormorant", "kiwi", "ostrich", "emu",
+  "dolphin", "whale", "orca", "shark", "octopus", "jellyfish", "seahorse", "stingray", "turtle", "tortoise",
+  "crocodile", "alligator", "lizard", "gecko", "chameleon", "iguana", "komodo", "cobra", "python", "viper", "anaconda",
+  "tarantula", "scorpion", "mantis", "beetle", "butterfly", "dragonfly", "bee", "wasp", "ant", "spider",
+  "cheetah", "leopard", "jaguar", "lion", "tiger", "panther", "lynx", "wolf", "fox", "coyote", "hyena",
+  "bear", "panda", "koala", "kangaroo", "wombat", "sloth", "otter", "beaver", "hedgehog", "meerkat", "lemur",
+  "gorilla", "chimpanzee", "orangutan", "baboon", "macaque", "elephant", "rhino", "hippo", "giraffe", "zebra",
+  "buffalo", "bison", "moose", "deer", "antelope", "gazelle", "camel", "llama", "alpaca",
+]);
+const stripPlural = (t: string) => (t.length > 4 && t.endsWith("s") ? t.slice(0, -1) : t);
+// Label mengklaim SPESIES yg TAK terbukti di klip: token spesies yg literalnya (atau ejaan dekat) TIDAK ada di
+// metadata isi -> over-claim (klip hanya tunjukkan kategori umum, bukan spesies itu). Dipakai builder utk jatuh ke
+// adegan desain (label netral) alih-alih menempel klaim palsu pada footage.
+export function overclaimsSpecific(label: string, f: FootageSubject | undefined): boolean {
+  if (!label.trim()) return false;
+  const meta = subjectTokens(contentText(f ?? {}), { literal: true });
+  for (const raw of subjectTokens(label, { literal: true })) {
+    const t = stripPlural(raw);
+    if (!SPECIFIC_SPECIES.has(raw) && !SPECIFIC_SPECIES.has(t)) continue; // hanya token spesies spesifik
+    if (meta.has(raw) || meta.has(t)) continue;                           // spesies terbukti literal -> boleh
+    if ([...meta].some((m) => near(m, raw) || near(m, t))) continue;      // ejaan dekat juga diterima
+    return true;                                                          // spesies tak terbukti -> over-claim
+  }
+  return false;
 }
 // Jumlah token subjek adegan yg ada di metadata footage (0 = tak cocok).
 export function subjectScore(subject: string, f: FootageSubject | undefined): number {

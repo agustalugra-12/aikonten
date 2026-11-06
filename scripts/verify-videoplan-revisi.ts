@@ -2,13 +2,13 @@
 // ketajaman hero, CTA + brand di akhir. Jalankan: npx tsx scripts/verify-videoplan-revisi.ts
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
-import { hookConfidence, subjectSource } from "../src/lib/video/footageFit";
+import { hookConfidence, overclaimsSpecific, subjectSource } from "../src/lib/video/footageFit";
 import { CAP_PILL_WORST } from "../src/lib/video/planText";
 import { buildCompositionFromPlan, type PlanMedia } from "../src/lib/video/planBuilder";
 import { validateVideoPlan, type VideoPlan } from "../src/lib/video/videoPlan";
 import { analyzeGray, applyGlossary, centerTexture, fixText, freeZone, isBlurry, MIN_FRAME_SHARP, officialName, subjectScore } from "../src/lib/video/footageFit";
 import { captionLines } from "../src/lib/video/planText";
-import { contrast, designBg, estLines, pickInk } from "../src/lib/video/sceneLibrary";
+import { contrast, designBase, designBg, estLines, pickInk } from "../src/lib/video/sceneLibrary";
 import { wordsFor } from "./verify-videoplan-builder";
 
 let n = 0;
@@ -427,5 +427,56 @@ ok("caption: tak ada kata menggantung (lone word digabung/ditarik jadi frasa utu
   assert.ok(!lines.some((l) => l.text.includes("jauh")), "kata di luar VO (t>total) tak jadi baris");
 }
 ok("caption: baris di luar durasi VO (start>=total) dibuang -> tak ada caption durasi nol/negatif");
+
+// ===== Revisi-6 (2026-11-06) =====
+// 26. Label jujur: klaim SPESIES spesifik wajib terbukti LITERAL di metadata klip; klip generik -> adegan desain.
+{
+  const generic = { description: "Seekor burung terbang di langit", tags: ["burung", "langit"], source: "vision" as const };
+  const finchMeta = { description: "Burung finch kecil mematuk di dahan", tags: ["burung", "finch"], source: "vision" as const };
+  const cap = { id: "spc", type: "footage-caption", duration: 3, transition: "crossfade", footageRef: "food", caption: "Vampire finch, Galapagos" };
+  const mk = (meta: typeof generic) => media({ footage: { ...media().footage, food: { ...media().footage.food, subject: meta } } });
+  // klip burung generik + caption klaim "vampire finch" -> adegan desain (bukan footage dgn label palsu)
+  const bg = buildCompositionFromPlan(plan([S.hookFood, cap, S.room, S.outro]), mk(generic));
+  assert.ok(bg.designScenes.includes("spc") && !bg.clipScenes.includes("spc"), `klip generik + klaim finch -> desain: design=${bg.designScenes} clips=${bg.clipScenes}`);
+  // klip yg metadatanya MEMANG finch -> footage dipakai (klaim benar)
+  const bf = buildCompositionFromPlan(plan([S.hookFood, cap, S.room, S.outro]), mk(finchMeta));
+  assert.ok(bf.clipScenes.includes("spc") && !bf.designScenes.includes("spc"), `klip finch nyata + klaim finch -> footage: design=${bf.designScenes} clips=${bf.clipScenes}`);
+  // unit overclaimsSpecific: spesies tak terbukti -> true; terbukti -> false; tempat/sifat (galapagos/vampire) bukan spesies
+  assert.ok(overclaimsSpecific("Vampire finch, Galapagos", generic) && !overclaimsSpecific("Vampire finch, Galapagos", finchMeta));
+  assert.ok(overclaimsSpecific("Pecks larger seabirds", { description: "Gagak hitam di pagar", tags: ["crow"], source: "vision" }), "seabird di klip gagak -> over-claim");
+  // sinonim TERJEMAHAN biasa (bukan spesies) TAK ikut ditolak -> brand kuliner/hospitality lintas-bahasa aman
+  assert.ok(!overclaimsSpecific("Sarapan nikmat tiap pagi", { description: "breakfast plate on table", tags: ["food"], source: "vision" }), "terjemahan makan/food bukan over-claim spesies");
+  assert.ok(!overclaimsSpecific("Kamar nyaman", { description: "cozy hotel room bed", tags: ["room"], source: "vision" }), "terjemahan kamar/room bukan over-claim");
+  // hook: teks klaim spesies di klip generik -> hook desain (bukan footage acak)
+  const hk = buildCompositionFromPlan(plan([{ ...S.hookFood, text: "Vampire finch Galapagos", subject: "burung finch", footageRef: "food" }, S.room, S.outro]), mk(generic));
+  assert.strictEqual(hk.hookMode, "design");
+}
+ok("revisi-6 label jujur: klaim spesies (finch/seabird) wajib terbukti literal di metadata; generik -> adegan desain; terjemahan biasa (food/room) tak kena");
+
+// 27. Motion blur DEFAULT off di root komposisi (capture screenshot tak lagi mematikan jalur cepat BeginFrame worker).
+{
+  const b = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media());
+  assert.ok(b.html.includes('data-motion-blur="off"') && !b.html.includes('data-motion-blur="on"'), "root komposisi motion-blur off");
+}
+ok("revisi-6 motion-blur: default off di root komposisi (jalur cepat BeginFrame tak dimatikan)");
+
+// 28. Palet adegan desain brand TERANG (Pelangi): latar tak pucat (digelapkan, ink putih kontras aman); cincin
+//     diperjelas (opacity .7 + halo); brand GELAP tak berubah (base = primary).
+{
+  const bright = { primary: "#FFFFFF", bg2: "#F2F2F2", accent: "#E8A33D", ink: "#111111", cta: "#C0392B", font: "Poppins", mark: "PELANGI" };
+  const db = designBase(bright);
+  assert.strictEqual(db.ink, "#FFFFFF", "latar dalam -> ink putih");
+  assert.ok(contrast(db.ink, db.base) >= 4.5, `kontras teks aman di latar desain: ${contrast(db.ink, db.base).toFixed(2)}`);
+  assert.notStrictEqual(db.base.toLowerCase(), "#ffffff", "latar brand terang digelapkan (tak pucat)");
+  const bg = designBg("dd", 0, 3, bright);
+  assert.ok(!bg.css.includes("linear-gradient(152deg,#FFFFFF") && !bg.css.includes("linear-gradient(152deg,#ffffff"), "latar tak lagi primary terang mentah");
+  assert.ok(/\.rg\{[^}]*opacity:\.7;filter:drop-shadow/.test(bg.css), "cincin diperjelas (opacity .7 + halo), bukan samar .42");
+  // brand gelap: base = primary (identik perilaku lama, dark tak berubah)
+  assert.strictEqual(designBase({ primary: "#14213D", bg2: "#0c1526", accent: "#FFD84D", ink: "#FFFFFF", cta: "#CC1F1F", font: "Poppins", mark: "X" }).base, "#14213D");
+  // caption desain brand terang: ada (ink putih dipakai lewat designInk)
+  const b = buildCompositionFromPlan(plan([S.hookFood, { ...S.menu, id: "mobil", subject: "mobil balap", caption: "Mobil balap" }, S.room, S.outro]), media({ brand: { ...bright, name: "Pelangi Homestay" } }));
+  assert.ok(b.html.includes('class="vp-dcap"'), "caption adegan desain terender");
+}
+ok("revisi-6 palet desain: brand terang -> latar dalam (tak pucat) + ink kontras aman + cincin diperjelas; brand gelap tak berubah");
 
 console.log(`ALL_VIDEOPLAN_REVISI_TESTS_PASS (${n} tes)`);

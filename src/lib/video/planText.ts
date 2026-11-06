@@ -1,7 +1,7 @@
 // Teks VideoPlan (revisi 2026-11-05): hook terbaca penuh di frame 0 & caption 1 baris tanpa loncatan.
 // Menggantikan intro/caption lama HANYA di mode plan (builder lama tidak berubah).
 import type { HfWord } from "@/lib/render/hyperframesComposition";
-import { contrast, designBg, estLines, fitFont, fontStack, pickInk, safeArea, TONE_STYLE, type BrandColors, type Layer, type Tone } from "./sceneLibrary";
+import { contrast, designBg, designInk, estLines, fitFont, fontStack, safeArea, TONE_STYLE, type BrandColors, type Layer, type Tone } from "./sceneLibrary";
 import type { Zone } from "./footageFit";
 
 const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -29,7 +29,7 @@ export function hookLayer(o: { text: string; dur: number; avoid?: [number, numbe
     if (up || dn) { fs = up >= dn ? up : dn; top = up >= dn ? a0 - boxH(fs) : a1; }
     else { fs = minFs; top = a0 - sa.y0 >= sa.y1 - a1 ? Math.max(sa.y0, a0 - boxH(fs)) : a1; }
   }
-  const ink = o.design ? pickInk(brand.primary) : "#FFFFFF";
+  const ink = o.design ? designInk(brand) : "#FFFFFF"; // revisi-6: ink thd dasar latar desain (brand terang tak pucat)
   const band = o.design ? "" : `background:linear-gradient(180deg,rgba(6,10,18,0) 0%,rgba(6,10,18,.5) 22%,rgba(6,10,18,.5) 78%,rgba(6,10,18,0) 100%);`;
   const bg = o.design ? designBg("vpHookBg", 0, o.dur, brand) : null;
   return {
