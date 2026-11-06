@@ -127,6 +127,16 @@
   }
   body {
     @apply bg-background text-foreground;
+    overflow-x: clip;
+  }
+  /* Target sentuh >=44px HANYA di perangkat sentuh - flow mouse desktop tak berubah. */
+  @media (pointer: coarse) {
+    button, [role="button"], select, summary {
+      min-height: 44px;
+    }
+    button:has(> svg:only-child), [role="button"]:has(> svg:only-child) {
+      min-width: 44px;
+    }
   }
   html {
     @apply font-sans;

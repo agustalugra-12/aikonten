@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Menu } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BrandSwitcher } from "@/components/dashboard/BrandSwitcher";
 import { NewBrandDialog } from "@/components/dashboard/NewBrandDialog";
@@ -50,6 +51,8 @@ function DashboardContent() {
   // Sidebar navigasi (2026-08-13, permintaan Agus - konsep dashboard baru gaya app
   // musik) - switch VIEW client-side, BUKAN routing Next.js baru (lihat Sidebar.tsx).
   const [activeView, setActiveView] = useState<DashboardView>("overview");
+  // Drawer sidebar HP (2026-11-05 responsive) - desktop pakai aside statis, tak terpengaruh.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   // Diisi kalau Agus klik salah satu "Ide Konten"/Content Planner - lihat
   // ContentIdeas.tsx/DailyContentPlanner.tsx. Dipakai sbg `key` remount
   // NewProjectDialog di bawah biar initialScript-nya benar2 baru.
@@ -140,11 +143,19 @@ function DashboardContent() {
 
   return (
     <div className="flex-1 flex min-h-0">
-      <Sidebar brand={currentBrand} activeView={activeView} onSelectView={setActiveView} />
+      <Sidebar brand={currentBrand} activeView={activeView} onSelectView={setActiveView} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 shrink-0 border-b bg-card px-6 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+        <header className="h-14 shrink-0 border-b bg-card px-4 md:px-6 flex items-center justify-between gap-2 md:gap-4">
+          <div className="flex items-center gap-2 md:gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Buka menu"
+              className="md:hidden inline-flex items-center justify-center w-10 h-10 -ml-1 rounded-lg hover:bg-muted shrink-0"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
             <BrandSwitcher brands={brands} selectedBrandId={selectedBrandId} onSelect={setSelectedBrandId} />
             <NewBrandDialog onCreated={loadBrands} />
           </div>
@@ -170,7 +181,7 @@ function DashboardContent() {
           </div>
         </header>
 
-        <main className="flex-1 p-6 max-w-5xl w-full mx-auto overflow-y-auto">
+        <main className="flex-1 p-4 md:p-6 max-w-5xl w-full mx-auto overflow-y-auto">
           {!selectedBrandId ? null : activeView === "overview" ? (
             <DashboardOverview brand={currentBrand} projects={projects} accounts={accounts} onRetryProject={refreshProjects} />
           ) : activeView === "buat" ? (
@@ -198,7 +209,7 @@ function DashboardContent() {
               <ProjectList projects={projects} brand={currentBrand} accounts={accounts} onRetry={refreshProjects} />
             </div>
           ) : activeView === "ide" ? (
-            <div className="space-y-4">
+            <div className="grid gap-4 lg:grid-cols-2">
               <Card>
                 <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">
                   <div>
