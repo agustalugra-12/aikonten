@@ -16,6 +16,17 @@ Proyek selesai bila kriteria ini terpenuhi:
 - Tenant baru bisa memakai HyperFrames sesuai kuota.
 - Agus menonton hasilnya dan menyatakan selevel pelangi-pro.
 
+## Aturan infra: lokasi build dan render (permanen, 2026-11-05)
+
+> **AI Content Pilot hanya memakai VPS Agustap Studio dan worker. Server Pelangi tidak boleh untuk build, render uji, generate, atau penyimpanan output.**
+
+Server Pelangi Homestay (PMS) tidak boleh dipakai untuk render, render uji, build berat, atau generate
+AI Content Pilot. Build dan render uji hanya di VPS Agustap Studio (checkout `~/kp-build`, bukan repo
+produksi) atau di VPS worker (render uji di worker butuh persetujuan). Output uji disimpan di VPS Agustap
+(`~/hf-test-output/`). Render uji dibatasi cgroup, pendek,
+memakai fixture, dan dibatalkan bila generate/render produksi sedang aktif. Detail perintah cek ada di
+AGENTS.md bagian INFRA RULE.
+
 ## Aturan kerja mandiri
 
 Terminal boleh mengerjakan tahap yang sudah disetujui tanpa menunggu Agus, selama tetap dalam batas di bawah.
@@ -23,7 +34,7 @@ Terminal boleh mengerjakan tahap yang sudah disetujui tanpa menunggu Agus, selam
 **Boleh tanpa bertanya:**
 
 - Membaca kode, log, dan database secara read-only.
-- Mengubah kode di branch kerja, menjalankan `tsc`, tes, dan render lokal.
+- Mengubah kode di branch kerja, menjalankan `tsc`, tes, dan render uji di VPS Agustap Studio (lihat Aturan infra).
 - Commit serta push ke branch kerja `feat/hf-adoption`.
 - Memperbaiki tes yang gagal, maksimal 3 kali.
 
@@ -190,7 +201,11 @@ Gerbang persetujuan:
 4. Sebelum default engine berubah
 
 Boleh tanpa bertanya: baca read-only, ubah kode di branch feat/hf-adoption,
-tsc, tes, render lokal, commit, dan push ke branch itu.
+tsc, tes, commit, dan push ke branch itu.
+Build dan render uji HANYA di VPS Agustap Studio (~/kp-build) atau worker (worker
+butuh persetujuanku). DILARANG di server Pelangi Homestay. Sebelum render uji, cek
+tidak ada kontenpilot-ffmpeg-*/hyperframes/generate produksi aktif; kalau ada, tunggu.
+Render uji pendek, fixture lokal, dibatasi cgroup (1 core, 1.2 GB).
 Maksimal 3 percobaan untuk memperbaiki tes yang gagal.
 
 Wajib menunggu aku: deploy, restart, ubah worker VPS, merge ke saas-multitenant,
@@ -210,8 +225,10 @@ Perintah lanjutan setelah kamu menyetujui gerbang:
 
 ```text
 Gerbang [nomor] disetujui. Keputusan: [isi keputusan].
-Lanjutkan sampai gerbang berikutnya, ikuti docs/hyperframes-adoption-plan.md,
-lalu laporkan bukti tiap tahap dan berhenti.
+Lanjutkan sampai gerbang berikutnya, ikuti AGENTS.md (INFRA RULE) dan
+docs/hyperframes-adoption-plan.md, lalu laporkan bukti tiap tahap dan berhenti.
+Build/render uji hanya di VPS Agustap Studio (~/kp-build) atau worker, tidak di
+server Pelangi, dan tidak saat generate/render produksi aktif.
 ```
 
 ---
@@ -405,3 +422,118 @@ Perbaikan v3 (plural+unknown-reel) sudah kurangi false-reject besar. Masih: perl
 ### Rollback
 - `git revert 4dc326d` (atau checkout 45fd784) + rebuild -> kembali ke prod sekarang.
 - Per-brand: hapus `brandKit.footageGuardMode` -> otomatis observe (nol-ubah). Tanpa redeploy.
+
+## CHECKPOINT — feat/hf-videoplan (2026-11-04 malam)
+
+Branch `feat/hf-videoplan` dari origin/saas-multitenant (0806f0f) + merge feat/hero-order (e436ba9) = 8e2ab7b.
+Semua default OFF; pipeline produksi tidak memakai builder baru. Tidak ada deploy/merge/restart.
+
+| Tahap | Commit | Isi | Tes |
+| --- | --- | --- | --- |
+| Persiapan | 8e2ab7b | merge hero-order (konflik onQueueEvent+orderedClips, keduanya dipertahankan) | hero 37/37, queue 5/5, hf-queue 10/10 |
+| 4 Kontrak | f4724c6 | `src/lib/video/videoPlan.ts` + fixture 4 domain (valid + 14 mutasi rusak) | verify-videoplan 7/7 |
+| 5 Shadow | fa7f510 | `videoPlanDirector.ts`, flag `VIDEOPLAN_SHADOW_ENABLED` (OFF), log `data/videoplan-shadow.jsonl` | verify-videoplan-shadow 6/6 (AI tiruan) |
+| 6 Builder | 551114c | `planBuilder.ts`, field opsional buildComposition, `brandKit.videoPlanMode` (on ditolak) | verify-videoplan-builder 8/8, golden 4/4 |
+| 7 Adegan | (commit ini) | `sceneLibrary.ts` 8 adegan, gaya per tone, SFX sintesis `scripts/gen-sfx.sh` | verify-scene-library 5/5 |
+
+Berikutnya: Tahap 8 (QC pre-render `hyperframes check` + keputusan render/ulang/fallback/tolak + metrik +
+skrip review frame), lalu verifikasi akhir (render uji 3 video 15–20 dtk dari fixture, HANYA di luar jam
+generate produksi 23:00–02:30 WIB). Belum diverifikasi: AI Director dgn OpenAI nyata (tak ada key di
+lingkungan uji), render nyata adegan baru, overflow nyata di browser.
+
+### Update checkpoint — Tahap 8 + verifikasi akhir (2026-11-04 23:55)
+
+| Tahap | Commit | Tes |
+| --- | --- | --- |
+| 8 QC/metrik | 12610bd | verify-render-qc 6/6 |
+| Render fixture | 3100fb7 | — |
+| Fix temuan check | c13d5cb, ce2f826 | render-qc 6/6, scene 5/5, builder 8/8 |
+
+Render uji LOKAL (bukan worker produksi; cgroup 1 core/1.2 GB, Node 24, hyperframes 0.8.230, gsap 3.15.0 dari
+paket hyperframes, font OFL -> woff2): hospitality 15.3 dtk (336 dtk render), laundry 16.0 dtk (354 dtk),
+animal 17.3 dtk (384 dtk). v2: `hyperframes check` lolos ketiganya (browser jalan), tanpa unduhan font luar.
+Media fixture (footage/VO/SRT project nyata) TIDAK di-commit. Plan render ditulis tangan, bukan output AI.
+
+Sisa: caption terlalu cepat dibaca (craft line_unread, cadence builder lama), kontras #mark/kata caption di
+atas footage terang (warning), hook detik 0 belum ada teks (muncul 0.55 dtk), footage tak cocok topik
+(Pelangi kuliner vs kamar; animal stok bukan vampire finch), AI Director belum diuji dgn OpenAI nyata.
+Berikutnya: Gerbang 3 (Agus menilai video) sebelum shadow deploy / aktivasi satu brand.
+
+### Koreksi infra (2026-11-05)
+
+Render uji 3 fixture di checkpoint atas (v1 dan v2, 6 render) dijalankan di server Pelangi Homestay. Itu
+sekarang dilarang (aturan infra di atas). Hasilnya tetap dipakai sebagai bukti Gerbang 3; render uji
+berikutnya diulang di VPS Agustap Studio. Audit read-only 2026-11-05: tidak ada proses, timer, cron, atau
+layanan AI Content Pilot yang berjalan di server Pelangi; yang tersisa hanya berkas (arsip app lama, backup
+DB lama, cache HyperFrames/Chrome dan media fixture dari render uji). Ketergantungan app produksi ke server
+Pelangi: KB `WEB_PELANGI_INTERNAL_URL` (HTTP ringan ke backend web Pelangi, sah), serta `APP_URL` dan
+`AGENCY_PEER_URLS` yang masih menunjuk domain lama ber-DNS ke server Pelangi dan tidak dilayani lagi.
+
+### Checkpoint revisi-2 (2026-11-05 sore, VPS Agustap)
+
+- **Footage hilang (laundry/animal)**: akar = latar bingkai klip buram dipasang di wrapper `#cwK`
+  (z-index 1+K, `inset:0`, selalu tampil). Wrapper klip BERIKUTNYA (z-index lebih tinggi) ikut melukis
+  latarnya sejak t=0 -> menutup klip yang sedang tayang. Bukan masalah ukuran sumber/`!important`/injeksi
+  frame HyperFrames: probe 1 klip 360x640 terbingkai tampil normal; di komposisi animal, membuang CSS
+  `#bgK` tetap kosong, membuang latar `#cwK` -> footage muncul. Fix: wrapper berlatar hanya `visible` di
+  jendela klipnya (`data-start/duration` dibaca dari `<video>`). QC baru `scripts/hf-footage-check.ts`
+  (tekstur tengah frame di `footageAt` build.json; render lama: EMPTY std 0.8, baru: VISIBLE).
+- **Glossary**: perubahan huruf besar/kecil saja tak pernah menurunkan kapital; hanya kata huruf kecil
+  semua yang naik ke ejaan resmi. Nama brand DB huruf kecil -> `officialName` ("Laundry in Bali").
+- **Placement**: caption tak pernah disembunyikan; zona lain dari kartu, tanpa kartu zona paling sedikit
+  menimpa subjek. Spasi antar-kata caption kini seukuran caption (font di span).
+- **Ketajaman**: batas absolut hero 60 diganti relatif: buram = < 0.5x klip tertajam yang tersedia; hero =
+  klip tertajam yang cocok subjek (hook tetap wajib cocok subjek, kalau tidak hook desain).
+  `MIN_FRAME_SHARP=60` hanya menandai klip yang tampil terbingkai.
+- Render ulang 3 fixture: `/home/admin/hf-test-output/2026-11-05-revisi2/` (footage tampil di ketiganya).
+
+### Checkpoint revisi-3 (2026-11-05 malam, VPS Agustap)
+
+- **#6 Hook vs subjek**: `hookLayer` menerima `avoid` (bingkai hero terbingkai, atau rentang subjek analisis
+  utk hero full-bleed) dan menaruh teks di pita bebas atas/bawah dlm title-safe, font dikecilkan sampai muat;
+  tanpa scale-up teks. `PlanBuild.hookBox/hookAvoid` utk QC.
+- **#7 Keyakinan hook**: `hookConfidence()` — yakin hanya bila metadata dari isi frame (`subject.source`
+  "vision"; tanpa source: ber-tags = vision, tanpa tags = query Pexels) DAN ≥50% token subjek hook cocok.
+  Query-only/lemah -> hook desain. `PlanBuild.hookWhy` = alasan per kandidat. Prep fixture menandai source.
+- **#8/#11 Caption**: pil gelap .8 PER KATA (kata rapat, jarak = padding) -> pil tumbuh mengikuti kata yg
+  tampil, baris tetap; kata tampil instan (`tl.set` opacity 1, tanpa tween); aksen dipakai hanya bila
+  kontras ≥4.5 thd pil terburuk (#3B3C3E), kalau tidak putih.
+- **#9/#10 Glossary**: kapitalisasi hanya istilah UTUH ("nasi" tetap, "nasi tempong" -> "Nasi Tempong");
+  bagian istilah yg salah eja dikoreksi ejaannya dgn gaya huruf asli ("pelani" -> "pelangi"); istilah huruf
+  kecil/BESAR semua tak mengubah kapital; "Laundry In Bali" -> "Laundry in Bali" (nama resmi). Fixture laundry
+  diperbaiki.
+- **#12 Bayangan bingkai**: pindah ke `#cwK::before` (HyperFrames mengganti <video> dgn <img> tanpa
+  box-shadow), ikut gerbang waktu wrapper.
+- **#13 Blur**: bingkai = lebar sumber (tanpa upscale; min 40% lebar layar), transisi zoom/whip -> slide utk
+  klip terbingkai.
+- Tes: verify-videoplan-revisi 19/19 (8 baru). Render: `/home/admin/hf-test-output/2026-11-05-revisi3/`.
+
+### Checkpoint revisi-4 (2026-11-05, VPS Agustap)
+
+- **#5 Glossary kapital kanonik (end-to-end)**: kata SALAH-EJA tunggal yg cocok bagian istilah brand kini
+  mengambil kapitalisasi KANONIK istilah, bukan huruf kecil ("pelani" -> "Pelangi", "homstay" -> "Homestay",
+  "laundri" -> "Laundry"; "bedugull" -> "Bedugul" lewat cabang istilah utuh). Kata ejaan-benar (beda kapital
+  saja) tetap tak tersentuh ("nasi"/"homestay" tetap). `applyGlossary` memakai `core` yg sama utk `out[i].word`
+  dan log `fixed` -> caption terender & log `glossary` build.json SELALU setuju (terverifikasi: hospitality
+  log `pelani->Pelangi`, caption `<b>Pelangi</b>`, nol "pelangi"/"pelani" huruf kecil).
+- **#6 Klaim subjek non-hook wajib footage vision**: `fits()` non-hook — adegan dgn klaim subjek (field
+  `subject`, caption berlabel footage-caption, atau before-after) wajib footage ber-metadata isi frame
+  (`subjectSource=="vision"` / ber-tags) DAN cocok; query Pexels / tanpa metadata -> adegan desain (sama logika
+  dgn hook, digeneralisasi). Tanpa klaim subjek (latar/plan lama) tetap bebas. Animal fixture (semua klip
+  query): "meet"/"peck" tak lagi footage salah-label (dulu "Vampire finch" di burung di tangan) -> kartu desain;
+  footageAt animal 3->1 (hanya CTA latar).
+- **#7 Before-after kosong -> visual desain**: cabang `c.design` di adegan `before-after` (sceneLibrary) =
+  2 panel bertumpuk (sebelum=panel gelap, sesudah=panel aksen) + panah + label besar yg mengisi area tengah
+  frame (lolos QC tekstur), bukan label di latar kosong. `hf-render-fixture` footageAt kini memasukkan jendela
+  before-after -> hf-footage-check memeriksa non-kosong (laundry t=3.73 std 48.4 — dulu nyaris kosong).
+- **#8a Bayangan bingkai**: diperkuat agar jelas di latar brand gelap MAUPUN terang — cincin putih 5px .5
+  (nampak di latar gelap) + garis gelap tipis + drop/glow gelap (nampak di latar terang).
+- **#8b Pil caption ujung kanan**: kata terkanan yg tampil membulatkan ujung kanannya (`borderTopRightRadius`/
+  `borderBottomRightRadius` via `tl.set` saat muncul), kata sebelumnya diratakan -> pil tak pernah kotak di
+  kanan sampai kata terakhir (CSS first/last/only-child tetap utk keadaan diam).
+- Tes: verify-videoplan-revisi 22/22 (+3: #6, #7, #8b; #5/#8a/#9 diperbarui). `tsc --noEmit` bersih. Golden
+  (verify-videoplan-builder) tetap lulus (hyperframesComposition.ts tak diubah). Seluruh verify-*.ts: hanya 6
+  gagal baseline (content-clarity, contextual-footage, pipeline-wiring, prepublish-qc, fase2-config,
+  fase3-ffmpeg-coverage; env/DB/systemd, bukan kode ini) — tanpa kegagalan baru.
+- Render: `/home/admin/hf-test-output/2026-11-05-revisi4/` (hospitality FOOTAGE_VISIBLE 1/1, laundry 3/3 termasuk
+  before-after t=3.73, animal 1/1 = CTA latar). Flag VideoPlan tetap OFF; tidak merge/deploy.

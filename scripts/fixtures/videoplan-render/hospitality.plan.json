@@ -1,0 +1,63 @@
+{
+ "version": 1,
+ "orientation": "portrait",
+ "look": "warm",
+ "pacing": "calm",
+ "music": {
+  "mood": "none",
+  "volume": 0
+ },
+ "brand": {
+  "tone": "premium"
+ },
+ "scenes": [
+  {
+   "id": "hook",
+   "type": "hook",
+   "duration": 2.5,
+   "transition": "cut",
+   "text": "Kuliner Bedugul wajib dicoba",
+   "footageRef": "c1",
+   "subject": "makanan kuliner Bedugul"
+  },
+  {
+   "id": "dekat",
+   "type": "footage-caption",
+   "duration": 4.5,
+   "transition": "crossfade",
+   "footageRef": "c3",
+   "caption": "Dekat Pelangi Homestay",
+   "subject": "kamar homestay"
+  },
+  {
+   "id": "menu",
+   "type": "feature-list",
+   "duration": 4.5,
+   "transition": "slide",
+   "title": "Wajib dicoba",
+   "items": [
+    "Nasi Tempong Indra",
+    "RM Mentari"
+   ],
+   "footageRef": "c4",
+   "subject": "makanan warung"
+  },
+  {
+   "id": "tips",
+   "type": "footage-caption",
+   "duration": 2,
+   "transition": "zoom",
+   "footageRef": "c0",
+   "mediaStart": 1,
+   "caption": "Tips: datang pagi atau sore",
+   "subject": "restoran makan pagi"
+  },
+  {
+   "id": "outro",
+   "type": "logo-outro",
+   "duration": 2,
+   "transition": "crossfade",
+   "tagline": "Menginap dekat kuliner Bedugul"
+  }
+ ]
+}

@@ -1,0 +1,198 @@
+{
+ "ctx": {
+  "footageIds": [
+   "lnd-pile",
+   "lnd-machine",
+   "lnd-fold",
+   "lnd-delivery"
+  ],
+  "audioDurationSeconds": 14
+ },
+ "valid": {
+  "version": 1,
+  "orientation": "portrait",
+  "look": "vivid",
+  "pacing": "fast",
+  "music": {
+   "mood": "upbeat",
+   "volume": 0.13
+  },
+  "brand": {
+   "tone": "friendly"
+  },
+  "scenes": [
+   {
+    "id": "hook",
+    "type": "hook",
+    "duration": 2,
+    "transition": "cut",
+    "text": "Cucian numpuk pas liburan?",
+    "footageRef": "lnd-pile"
+   },
+   {
+    "id": "ba",
+    "type": "before-after",
+    "duration": 3.5,
+    "transition": "whip",
+    "before": {
+     "label": "Sebelum",
+     "footageRef": "lnd-pile"
+    },
+    "after": {
+     "label": "Sesudah",
+     "footageRef": "lnd-fold",
+     "mediaStart": 2
+    }
+   },
+   {
+    "id": "speed",
+    "type": "stat",
+    "duration": 2.5,
+    "transition": "zoom",
+    "value": "24 jam",
+    "label": "selesai, wangi dan rapi",
+    "chart": [
+     48,
+     36,
+     24
+    ]
+   },
+   {
+    "id": "svc",
+    "type": "feature-list",
+    "duration": 3,
+    "transition": "slide",
+    "items": [
+     "Antar jemput gratis",
+     "Cuci + setrika",
+     "Per kilo"
+    ],
+    "footageRef": "lnd-machine"
+   },
+   {
+    "id": "cta",
+    "type": "cta",
+    "duration": 2.5,
+    "transition": "flash",
+    "text": "Chat sekarang",
+    "sub": "Area Canggu & Seminyak",
+    "footageRef": "lnd-delivery"
+   },
+   {
+    "id": "outro",
+    "type": "logo-outro",
+    "duration": 2.5,
+    "transition": "crossfade",
+    "tagline": "Bersih tanpa ribet"
+   }
+  ]
+ },
+ "broken": [
+  {
+   "name": "html di teks",
+   "set": {
+    "scenes.0.text": "<b>Promo</b> hari ini"
+   },
+   "expect": "markup_forbidden"
+  },
+  {
+   "name": "css/js di caption",
+   "set": {
+    "scenes.1.duration": 3
+   },
+   "setKey": [
+    "scenes.1",
+    "style",
+    "color:red"
+   ],
+   "expect": "unknown_field"
+  },
+  {
+   "name": "field liar top-level",
+   "setKey": [
+    "",
+    "html",
+    "<div>x</div>"
+   ],
+   "expect": "unknown_field"
+  },
+  {
+   "name": "footageRef tak dikenal",
+   "set": {
+    "scenes.0.footageRef": "tidak-ada"
+   },
+   "expect": "footage_ref_unknown"
+  },
+  {
+   "name": "hook terlalu panjang",
+   "set": {
+    "scenes.0.text": "Ini adalah hook yang sangat panjang sekali dan tidak muat"
+   },
+   "expect": "too_many_words"
+  },
+  {
+   "name": "durasi adegan di luar batas",
+   "set": {
+    "scenes.1.duration": 12
+   },
+   "expect": "out_of_range"
+  },
+  {
+   "name": "transisi tak dikenal",
+   "set": {
+    "scenes.1.transition": "spin3d"
+   },
+   "expect": "transition: invalid"
+  },
+  {
+   "name": "adegan pertama bukan cut",
+   "set": {
+    "scenes.0.transition": "whip"
+   },
+   "expect": "first_scene_must_cut"
+  },
+  {
+   "name": "tipe adegan tak dikenal",
+   "set": {
+    "scenes.1.type": "html-block"
+   },
+   "expect": "type: invalid"
+  },
+  {
+   "name": "url di teks",
+   "set": {
+    "scenes.0.text": "Cek https://x.y"
+   },
+   "expect": "markup_forbidden"
+  },
+  {
+   "name": "versi salah",
+   "set": {
+    "version": 2
+   },
+   "expect": "unsupported_version"
+  },
+  {
+   "name": "volume musik kebesaran",
+   "set": {
+    "music.volume": 0.9
+   },
+   "expect": "out_of_range"
+  },
+  {
+   "name": "hook bukan pertama",
+   "swap": [
+    0,
+    1
+   ],
+   "expect": "first_scene_must_be_hook"
+  },
+  {
+   "name": "durasi jauh dari VO",
+   "set": {
+    "_audio": 60
+   },
+   "expect": "total_vs_audio"
+  }
+ ]
+}

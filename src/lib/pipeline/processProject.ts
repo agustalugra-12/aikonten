@@ -22,8 +22,9 @@ import { generateVoiceover, getAudioDurationSeconds, sesuaikanDurasiVoiceover } 
 import { renderFinalVideo } from "@/lib/render/ffmpeg";
 import { resolveBrandKit, brandKitVoice, brandKitRenderEngine } from "@/lib/render/brandKit";
 import { renderViaHyperframes } from "@/lib/render/hyperframesRender";
+import { runVideoPlanShadow, shadowEnabled, type FootageCandidate } from "@/lib/video/videoPlanDirector";
 import { renderViaScenes } from "@/lib/render/renderViaScenes";
-import { directFootageOrder, planFootageSufficiency, applyFootageGuard, safeFootageGuard, slugFromSourceUrl, type GuardMode, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { directFootageOrder, planFootageSufficiency, orderedRenderClips, ffmpegEffectIndex, safeFootageGuard, slugFromSourceUrl, type GuardMode, type ClipCandidate, type ClipForRender } from "@/lib/ai/footageDirector";
 import { editorialPreflight, hasRejectIssue } from "@/lib/ai/editorialQc";
 import { extractPrice } from "@/lib/render/priceOverlay";
 import { planEdit, pickMusicTrack } from "@/lib/ai/aiDirector";
@@ -714,6 +715,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // milik brand sendiri, tidak perlu jejak lisensi pihak ketiga).
     let brollClips: DestinationBrollClip[] = [];
     let heroFootageTags: string[] = []; // P3: tag footage HOOK (klip pertama) utk gerbang QC editorial
+    // feat/hero-order: daftar klip terpadu hero-first (non-observe). null = observe -> renderer pakai jalur
+    // lama broll+segment (IDENTIK produksi). Dipakai HyperFrames & fallback ffmpeg -> hero sama di keduanya.
+    let orderedRenderList: ClipForRender[] | null = null;
     const brandVidTags = new Map<string, string[]>();     // Part 5 wiring: tag video bank (brand) per sourceUrl
     const photoClipTagByUrl = new Map<string, string[]>(); // Part 5 wiring: tag foto asli per klip foto-derive (by videoUrl)
     // footageSource "internal" (2026-08-21, permintaan Agus - Harmoni Hills) - lewati
@@ -1269,19 +1273,42 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           result: guardMode === "observe" ? "observe_logonly" : "applied",
         });
         if (guardMode !== "observe") {
-          // ponytail: reorder DALAM masing-masing daftar (broll/segment) + set heroTags. Hero lintas-sumber ke
-          // posisi-0 perlu gabung-daftar klip; ditunda sampai ada brand mengaktifkan mode (default observe -> MATI di prod).
-          const applied = applyFootageGuard(guardMode, footagePlan, guardCands, (c) => c.key, heroFootageTags);
-          const bOrder = applied.order.filter((c) => c.key[0] === "b").map((c) => Number(c.key.slice(1)));
-          const sOrder = applied.order.filter((c) => c.key[0] === "s").map((c) => Number(c.key.slice(1)));
-          brollClips = bOrder.map((i) => brollClips[i]);
-          selected = sOrder.map((i) => selected[i]);
-          heroFootageTags = applied.heroTags;
+          if (footagePlan.heroKey === null) {
+            // #3 heroKey null (tak ada klip cukup relevan jadi hero) -> EKSPLISIT no_safe_hero -> FACELESS:
+            // orderedRenderList=[] (BEDA dari null/observe). HyperFrames render faceless; ffmpeg gagal jelas
+            // (tak putar klip ditolak). QC: hasFootage=false (editorialPreflight di bawah) -> cek hero dilewati.
+            orderedRenderList = [];
+            heroFootageTags = [];
+            autoFixLog.push({ step: "footage_guard", action: "no_safe_hero (tak ada klip relevan jadi hero) -> faceless (orderedClips=[])", result: "faceless" });
+          } else {
+            // feat/hero-order: satukan broll+segment -> hero (plan) jadi klip-0 LINTAS SUMBER. Daftar terpadu
+            // ini dipakai HyperFrames & fallback ffmpeg (keduanya + QC melihat hero yang SAMA). brollClips/selected
+            // DIBIARKAN utuh (QC footage lain di bawah tak berubah). KEY b{i}/s{i} harus sama dgn guardCands.
+            const brollForRender: ClipForRender[] = brollClips.map((c, i) => ({ key: `b${i}`, videoUrl: c.videoUrl, durationSeconds: c.durationSeconds, mediaStart: 0, source: c.sourceUrl ? "stock" : "brand" }));
+            const segForRender: ClipForRender[] = selected.map((s, i) => ({ key: `s${i}`, videoUrl: s.sourceUrl, durationSeconds: Math.max(0.5, s.end - s.start), mediaStart: Math.max(0, s.start), source: isStockFootage ? "stock" : "brand" }));
+            orderedRenderList = orderedRenderClips(brollForRender, segForRender, footagePlan, guardMode).clips;
+            heroFootageTags = footagePlan.heroTags; // QC cek hero = klip-0 render (ordered[0])
+          }
         }
       }
     } catch (guardErr) {
       // observe aman: apa pun yg gagal di atas -> footage/urutan apa adanya, pipeline lanjut.
       autoFixLog.push({ step: "footage_guard", action: `error tak terduga: ${String((guardErr as Error)?.message || guardErr).slice(0, 140)} -> footage apa adanya`, result: "error" });
+    }
+
+    // Tahap 5 VideoPlan SHADOW (flag VIDEOPLAN_SHADOW_ENABLED=1, default OFF): AI Director menyusun VideoPlan
+    // dan hasilnya HANYA dicatat ke JSONL (lolos/gagal, alasan, latency, biaya). Tanpa await -> render, durasi,
+    // dan video lama identik; flag OFF -> fungsi langsung return tanpa call AI. Tak pernah throw ke pipeline.
+    if (shadowEnabled() && !isScenesEngine) {
+      const shadowFootage: FootageCandidate[] = [
+        ...brollClips.map((c, i): FootageCandidate => ({ id: `b${i}`, durationSeconds: c.durationSeconds, source: c.sourceUrl ? "stock" : "brand", label: c.sourceUrl ? slugFromSourceUrl(c.sourceUrl) : (photoClipTagByUrl.get(c.videoUrl) || []).join(" ") })),
+        ...selected.map((s, i): FootageCandidate => ({ id: `s${i}`, durationSeconds: Math.max(0.5, s.end - s.start), source: isStockFootage ? "stock" : "brand", label: isStockFootage ? slugFromSourceUrl(s.sourceUrl) : (brandVidTags.get(s.sourceUrl) || []).join(" ") })),
+      ];
+      void getAudioDurationSeconds(voiceoverBuffer).then((audioDurationSeconds) => runVideoPlanShadow({
+        projectId: id, brandName: brand?.name ?? "", brief: [angle, pillar].filter(Boolean).join(" · "), script: narrationText,
+        hookText, orientation: (isYoutubeShorts ? "portrait" : (brand?.videoOrientation ?? "portrait")) as "portrait" | "landscape" | "square",
+        brandLook: null, footage: shadowFootage, audioDurationSeconds, internal: !!pemilikBackstop?.unlimited,
+      })).catch((e) => console.error("[videoPlanShadow] diabaikan:", e));
     }
 
     const renderWithSubtitles = async (srtForRender: string, wordTimingsForRender: typeof wordTimings) => {
@@ -1341,6 +1368,7 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
           // Gerbang 2 (flag HYPERFRAMES_QUEUE_ENABLED): catat antre/render/retry/fallback ke autoFixLog.
           // Flag off -> renderComposition tak pernah panggil ini -> log sama spt produksi.
           onQueueEvent: (step, action, result) => autoFixLog.push({ step, action, result }),
+          orderedClips: orderedRenderList ?? undefined, // feat/hero-order: hero-first lintas sumber (null=observe -> jalur lama)
         });
         } catch (hfErr) {
           console.error("[processProject] HyperFrames render gagal, fallback ke ffmpeg:", hfErr);
@@ -1406,6 +1434,23 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         console.log(`[sceneManifest] proyek ${id} pakai manifest: ${manifestInputs.segments.length} segmen + ${manifestInputs.brollClips.length} broll`);
       }
 
+      // feat/hero-order (#4): efek ffmpeg berbasis indeks saat urutan klip berubah (orderedClips hero-first).
+      // manifestInputs (editor manual) menang -> tak reorder. reorderActive = orderedClips dipakai & non-kosong.
+      const ffmpegOrdered = manifestInputs ? undefined : (orderedRenderList ?? undefined);
+      const reorderActive = ffmpegOrdered !== undefined && ffmpegOrdered.length > 0;
+      const baseMotions = manifestInputs?.motions ?? directorDecision.motions;
+      // motions 1:1 per klip -> PINDAHKAN mengikuti klip aslinya ke urutan baru (ffmpeg lama: segment dulu baru broll).
+      const ffmpegMotions = reorderActive && baseMotions
+        ? ffmpegOrdered!.map((c) => baseMotions[ffmpegEffectIndex(c.key, selected.length)]).filter((m): m is NonNullable<typeof m> => m != null)
+        : baseMotions;
+      // transitions (antar-klip, N-1) & stickerClipIndex (pin ke indeks klip lama) tak bisa dipetakan aman di
+      // urutan baru -> DINONAKTIFKAN (transisi -> rotasi round-robin ffmpeg; sticker dilewati). statOverlay.clipIndex
+      // juga berbasis indeks -> dicatat (dibiarkan time-based default). Semua dilaporkan eksplisit di bawah.
+      const ffmpegTransitions = reorderActive ? undefined : (manifestInputs?.transitions ?? finalTransitions);
+      const ffmpegStickerIdx = reorderActive ? undefined : directorDecision.stickerClipIndex;
+      if (reorderActive) {
+        autoFixLog.push({ step: "footage_guard", action: "urutan hero baru: motions DIPINDAH ikut klip; transitions->round-robin & stickerClipIndex DINONAKTIFKAN; statOverlay.clipIndex (indeks) tak dijamin melacak urutan baru", result: "reindex" });
+      }
       return renderFinalVideo({
         projectId: id,
         brandId: project.brandId,
@@ -1439,15 +1484,18 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
         srtContent: srtForRender,
         wordTimings: wordTimingsForRender,
         brollClips: manifestInputs?.brollClips ?? brollClips,
+        // feat/hero-order: daftar terpadu hero-first (sama yg dipakai HyperFrames). undefined di observe/manifest
+        // -> urutan lama. [] -> ffmpeg gagal jelas (nol klip aman). ffmpegOrdered dihitung di atas (DRY dgn efek).
+        orderedClips: ffmpegOrdered,
         // AI Dubbing - GANTI TOTAL suara asli (lihat memory proyek, keputusan eksplisit
         // Agus). Audio-nya SUDAH digenerate di atas (perlu ada LEBIH DULU drpd subtitle
         // presisi dibangun) - di sini tinggal diteruskan, bukan generate baru lagi.
         voiceoverAudioBuffer: voiceoverBuffer,
-        motions: manifestInputs?.motions ?? directorDecision.motions,
-        transitions: manifestInputs?.transitions ?? finalTransitions,
+        motions: ffmpegMotions,          // feat/hero-order: di-remap ikut klip saat reorder (else sama spt dulu)
+        transitions: ffmpegTransitions,  // feat/hero-order: undefined (round-robin) saat reorder, else spt dulu
         musicUrl,
         musicBeatTimestamps: musicBeats.beatTimestamps,
-        stickerClipIndex: directorDecision.stickerClipIndex,
+        stickerClipIndex: ffmpegStickerIdx, // feat/hero-order: dinonaktifkan saat reorder (indeks klip lama)
         motionIntensity: directorDecision.motionIntensity,
         colorGrade: directorDecision.colorGrade,
         statOverlays,
@@ -1481,7 +1529,9 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // kamar mandi, caption angka-garbage). P1 director + filter caption sudah MENCEGAH; ini
     // jaring pengaman - reject hanya fire kalau pencegahan bocor (video bagus takkan ditolak).
     const edIssues = editorialPreflight({
-      hasFootage: brollClips.length > 0 || selected.length > 0,
+      // feat/hero-order: QC lihat RENDER yg sama. orderedRenderList!==null (non-observe) -> pakai panjangnya
+      // ([] = faceless = hasFootage false, cek hero dilewati). null (observe) -> dari brollClips/selected (produksi).
+      hasFootage: orderedRenderList !== null ? orderedRenderList.length > 0 : (brollClips.length > 0 || selected.length > 0),
       heroTags: heroFootageTags,
       captionWords: wordTimings,
       hookText,

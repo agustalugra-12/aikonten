@@ -76,11 +76,8 @@ async function run() {
   let fotoOK = true; try { ap.pastikanFormatDiizinkan({ type: "carousel", contentFormat: "poster_feed", videoDurationTarget: null, unlimited: false }); } catch { fotoOK = false; }
   ok("tenant eksternal + foto/carousel DIIZINKAN", fotoOK);
 
-  ok("batas starter video=1", ap.batasHarianPaket("starter").video === 1);
-  ok("batas pro video=3", ap.batasHarianPaket("pro").video === 3);
-  ok("batas agency video=5 foto=5", ap.batasHarianPaket("agency").video === 5 && ap.batasHarianPaket("agency").foto === 5);
-  ok("paket tak dikenal/null -> starter", ap.batasHarianPaket("xxx").video === 1 && ap.batasHarianPaket(null).video === 1);
-  ok("clamp min(setting 10, cap starter 1)=1", Math.min(10, ap.batasHarianPaket("starter").video) === 1);
+  // (revisi-6 2026-11-06) Blok batasHarianPaket DIHAPUS: fungsi itu sudah dibuang saat plafon harian per-tipe
+  // dihapus (keputusan "No Daily Type Cap"); tes basi ini melempar TypeError & menggagalkan SELURUH suite.
 
   // ---------- Render: font subtitle + preset animasi + title card (Phase 1, 2026-10-25) ----------
   const sd = await import("../src/lib/render/subtitleDesign.ts");

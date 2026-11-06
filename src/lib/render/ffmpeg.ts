@@ -255,6 +255,10 @@ export async function renderFinalVideo(opts: {
   // sana supaya rollout-nya keputusan terpisah (per-brand/A-B), bukan memaksa SEMUA video.
   titleText?: string | null;
   brollClips?: Array<{ videoUrl: string; durationSeconds: number }>;
+  // feat/hero-order (2026-11-04): daftar klip terpadu lintas-sumber SUDAH terurut (hero di index 0),
+  // mediaStart dijaga (start = mediaStart). Kalau ADA -> menang atas segments/brollClips utk URUTAN klip
+  // (segments tetap dikirim utk gerbang "segments.length>0" & pemakaian lain). TAK ADA -> urutan lama.
+  orderedClips?: Array<{ videoUrl: string; durationSeconds: number; mediaStart: number }>;
   // Audio TTS SUDAH DIGENERATE sebelumnya (2026-08-06, permintaan Agus - "subtitle
   // presisi dgn dubbing") - caller (processProject.ts) generate TTS DULU, transkripsi
   // ulang (Whisper) utk subtitle presisi, BARU render di sini - jadi fungsi ini terima
@@ -366,10 +370,19 @@ export async function renderFinalVideo(opts: {
     // footage asli & broll Pexels hampir pasti beda resolusi/fps, WAJIB diseragamkan
     // dulu sblm concat (sama alasannya dgn Cloudinary versi lama: "Concatenated videos
     // sizes don't match" kalau tidak diseragamkan).
-    const allClips: Array<{ url: string; start: number; end: number }> = [
-      ...opts.segments.map((s) => ({ url: s.sourceUrl, start: s.start, end: s.end })),
-      ...(opts.brollClips || []).map((c) => ({ url: c.videoUrl, start: 0, end: c.durationSeconds })),
-    ];
+    // feat/hero-order: orderedClips=[] (BEDA dari undefined) = guard menghasilkan NOL klip aman (semua
+    // footage ditolak). ffmpeg TIDAK punya jalur faceless -> GAGAL JELAS, drpd memutar klip yg sudah
+    // ditolak atau render kosong rusak. (undefined = jalur lama; HyperFrames yg justru faceless pada [].)
+    if (opts.orderedClips !== undefined && opts.orderedClips.length === 0) {
+      throw new Error("Guard footage: nol klip aman (semua footage ditolak) - render ffmpeg dibatalkan (tak ada jalur faceless di ffmpeg)");
+    }
+    const allClips: Array<{ url: string; start: number; end: number }> = opts.orderedClips !== undefined
+      // daftar terpadu hero-first (hero=allClips[0]); mediaStart dijaga (start=mediaStart). JANGAN campur broll/segment lama.
+      ? opts.orderedClips.map((c) => ({ url: c.videoUrl, start: Math.max(0, c.mediaStart), end: Math.max(0, c.mediaStart) + c.durationSeconds }))
+      : [
+          ...opts.segments.map((s) => ({ url: s.sourceUrl, start: s.start, end: s.end })),
+          ...(opts.brollClips || []).map((c) => ({ url: c.videoUrl, start: 0, end: c.durationSeconds })),
+        ];
 
     // Timing per-tahap (2026-11-06, item 4) - log [timing] <projectId> <tahap>=<ms> supaya
     // bottleneck render (fetch/normalisasi vs merge vs encode final vs upload) kelihatan di

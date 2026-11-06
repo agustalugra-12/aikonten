@@ -3,6 +3,9 @@
 // gelap) dari paket OSS hyperframes, di-drive konten kita. FRAME.md bilang "motion out of scope"
 // -> motion (entrance stagger/tilt) KITA tambahkan via GSAP. 1 fungsi = 1 scene (Cover dulu).
 // Output = komposisi HyperFrames penuh (root paused timeline + window.__timelines.main).
+// Revisi-6 2026-11-06: data-motion-blur DEFAULT "off" di semua root. Motion-blur "on" memaksa capture
+// screenshot (html-in-canvas) -> jalur cepat BeginFrame mati; terukur di worker (no GPU) blur-on 216s vs
+// blur-off 185s (~+14%, ~+41% vs jalur cepat), efek blur minim di 30fps SDR. Opt-in: ubah "off" -> "on".
 
 export type BoldCoverInput = {
   orientation?: "portrait" | "landscape" | "square";
@@ -89,7 +92,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg);color:
 #pbar{position:absolute;bottom:0;left:0;height:${Math.round(h * 0.006)}px;width:100%;background:var(--red);transform-origin:left;}
 #mark{position:absolute;bottom:${Math.round(h * 0.02)}px;right:${Math.round(w * 0.05)}px;font-family:var(--mono);font-weight:600;text-transform:uppercase;letter-spacing:2px;font-size:${Math.round(w * 0.026)}px;color:var(--dark);opacity:.5;}
 </style></head><body>
-<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="on">
+<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="off">
   ${eyebrow ? `<div id="eyebrow">${esc(eyebrow)}</div>` : ""}
   <div class="stack">
       ${lineHtml}
@@ -129,7 +132,7 @@ export function buildBoldFootage(input: BoldFootageInput): string {
 #mk{position:absolute;top:${Math.round(h * 0.03)}px;left:${Math.round(w * 0.06)}px;font-family:var(--mono);font-weight:600;text-transform:uppercase;letter-spacing:2px;font-size:${Math.round(w * 0.028)}px;color:var(--bg);background:var(--red);padding:${Math.round(h * 0.008)}px ${Math.round(w * 0.035)}px;border-radius:100px;}
 #pbar{position:absolute;bottom:0;left:0;height:${Math.round(h * 0.006)}px;width:100%;background:var(--red);transform-origin:left;}
 </style></head><body>
-<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="on">
+<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="off">
   <video id="bg" class="clip" muted playsinline data-start="0" data-duration="${total.toFixed(3)}" data-media-start="0" data-track-index="0" src="${esc(videoUrl)}"></video>
   <div id="scrim"></div>
   ${caption ? `<div id="cap"><div class="bar"></div><div class="t">${esc(caption)}</div></div>` : ""}
@@ -192,7 +195,7 @@ export function buildBoldStat(input: BoldStatInput): string {
 #big{font-family:var(--disp);font-weight:400;font-size:${bigPx}px;line-height:.82;color:var(--bg);opacity:0;transform:rotate(-6deg);text-shadow:3px 3px 0 rgba(28,20,16,.25),6px 6px 0 rgba(28,20,16,.2),9px 9px 0 rgba(28,20,16,.15);}
 #sub{font-family:var(--body);font-size:${Math.round(w * 0.04)}px;color:var(--bg);opacity:0;margin-top:${Math.round(h * 0.03)}px;max-width:${Math.round(w * 0.8)}px;}
 </style></head><body>
-<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="on">
+<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="off">
   ${label ? `<div id="lab">${esc(label)}</div>` : ""}
   <div id="big">${bigInner}</div>
   ${sub ? `<div id="sub">${esc(sub)}</div>` : ""}
@@ -228,7 +231,7 @@ export function buildBoldClosing(input: BoldClosingInput): string {
 #cta{margin-top:${Math.round(h * 0.045)}px;font-family:var(--mono);font-weight:600;text-transform:uppercase;letter-spacing:2px;font-size:${Math.round(w * 0.038)}px;color:var(--bg);background:var(--dark);padding:${Math.round(h * 0.014)}px ${Math.round(w * 0.06)}px;border-radius:100px;opacity:0;}
 #pbar{position:absolute;bottom:0;left:0;height:${Math.round(h * 0.006)}px;width:100%;background:var(--red);transform-origin:left;}
 </style></head><body>
-<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="on">
+<div id="root" data-composition-id="main" data-start="0" data-duration="${total.toFixed(3)}" data-width="${w}" data-height="${h}" data-motion-blur="off">
   <div class="stack">
       ${lineHtml}
   </div>

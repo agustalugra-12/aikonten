@@ -1,0 +1,179 @@
+{
+ "ctx": {
+  "footageIds": [
+   "ani-octopus",
+   "ani-reef",
+   "ani-octopus-arm",
+   "ani-diver"
+  ],
+  "audioDurationSeconds": 16
+ },
+ "valid": {
+  "version": 1,
+  "orientation": "portrait",
+  "look": "cinematic",
+  "pacing": "calm",
+  "music": {
+   "mood": "mysterious",
+   "volume": 0.13
+  },
+  "brand": {
+   "tone": "playful"
+  },
+  "scenes": [
+   {
+    "id": "hook",
+    "type": "hook",
+    "duration": 2.5,
+    "transition": "cut",
+    "text": "Hewan ini punya tiga jantung",
+    "footageRef": "ani-octopus"
+   },
+   {
+    "id": "reef",
+    "type": "footage-caption",
+    "duration": 4,
+    "transition": "crossfade",
+    "footageRef": "ani-reef",
+    "caption": "Gurita hidup di terumbu karang"
+   },
+   {
+    "id": "hearts",
+    "type": "stat",
+    "duration": 3.5,
+    "transition": "zoom",
+    "value": "3",
+    "label": "jantung memompa darah biru",
+    "footageRef": "ani-octopus-arm"
+   },
+   {
+    "id": "facts",
+    "type": "feature-list",
+    "duration": 4,
+    "transition": "slide",
+    "title": "Fakta gurita",
+    "items": [
+     "8 lengan berpikir",
+     "Darah biru",
+     "Bisa menyamar"
+    ],
+    "footageRef": "ani-diver"
+   },
+   {
+    "id": "cta",
+    "type": "cta",
+    "duration": 2.5,
+    "transition": "crossfade",
+    "text": "Follow untuk fakta lain"
+   }
+  ]
+ },
+ "broken": [
+  {
+   "name": "html di teks",
+   "set": {
+    "scenes.0.text": "<b>Promo</b> hari ini"
+   },
+   "expect": "markup_forbidden"
+  },
+  {
+   "name": "css/js di caption",
+   "set": {
+    "scenes.1.duration": 3
+   },
+   "setKey": [
+    "scenes.1",
+    "style",
+    "color:red"
+   ],
+   "expect": "unknown_field"
+  },
+  {
+   "name": "field liar top-level",
+   "setKey": [
+    "",
+    "html",
+    "<div>x</div>"
+   ],
+   "expect": "unknown_field"
+  },
+  {
+   "name": "footageRef tak dikenal",
+   "set": {
+    "scenes.0.footageRef": "tidak-ada"
+   },
+   "expect": "footage_ref_unknown"
+  },
+  {
+   "name": "hook terlalu panjang",
+   "set": {
+    "scenes.0.text": "Ini adalah hook yang sangat panjang sekali dan tidak muat"
+   },
+   "expect": "too_many_words"
+  },
+  {
+   "name": "durasi adegan di luar batas",
+   "set": {
+    "scenes.1.duration": 12
+   },
+   "expect": "out_of_range"
+  },
+  {
+   "name": "transisi tak dikenal",
+   "set": {
+    "scenes.1.transition": "spin3d"
+   },
+   "expect": "transition: invalid"
+  },
+  {
+   "name": "adegan pertama bukan cut",
+   "set": {
+    "scenes.0.transition": "whip"
+   },
+   "expect": "first_scene_must_cut"
+  },
+  {
+   "name": "tipe adegan tak dikenal",
+   "set": {
+    "scenes.1.type": "html-block"
+   },
+   "expect": "type: invalid"
+  },
+  {
+   "name": "url di teks",
+   "set": {
+    "scenes.0.text": "Cek https://x.y"
+   },
+   "expect": "markup_forbidden"
+  },
+  {
+   "name": "versi salah",
+   "set": {
+    "version": 2
+   },
+   "expect": "unsupported_version"
+  },
+  {
+   "name": "volume musik kebesaran",
+   "set": {
+    "music.volume": 0.9
+   },
+   "expect": "out_of_range"
+  },
+  {
+   "name": "hook bukan pertama",
+   "swap": [
+    0,
+    1
+   ],
+   "expect": "first_scene_must_be_hook"
+  },
+  {
+   "name": "durasi jauh dari VO",
+   "set": {
+    "_audio": 60
+   },
+   "expect": "total_vs_audio"
+  }
+ ]
+}

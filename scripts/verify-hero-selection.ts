@@ -3,7 +3,7 @@
 // Mencakup syarat tes #7: mixed brand, klip stok pertama, skor 0, semua avoid, tag kosong,
 // Ankylosaurus, + fallback (plan deterministik = dipakai render & ffmpeg sama). + sinonim #4.
 import assert from "node:assert";
-import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, applyFootageGuard, safeFootageGuard, resolveDomain, categoryOf, matchedCategories, type ClipCandidate } from "@/lib/ai/footageDirector";
+import { planHeroAndClips, isOffTopic, directFootageOrder, slugFromSourceUrl, planFootageSufficiency, applyFootageGuard, safeFootageGuard, orderedRenderClips, ffmpegEffectIndex, resolveDomain, categoryOf, matchedCategories, type ClipCandidate, type ClipForRender } from "@/lib/ai/footageDirector";
 import { validateBrandKit } from "@/lib/render/brandKit";
 
 let n = 0;
@@ -331,6 +331,114 @@ const origTags = ["orig-hero"];
   assert.ok(p.dropped.some((d) => d.key === "s0" && d.reason === "no_basis"), "stok tanpa metadata -> no_basis");
   assert.ok(p.order.includes("s1"), "stok dgn slug relevan dipakai");
   ok("#3 selected stok: no metadata -> no_basis; ada slug -> dipakai");
+}
+
+// === feat/hero-order: hero lintas-sumber jadi klip-0 (unify broll+segment, jaga mediaStart) ===
+const BR = (key: string, ms = 0): ClipForRender => ({ key, videoUrl: `${key}.mp4`, durationSeconds: 3, mediaStart: ms, source: "brand" });
+const SG = (key: string, ms: number): ClipForRender => ({ key, videoUrl: `${key}.mp4`, durationSeconds: 4, mediaStart: ms, source: "brand" });
+// 30. VIDEO hero: segment relevan -> klip-0 lintas sumber; mediaStart segment DIJAGA.
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "brand", tags: ["meja"] },
+    { key: "s0", source: "brand", tags: ["pemandangan", "gunung", "teras"] },
+  ], "pemandangan teras gunung", "liburan teras gunung", { domain: "hospitality" });
+  assert.strictEqual(plan.heroKey, "s0", "hero = segment video relevan");
+  const ord = orderedRenderClips([BR("b0")], [SG("s0", 5)], plan, "hero-only");
+  assert.strictEqual(ord.clips[0].key, "s0", "video hero jadi klip-0");
+  assert.strictEqual(ord.clips[0].mediaStart, 5, "mediaStart segment dijaga saat dipindah");
+  assert.strictEqual(ord.clips.length, 2, "hero-only tak buang klip");
+  ok("#hero-order VIDEO hero -> klip-0, mediaStart dijaga");
+}
+// 31. FOTO hero: broll foto relevan -> klip-0.
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "brand", tags: ["pemandangan", "teras"] },
+    { key: "s0", source: "brand", tags: ["meja"] },
+  ], "pemandangan teras", "liburan teras", { domain: "hospitality" });
+  assert.strictEqual(plan.heroKey, "b0", "hero = foto broll relevan");
+  const ord = orderedRenderClips([BR("b0")], [SG("s0", 2)], plan, "hero-only");
+  assert.strictEqual(ord.clips[0].key, "b0", "foto hero jadi klip-0");
+  assert.strictEqual(ord.clips[0].mediaStart, 0, "foto mediaStart 0");
+  ok("#hero-order FOTO hero -> klip-0");
+}
+// 32. STOK hero: broll stok relevan (skor slug) -> klip-0.
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "stock", probe: "mountain terrace sunset view" },
+    { key: "s0", source: "brand", tags: ["meja"] },
+  ], "mountain terrace", "terrace mountain view", { domain: "hospitality" });
+  assert.strictEqual(plan.heroKey, "b0", "hero = stok relevan");
+  const ord = orderedRenderClips([BR("b0")], [SG("s0", 1)], plan, "full");
+  assert.strictEqual(ord.clips[0].key, "b0", "stok hero jadi klip-0 (full)");
+  ok("#hero-order STOK hero -> klip-0");
+}
+// 33. observe = urutan apa adanya (produksi); fallback ffmpeg & HyperFrames pakai DAFTAR SAMA.
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "brand", tags: ["meja"] },
+    { key: "s0", source: "brand", tags: ["pemandangan", "teras"] },
+  ], "pemandangan teras", "teras", { domain: "hospitality" });
+  const obs = orderedRenderClips([BR("b0")], [SG("s0", 5)], plan, "observe");
+  assert.deepStrictEqual(obs.clips.map((c) => c.key), ["b0", "s0"], "observe: broll-dulu-segment apa adanya");
+  assert.strictEqual(obs.changed, false, "observe: changed=false (identik produksi)");
+  // Determinisme -> renderViaHyperframes & renderFinalVideo (fallback) terima daftar IDENTIK.
+  const a = orderedRenderClips([BR("b0")], [SG("s0", 5)], plan, "full");
+  const b = orderedRenderClips([BR("b0")], [SG("s0", 5)], plan, "full");
+  assert.deepStrictEqual(a.clips, b.clips, "fallback: daftar deterministik = sama utk kedua renderer");
+  assert.strictEqual(a.clips[0].key, plan.heroKey, "fallback: hero = klip-0 (sama dgn render)");
+  ok("#hero-order observe identik + fallback daftar sama (hero=klip-0)");
+}
+
+// === feat/hero-order follow-up: [] vs undefined, heroKey null, efek-indeks ffmpeg, observe identik ===
+// 34. FULL nol klip aman: semua stok forbidden -> plan.order kosong -> orderedRenderClips.clips = [] (faceless).
+{
+  const plan = planHeroAndClips([
+    { key: "s0", source: "stock", probe: "man playing golf on course" },
+    { key: "s1", source: "stock", probe: "soccer match stadium players" },
+  ], "wildlife animals", "animal nature", { domain: "animal" });
+  assert.strictEqual(plan.heroKey, null, "semua forbidden -> tak ada hero");
+  const segForRender: ClipForRender[] = [SG("s0", 0), SG("s1", 0)];
+  const ord = orderedRenderClips([], segForRender, plan, "full");
+  assert.deepStrictEqual(ord.clips, [], "full nol klip aman -> clips [] (faceless, bukan klip ditolak)");
+  ok("#follow-up FULL nol klip aman -> [] (faceless)");
+}
+// 35. Batas eksplisit heroKey null: brand relevansi-0 TETAP dapat hero (bukan null) -> TIDAK faceless.
+//     heroKey null (-> processProject set faceless []) HANYA saat semua klip gugur (stok ditolak, lihat #34).
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "brand", tags: ["meja"] },
+    { key: "b1", source: "brand", tags: ["lampu"] },
+  ], "pemandangan gunung teras", "liburan sejuk", { domain: "hospitality" });
+  assert.notStrictEqual(plan.heroKey, null, "brand selalu punya hero/klip -> BUKAN faceless");
+  assert.strictEqual(plan.faceless, false, "brand relevansi 0 TIDAK di-drop");
+  assert.strictEqual(plan.order.length, 2, "kedua brand tetap dipakai");
+  ok("#follow-up batas heroKey null: brand dapat hero (faceless hanya saat semua gugur, #34)");
+}
+// 36. Indeks efek ffmpeg: urutan LAMA = segment dulu lalu broll. Remap motions ikut klip ke urutan baru.
+{
+  const segCount = 2;
+  assert.strictEqual(ffmpegEffectIndex("s0", segCount), 0);
+  assert.strictEqual(ffmpegEffectIndex("s1", segCount), 1);
+  assert.strictEqual(ffmpegEffectIndex("b0", segCount), 2, "broll setelah segment");
+  assert.strictEqual(ffmpegEffectIndex("b1", segCount), 3);
+  // Simulasi remap: urutan lama motions [s0,s1,b0,b1]; urutan baru hero-first [b0, s1] -> [motions[2], motions[1]].
+  const motions = ["mS0", "mS1", "mB0", "mB1"];
+  const newOrder = ["b0", "s1"];
+  const remapped = newOrder.map((k) => motions[ffmpegEffectIndex(k, segCount)]);
+  assert.deepStrictEqual(remapped, ["mB0", "mS1"], "motions dipindah MENGIKUTI klip ke urutan baru");
+  ok("#follow-up ffmpegEffectIndex: remap motions ikut klip (segment-dulu-broll)");
+}
+// 37. observe TETAP identik: orderedClips undefined-semantik (observe) -> urutan apa adanya, changed=false.
+{
+  const plan = planHeroAndClips([
+    { key: "b0", source: "brand", tags: ["meja"] },
+    { key: "s0", source: "brand", tags: ["pemandangan", "teras"] },
+  ], "pemandangan teras", "teras", { domain: "hospitality" });
+  const obs = orderedRenderClips([BR("b0")], [SG("s0", 7)], plan, "observe");
+  assert.deepStrictEqual(obs.clips.map((c) => c.key), ["b0", "s0"], "observe: urutan produksi apa adanya");
+  assert.strictEqual(obs.changed, false, "observe: changed=false (identik produksi)");
+  assert.strictEqual(obs.clips[1].mediaStart, 7, "observe: mediaStart utuh");
+  ok("#follow-up observe tetap identik (changed=false, urutan & mediaStart utuh)");
 }
 
 console.log(`ALL_HERO_TESTS_PASS (${n} tes)`);

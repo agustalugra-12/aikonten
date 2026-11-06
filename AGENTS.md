@@ -23,6 +23,24 @@ API, state-management, or cross-module changes:
 For trivial documentation or text changes,
 full Graphify analysis is optional.
 
+## INFRA RULE — LOKASI BUILD & RENDER (permanen, 2026-11-05)
+
+> **AI Content Pilot hanya memakai VPS Agustap Studio dan worker. Server Pelangi tidak boleh untuk build, render uji, generate, atau penyimpanan output.**
+
+- Server Pelangi Homestay (PMS, web-pelangi, ai-chat-bot) **DILARANG** dipakai untuk render, render uji,
+  build berat, atau generate AI Content Pilot. Termasuk `hyperframes render/check/snapshot`, render ffmpeg,
+  Chrome headless, `next build`, `npm install`/`npm ci` besar, unduhan media fixture, dan penyimpanan output
+  (video/frame/cache render).
+- Build dan render uji HANYA di VPS Agustap Studio (checkout kerja terpisah dari repo produksi, mis.
+  `~/kp-build`) atau di VPS worker render. Render uji di worker butuh persetujuan Agus.
+- Jangan bentrok dengan produksi. Sebelum build/render uji di VPS Agustap, cek dan BATAL bila ada yang aktif:
+  `systemctl list-units 'kontenpilot-ffmpeg-*' --state=running --no-legend`,
+  `pgrep -af 'ffmpeg|hyperframes|chrome-headless'`, dan timer `kontenpilot-auto-generate*`
+  (jendela generate 23:00–02:30 WIB; render produksi bisa berlanjut sesudahnya, jadi cek proses, bukan jam saja).
+- Render uji: pendek (≤ 20 dtk), fixture lokal, dibatasi
+  `systemd-run --scope -p MemoryMax=1200M -p CPUQuota=100% nice -n 19 ionice -c3`, output di `~/hf-test-output/` VPS Agustap (di luar repo produksi).
+- Dari server Pelangi agen hanya boleh pekerjaan ringan: edit teks, git, ssh untuk orkestrasi.
+
 ## CONTEXT OPTIMIZATION
 
 Agent harus menggunakan progressive context:
