@@ -866,6 +866,44 @@ async function run() {
     return /\bo0\b/.test(h) && /\bo0\b/.test(hp);
   })());
 
+  // ---- caption: kata dari naskah asli, waktu dari Whisper (2026-11-07) ----
+  const cw = await import("../src/lib/ai/captionWords");
+  const ASLI = "Harganya Starter Rp149.000 per bulan untuk 60 konten.";
+  const UCAP = akk.angkaKeKata(ASLI);
+  const kataWhisper = cw.tokenisasi(UCAP).map((w, i) => ({ word: w, start: i * 0.4, end: i * 0.4 + 0.35 }));
+
+  ok("caption: token berangka dipulihkan jadi Rp149.000 (bukan 'puluh')", (() => {
+    const kata = cw.captionDariTeksAsli(ASLI, UCAP, kataWhisper).map((h) => h.word);
+    return kata.includes("Rp149.000") && kata.includes("60")
+      && !kata.some((k) => /^(puluh|ratus|ribu|sembilan|empat|seratus|enam)$/i.test(k));
+  })());
+  ok("caption: waktu digabung dari kata Whisper yang menyusun angka itu", (() => {
+    const hasil = cw.captionDariTeksAsli(ASLI, UCAP, kataWhisper);
+    const rp = hasil.find((h) => h.word === "Rp149.000")!;
+    const i0 = cw.tokenisasi(UCAP).findIndex((w) => /seratus/i.test(w));
+    return !!rp && Math.abs(rp.start - i0 * 0.4) < 1e-6 && rp.end > rp.start;
+  })());
+  ok("caption: urutan kata tetap & tak ada kata tampil hilang di tengah", (() => {
+    const hasil = cw.captionDariTeksAsli(ASLI, UCAP, kataWhisper);
+    const kata = hasil.map((h) => h.word);
+    return kata[0] === "Harganya" && kata[1] === "Starter" && kata[2] === "Rp149.000"
+      && hasil.every((h, i) => i === 0 || h.start >= hasil[i - 1].start);
+  })());
+  ok("caption: teks tanpa angka -> kata Whisper apa adanya", (() => {
+    const w = [{ word: "halo", start: 0, end: 1 }, { word: "dunia", start: 1, end: 2 }];
+    return cw.captionDariTeksAsli("halo dunia", "halo dunia", w) === w;
+  })());
+  ok("caption: masukan kosong / penyelarasan gagal -> fail-soft ke Whisper", (() => {
+    const w = [{ word: "x", start: 0, end: 1 }];
+    return cw.captionDariTeksAsli("", "", w) === w
+      && cw.captionDariTeksAsli("Rp1.000", "seribu", []).length === 0
+      && cw.captionDariTeksAsli("Rp1.000 a b c d e f", "zzz qqq", w) === w;
+  })());
+  ok("caption: petakanUcapanKeTampil memetakan kata angka ke satu token", (() => {
+    const peta = cw.petakanUcapanKeTampil(["beli", "2", "hari"], ["beli", "dua", "hari"]);
+    return peta[0] === 0 && peta[1] === 1 && peta[2] === 2;
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

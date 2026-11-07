@@ -48,6 +48,7 @@ import { searchBrollVideo } from "@/lib/assets/broll";
 import { fetchDestinationBrollClips, isDestinationContent, type DestinationBrollClip } from "@/lib/ai/destinationBroll";
 import { getRecentlyUsedFootageUrls, getRemoteFileSizeBytes, MAX_FOOTAGE_BYTES } from "@/lib/ai/footageVariety";
 import { angkaKeKata, adaAngkaTersisa } from "@/lib/ai/angkaKeKata";
+import { captionDariTeksAsli } from "@/lib/ai/captionWords";
 import { applyLogoToImage } from "@/lib/ai/logoOverlay";
 import { checkContentSimilarity } from "@/lib/ai/contentSimilarity";
 import { analyzeRetentionRisk } from "@/lib/ai/retentionIntelligence";
@@ -1086,7 +1087,12 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       // "seratus tujuh puluh lima ribu" -> "175.000"/"00 00") yg render jelek di caption.
       // Buang token caption yg MURNI angka - angka tempatnya di STAT CARD (bersih), bukan
       // caption berjalan. Timing kata lain tak berubah (per-kata absolut).
-      wordTimings = transcription.words.filter((w) => !/^[\d.,]+$/.test(String(w.word || "").trim()));
+      // 2026-11-07: WAKTU dari Whisper, KATA dari naskah ASLI. Sejak TTS menerima teks
+      // hasil angkaKeKata, transkripsi berisi ejaan angka ("dua ratus sembilan puluh
+      // sembilan ribu") sehingga caption menampilkan pecahan kata seperti "puluh".
+      // captionDariTeksAsli memulihkan token aslinya ("Rp299.000") dgn waktu gabungan.
+      // Fail-soft: kalau penyelarasan gagal, kembali ke kata Whisper apa adanya.
+      wordTimings = captionDariTeksAsli(narrationText, narrationTts, transcription.words);
     } catch (err) {
       console.error("[processProject] gagal transkripsi ulang audio TTS utk subtitle presisi, fallback ke estimasi rata:", err);
       srt = buildCaptionSrt(narrationText, totalDuration);
