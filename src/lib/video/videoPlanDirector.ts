@@ -80,13 +80,31 @@ export function targetTotalDetik(audioDurationSeconds: number): { min: number; m
   return { min: Math.min(min, max), max: Math.max(min, max), takTercapai: bawahKetat > LIMITS.totalSeconds.max };
 }
 
+// Detik per adegan yang NYATA dipakai AI pada brief pendek: 3,1-4,0 dtk (dibedah dari
+// 6 rencana, 2026-11-07). Dipakai 3,5 sbg titik tengahnya.
+const DETIK_PER_ADEGAN = 3.5;
+
+/** Jumlah adegan yang DISARANKAN, diturunkan dari rentang durasi - bukan plafon.
+ *  Pembedahan 2026-11-07: durasi tiap adegan selalu wajar (3-5 dtk), yang meleset adalah
+ *  JUMLAHNYA. Kita mengirim `maksAdegan: 12` dan AI membacanya sebagai AJAKAN, bukan pagar:
+ *  untuk VO 11,6 dtk ia membuat 5-8 adegan (19-25 dtk) padahal rentangnya 11,8-15,9 dtk.
+ *  Satu-satunya rencana yang lolos punya 4 adegan. Maka yang dikirim sekarang adalah ANGKA
+ *  SARAN yang konkret. Plafon LIMITS tetap berlaku di validator - kontraknya tidak diubah. */
+export function adeganDisarankanUntuk(audioDurationSeconds: number, internal: boolean): number {
+  const { min, max } = targetTotalDetik(audioDurationSeconds);
+  const tengah = (min + max) / 2;
+  const kasar = Math.round(tengah / DETIK_PER_ADEGAN);
+  const plafon = Math.min(LIMITS.scenes.max, maxScenesFor(internal));
+  return Math.min(plafon, Math.max(LIMITS.scenes.min, kasar));
+}
+
 export function directorPrompts(i: DirectorInput, prevErrors?: string[]): { system: string; user: string } {
   const system = [
     "Kamu sutradara video pendek media sosial. Susun rencana adegan sebagai JSON VideoPlan.",
     "Pilih struktur yang paling cocok dengan naskah; jangan pakai urutan yang sama untuk semua video.",
     "Hook = 3 detik pertama, pakai footage paling relevan & menarik. Teks di layar singkat dan diambil dari naskah.",
     "Jangan mengarang angka, harga, atau testimoni yang tidak ada di naskah/brief. Kalau tidak ada, jangan pakai adegan stat/testimonial.",
-    "Sebelum membalas, periksa sendiri: (1) tiap adegan memakai field DATAR sesuai daftar, tidak ada objek bernama tipe; (2) tiap teks di bawah batas karakter DAN kata; (3) jumlah semua duration masuk totalTargetDetik.",
+    "Sebelum membalas, periksa sendiri: (1) tiap adegan memakai field DATAR sesuai daftar, tidak ada objek bernama tipe; (2) tiap teks di bawah batas karakter DAN kata; (3) jumlah adegan = adeganDisarankan; (4) jumlah semua duration masuk totalTargetDetik.",
     "Balas HANYA JSON.",
     videoPlanPromptSpec(),
   ].join("\n");
@@ -95,7 +113,10 @@ export function directorPrompts(i: DirectorInput, prevErrors?: string[]): { syst
     orientation: i.orientation, lookBrand: i.brandLook || undefined, durasiVO: Math.round(i.audioDurationSeconds * 10) / 10,
     // Rentang JADI, bukan rumus - inilah yang diperiksa validator (lihat targetTotalDetik).
     totalTargetDetik: targetTotalDetik(i.audioDurationSeconds),
-    maksAdegan: maxScenesFor(i.internal),
+    // ANGKA SARAN konkret (bukan rumus, bukan batas atas). AI terbukti mengikuti yang
+    // konkret dan mengabaikan yang hanya dinyatakan sebagai aturan.
+    adeganDisarankan: adeganDisarankanUntuk(i.audioDurationSeconds, i.internal),
+    adeganMaksimum: maxScenesFor(i.internal), // pagar validator, bukan target
     footage: i.footage.slice(0, 24).map((f) => ({ id: f.id, isi: f.label.slice(0, 80), durasi: Math.round(f.durationSeconds * 10) / 10 })),
     ...(prevErrors?.length ? { perbaiki: prevErrors.slice(0, 12) } : {}),
   });

@@ -769,6 +769,49 @@ async function run() {
       && !s2.topReasons.some(([k]) => k.startsWith("dilewati"));
   })());
 
+  // ---- jumlah adegan disarankan, diturunkan dari rentang durasi (2026-11-07) ----
+  ok("adegan: saran diturunkan dari durasi, bukan plafon 12", (() => {
+    // VO 11,6 dtk -> rentang 11,8-15,9 -> tengah 13,85 / 3,5 = 4. Rencana yang LOLOS
+    // saat pembedahan memang 4 adegan; yang gagal 5-8.
+    const a = vpd.adeganDisarankanUntuk(11.6, true);
+    const b = vpd.adeganDisarankanUntuk(32.8, true);
+    return a === 4 && b > a && b <= vp.LIMITS.scenes.max;
+  })());
+
+  ok("adegan: saran selalu di dalam LIMITS.scenes dan tak melebihi plafon tenant", (() => {
+    for (const audio of [3, 8, 11.6, 20, 45, 90]) {
+      for (const internal of [true, false]) {
+        const n = vpd.adeganDisarankanUntuk(audio, internal);
+        if (n < vp.LIMITS.scenes.min || n > vp.LIMITS.scenes.max) return false;
+        if (n > vpd.maxScenesFor(internal)) return false;
+      }
+    }
+    return true;
+  })());
+
+  ok("adegan: saran x durasi adegan yang wajar jatuh DI DALAM rentang target", (() => {
+    for (const audio of [8, 11.6, 20, 45]) {
+      const n = vpd.adeganDisarankanUntuk(audio, true);
+      const r = vpd.targetTotalDetik(audio);
+      const tengah = (r.min + r.max) / 2;
+      const perAdegan = tengah / n;
+      // durasi tiap adegan harus mungkin dipenuhi kontrak
+      if (perAdegan < vp.LIMITS.sceneSeconds.min || perAdegan > vp.LIMITS.sceneSeconds.max) return false;
+    }
+    return true;
+  })());
+
+  ok("adegan: payload mengirim angka konkret + plafon terpisah", (() => {
+    const { user, system } = vpd.directorPrompts({
+      projectId: "p", brandName: "B", brief: "b", script: "n", hookText: null,
+      orientation: "portrait", brandLook: null, footage: [], audioDurationSeconds: 11.6, internal: true,
+    });
+    const o = JSON.parse(user);
+    return o.adeganDisarankan === 4 && o.adeganMaksimum === vpd.maxScenesFor(true)
+      && system.includes("jumlah adegan = adeganDisarankan")
+      && vp.videoPlanPromptSpec().includes('PAKAI "adeganDisarankan"');
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
