@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { billingLog } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyTripayCallback } from "@/lib/billing/tripay";
-import { prosesPembayaranSukses } from "@/lib/billing/activation";
+import { prosesPembayaranSukses, prosesPembayaranGagal } from "@/lib/billing/activation";
 
 // Webhook callback Tripay (2026-10-23). DIKECUALIKAN dari gate sesi + injeksi x-user-id di
 // proxy.ts (prefix /api/webhooks/ - gateway tak punya cookie). PENGAMAN UTAMA: verifikasi
@@ -45,9 +45,10 @@ export async function POST(req: NextRequest) {
       await db.update(billingLog).set({ gatewayRef: reference }).where(eq(billingLog.id, log.id));
     }
     await prosesPembayaranSukses(log.id); // atomik + exactly-once (ref) + self-heal
-  } else if (log.status === "pending") {
-    // FAILED / EXPIRED / REFUND - tandai gagal (jangan timpa yang sudah sukses).
-    await db.update(billingLog).set({ status: "gagal" }).where(eq(billingLog.id, log.id));
+  } else {
+    // FAILED / EXPIRED / REFUND - tandai gagal + notif owner (2026-11-07). Guard "jangan timpa
+    // yang sudah sukses" ada DI DALAM prosesPembayaranGagal - satu titik utk kedua webhook & cron.
+    await prosesPembayaranGagal(log.id, `webhook Tripay: ${status || "tanpa status"}`);
   }
 
   return NextResponse.json({ success: true });

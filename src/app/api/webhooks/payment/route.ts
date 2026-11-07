@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { billingLog } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyCallbackSignature } from "@/lib/billing/duitku";
-import { prosesPembayaranSukses } from "@/lib/billing/activation";
+import { prosesPembayaranSukses, prosesPembayaranGagal } from "@/lib/billing/activation";
 
 // Webhook callback Duitku (2026-09-30, T3). DIKECUALIKAN dari gate sesi + injeksi x-user-id
 // di proxy.ts (gateway tak punya cookie login). PENGAMAN UTAMA: verifikasi signature dulu -
@@ -41,9 +41,9 @@ export async function POST(req: NextRequest) {
       await db.update(billingLog).set({ gatewayRef: reference }).where(eq(billingLog.id, log.id));
     }
     await prosesPembayaranSukses(log.id); // atomik + exactly-once (ref) + self-heal
-  } else if (log.status === "pending") {
-    // Gagal/expire/batal - tandai gagal (jangan timpa yang sudah "sukses").
-    await db.update(billingLog).set({ status: "gagal" }).where(eq(billingLog.id, log.id));
+  } else {
+    // Gagal/expire/batal - tandai gagal + notif owner (2026-11-07, satu titik: activation.ts).
+    await prosesPembayaranGagal(log.id, `webhook Duitku: resultCode ${resultCode}`);
   }
 
   // 4. Balas 200 cepat (Duitku menganggap callback diterima).

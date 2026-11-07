@@ -109,3 +109,31 @@ export async function createTransaction(opts: {
   }
   return { paymentUrl: data.data.checkout_url, reference: data.data.reference ?? "", merchantOrderId: opts.merchantOrderId };
 }
+
+// Detail satu transaksi (2026-11-07, utk cron rekonsiliasi). GET /transaction/detail?reference=
+// dgn Bearer API key - TANPA signature (signature hanya dipakai saat create & verifikasi
+// callback). Melempar Error kalau kredensial kosong / Tripay menolak; pemanggil yang memutuskan
+// (cron: log + lanjut ke tagihan berikutnya, jangan gagalkan seluruh batch).
+export type TripayTxDetail = { reference: string; merchantRef: string; status: string; amount: number };
+
+export async function getTransactionDetail(reference: string): Promise<TripayTxDetail> {
+  if (!tripayCreateReady()) {
+    throw new Error("Tripay belum dikonfigurasi (kredensial kosong)");
+  }
+  const res = await fetch(`${BASE_URL}/transaction/detail?reference=${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${TRIPAY_API_KEY}` },
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    success?: boolean; message?: string;
+    data?: { reference?: string; merchant_ref?: string; status?: string; amount?: number };
+  };
+  if (!res.ok || !data.success || !data.data?.status) {
+    throw new Error(`Tripay detail gagal: ${res.status} ${data.message ?? JSON.stringify(data).slice(0, 200)}`);
+  }
+  return {
+    reference: data.data.reference ?? reference,
+    merchantRef: data.data.merchant_ref ?? "",
+    status: String(data.data.status),
+    amount: Number(data.data.amount ?? 0),
+  };
+}

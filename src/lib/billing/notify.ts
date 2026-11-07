@@ -33,6 +33,26 @@ export function notifOrderPending(u: Pelanggan, deskripsi: string, jumlahIdr: nu
   );
 }
 
+// (2026-11-07) Transaksi gateway BERHASIL DIBUAT - pelanggan diarahkan ke halaman bayar.
+// Sebelumnya jalur gateway SAMA SEKALI tak memberi notifikasi (notifOrderPending hanya
+// dipanggil di cabang manual), jadi order Tripay masuk tanpa jejak di Telegram.
+export function notifPembayaranDibuat(
+  u: Pelanggan,
+  deskripsi: string,
+  jumlahIdr: number,
+  billingLogId: string,
+  gateway: string,
+  gatewayRef?: string | null,
+): Promise<void> {
+  return kirim(
+    `\u{1F6D2} <b>Order baru — menunggu pembayaran</b>\n` +
+    `${labelPelanggan(u)}\n` +
+    `${deskripsi} — <b>${rupiah(jumlahIdr)}</b>\n` +
+    `No. pesanan: <code>${billingLogId}</code>\n` +
+    `Gateway: ${gateway}${gatewayRef ? ` · ref ${gatewayRef}` : ""}`,
+  );
+}
+
 // Paket diaktifkan (dipicu konfirmasi manual admin ATAU webhook gateway nanti - 1 titik).
 export function notifPaketAktif(u: Pelanggan, namaPaket: string, berakhir: Date): Promise<void> {
   return kirim(
@@ -40,6 +60,47 @@ export function notifPaketAktif(u: Pelanggan, namaPaket: string, berakhir: Date)
     `${labelPelanggan(u)}\n` +
     `Paket ${namaPaket} — berlaku s/d ${tanggal(berakhir)}`,
   );
+}
+
+// (2026-11-07) Pembayaran LUNAS untuk tagihan yang BUKAN paket (top-up kredit) - dulu top-up
+// sukses tak pernah terlihat di Telegram (notifPaketAktif hanya jalan kalau ada plan).
+export function notifPembayaranSukses(u: Pelanggan, deskripsi: string, jumlahIdr: number, billingLogId: string): Promise<void> {
+  return kirim(
+    `\u{1F4B5} <b>Pembayaran lunas</b>\n` +
+    `${labelPelanggan(u)}\n` +
+    `${deskripsi} — <b>${rupiah(jumlahIdr)}</b>\n` +
+    `No. pesanan: <code>${billingLogId}</code>`,
+  );
+}
+
+// (2026-11-07) Pembayaran GAGAL/kadaluarsa (webhook gateway atau hasil rekonsiliasi).
+export function notifPembayaranGagal(u: Pelanggan | null, deskripsi: string, jumlahIdr: number, billingLogId: string, alasan: string): Promise<void> {
+  return kirim(
+    `❌ <b>Pembayaran gagal/kadaluarsa</b>\n` +
+    `${u ? labelPelanggan(u) : "(pelanggan tak ditemukan)"}\n` +
+    `${deskripsi} — <b>${rupiah(jumlahIdr)}</b>\n` +
+    `No. pesanan: <code>${billingLogId}</code>\n` +
+    `Alasan: ${alasan}`,
+  );
+}
+
+// (2026-11-07) Laporan cron rekonsiliasi. `lunasTakBerkredit` = PALING GENTING: Tripay bilang
+// PAID tapi tagihan kita masih pending (webhook tak sampai) -> harus dikonfirmasi manual.
+// `menggantung` = masih pending melewati ambang. Kirim HANYA kalau ada isinya (jangan spam).
+export function notifRekonsiliasi(lunasTakBerkredit: string[], menggantung: string[]): Promise<void> {
+  if (lunasTakBerkredit.length === 0 && menggantung.length === 0) return Promise.resolve();
+  const bagian: string[] = [];
+  if (lunasTakBerkredit.length) {
+    bagian.push(
+      `\u{1F6A8} <b>LUNAS di Tripay tapi belum jadi kredit (${lunasTakBerkredit.length})</b>\n` +
+      lunasTakBerkredit.map((s) => `• ${s}`).join("\n") +
+      `\n\nKonfirmasi manual di Master:\n${APP_BASE}/master`,
+    );
+  }
+  if (menggantung.length) {
+    bagian.push(`⏳ Masih menggantung (${menggantung.length}):\n` + menggantung.map((s) => `• ${s}`).join("\n"));
+  }
+  return kirim(`<b>Rekonsiliasi pembayaran</b>\n\n` + bagian.join("\n\n"));
 }
 
 // Ringkasan transisi expiry harian dari cron. Kirim HANYA kalau ada yang pindah status

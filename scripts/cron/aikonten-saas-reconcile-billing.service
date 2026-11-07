@@ -1,0 +1,14 @@
+[Unit]
+Description=AI Konten SaaS - rekonsiliasi pembayaran pending ke Tripay + lapor Telegram
+
+# BERKAS SAJA - belum dipasang ke systemd (2026-11-07). Pemasangan oleh owner:
+#   sudo cp scripts/cron/aikonten-saas-reconcile-billing.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now aikonten-saas-reconcile-billing.timer
+# Cek: systemctl list-timers | grep reconcile ; journalctl -u aikonten-saas-reconcile-billing -n 50
+# Endpoint bersifat LAPOR-saja (tak memberi kredit) - lihat src/app/api/cron/reconcile-billing/route.ts.
+
+[Service]
+Type=oneshot
+User=admin
+ExecStart=/home/admin/kontenpilot-saas/scripts/cron/call-saas-endpoint.sh /api/cron/reconcile-billing

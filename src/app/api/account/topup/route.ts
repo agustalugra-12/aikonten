@@ -7,12 +7,13 @@ import { newId } from "@/lib/ids";
 import { getTopupPack } from "@/lib/billing/topupPacks";
 import { createTransaction, duitkuConfigured } from "@/lib/billing/duitku";
 import { createTransaction as createTripayTransaction, tripayCreateReady } from "@/lib/billing/tripay";
-import { notifOrderPending } from "@/lib/billing/notify";
+import { notifOrderPending, notifPembayaranDibuat } from "@/lib/billing/notify";
 
 // Checkout top-up kredit (2026-09-30, T5). Mirip select-plan tapi: hasil sukses = tambah
 // kredit (isiUlangKredit di webhook), BUKAN set paket. Harga & kredit diambil dari
 // TOPUP_PACKS di server (jangan percaya angka dari klien - klien cuma kirim packId).
 // billingLog.jenis="topup" supaya webhook tahu memproses sbg top-up, bukan aktivasi paket.
+// (2026-11-07) Notif Telegram "order baru" juga di jalur GATEWAY (lihat select-plan).
 const APP_BASE_URL = process.env.APP_BASE_URL ?? "https://aikonten.agustapstudio.com";
 
 export async function POST(req: NextRequest) {
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
         returnUrl: `${APP_BASE_URL}/kredit?topup=selesai`,
       });
       await db.update(billingLog).set({ gatewayRef: tx.reference }).where(eq(billingLog.id, id));
+      try { await notifPembayaranDibuat(user, `Top-up ${pack.nama}`, pack.hargaIdr, id, "Tripay", tx.reference); } catch {}
       return NextResponse.json({ ok: true, paymentUrl: tx.paymentUrl }, { status: 201 });
     } catch (err) {
       console.error("[topup] gagal buat transaksi Tripay:", err);
@@ -82,6 +84,7 @@ export async function POST(req: NextRequest) {
         returnUrl: `${APP_BASE_URL}/kredit?topup=selesai`,
       });
       await db.update(billingLog).set({ gatewayRef: tx.reference }).where(eq(billingLog.id, id));
+      try { await notifPembayaranDibuat(user, `Top-up ${pack.nama}`, pack.hargaIdr, id, "Duitku", tx.reference); } catch {}
       return NextResponse.json({ ok: true, paymentUrl: tx.paymentUrl }, { status: 201 });
     } catch (err) {
       console.error("[topup] gagal buat transaksi Duitku:", err);

@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { users, plans, billingLog, creditTransactions } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { _grantOnTx } from "./credits";
-import { notifPaketAktif } from "./notify";
+import { notifPaketAktif, notifPembayaranSukses, notifPembayaranGagal } from "./notify";
 import { sendEmail, emailStrukPembayaran, emailAktivasiPaket } from "@/lib/email";
 
 const MASA_AKTIF_HARI = 30;
@@ -78,8 +78,32 @@ export async function prosesPembayaranSukses(billingLogId: string): Promise<void
 
   // Non-fatal: notif owner + email pelanggan (struk + aktivasi). Kegagalan tak membatalkan apa pun.
   if (plan && periodeBerakhir) { try { await notifPaketAktif(user, plan.nama, periodeBerakhir); } catch {} }
+  // (2026-11-07) Top-up: tak ada paket yang aktif, jadi notifPaketAktif tak jalan -> dulu LUNAS
+  // top-up sama sekali tak kelihatan di Telegram. Kirim notif lunas generik.
+  else { try { await notifPembayaranSukses(user, deskripsi, log.jumlahBayarIdr, billingLogId); } catch {} }
   try { await sendEmail(emailStrukPembayaran(user.email, deskripsi, log.jumlahBayarIdr)); } catch {}
   if (plan && periodeBerakhir) { try { await sendEmail(emailAktivasiPaket(user.email, plan.nama, periodeBerakhir)); } catch {} }
+}
+
+// (2026-11-07) Pembayaran GAGAL/kadaluarsa - SATU titik untuk kedua webhook (Tripay & Duitku)
+// dan cron rekonsiliasi. Dulu tiap webhook meng-update status "gagal" sendiri TANPA notifikasi,
+// jadi order yang mati tak pernah terlihat. Tak pernah menimpa tagihan yang sudah "sukses".
+export async function prosesPembayaranGagal(billingLogId: string, alasan: string): Promise<void> {
+  const [log] = await db.select().from(billingLog).where(eq(billingLog.id, billingLogId));
+  if (!log || log.status !== "pending") return;
+
+  await db.update(billingLog).set({ status: "gagal" }).where(eq(billingLog.id, billingLogId));
+
+  const [user] = await db.select().from(users).where(eq(users.id, log.userId));
+  try { await notifPembayaranGagal(user ?? null, await deskripsiTagihan(log), log.jumlahBayarIdr, billingLogId, alasan); } catch {}
+}
+
+// Label tagihan untuk notifikasi (paket -> nama paket, top-up -> jumlah kredit).
+export async function deskripsiTagihan(log: typeof billingLog.$inferSelect): Promise<string> {
+  if (log.jenis === "topup") return `Top-up ${log.kreditTopup ?? 0} kredit`;
+  if (!log.planId) return "Pembelian";
+  const [plan] = await db.select().from(plans).where(eq(plans.id, log.planId));
+  return plan ? `Paket ${plan.nama}` : "Paket langganan";
 }
 
 // Kompat: nama lama khusus paket (dipakai scripts/confirm-payment.ts). Teruskan ke jalur tunggal.

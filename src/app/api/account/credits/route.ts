@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { users, plans, creditTransactions } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { users, plans, creditTransactions, billingLog } from "@/db/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { getUserId } from "@/lib/session";
 
 // Saldo kredit akun sendiri (2026-09-08, Fase 1 Alur B) - PENGGANTI usage-summary yang
@@ -10,6 +10,12 @@ import { getUserId } from "@/lib/session";
 // keputusan bisnis PRD §09 - pelanggan SaaS TIDAK PERNAH lihat biaya asli, cuma kredit).
 // Route ini HANYA baca saldoKredit + riwayat creditTransactions milik userId yang login
 // sendiri (angka kredit abstrak, bukan USD apa pun) - tidak ada input, read-only murni.
+//
+// (2026-11-07) Tambahan ?bill=<billingLogId>: ikut balikin status SATU tagihan milik sendiri.
+// Dipakai layar /pilih-paket/sukses supaya bisa membedakan lunas / gagal / masih pending tanpa
+// menebak dari "akun sudah punya plan" - tebakan itu salah untuk PERPANJANGAN (plan lama masih
+// aktif padahal tagihan baru belum dibayar) dan untuk top-up. Tetap read-only & ter-scope ke
+// userId yang login (tagihan orang lain -> null, bukan bocor).
 export async function GET(req: NextRequest) {
   const userId = getUserId(req);
 
@@ -21,6 +27,12 @@ export async function GET(req: NextRequest) {
   const plan = user.planId
     ? (await db.select().from(plans).where(eq(plans.id, user.planId)))[0] ?? null
     : null;
+
+  const billId = req.nextUrl.searchParams.get("bill");
+  const tagihan = billId
+    ? (await db.select({ id: billingLog.id, status: billingLog.status }).from(billingLog)
+        .where(and(eq(billingLog.id, billId), eq(billingLog.userId, userId))))[0] ?? null
+    : undefined;
 
   const riwayat = await db
     .select()
@@ -35,6 +47,7 @@ export async function GET(req: NextRequest) {
     periodeBerakhir: user.periodeBerakhir,
     langgananDibatalkan: user.langgananDibatalkan,
     plan: plan ? { nama: plan.nama, kreditBulanan: plan.kreditBulanan, izinAutoPosting: plan.izinAutoPosting, maxBrand: plan.maxBrand } : null,
+    tagihan,
     riwayat: riwayat.map((r) => ({
       jumlah: r.jumlah, alasan: r.alasan, saldoSetelah: r.saldoSetelah, createdAt: r.createdAt,
     })),

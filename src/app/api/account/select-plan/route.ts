@@ -6,7 +6,7 @@ import { getUserId } from "@/lib/session";
 import { newId } from "@/lib/ids";
 import { createTransaction, duitkuConfigured } from "@/lib/billing/duitku";
 import { createTransaction as createTripayTransaction, tripayCreateReady } from "@/lib/billing/tripay";
-import { notifOrderPending } from "@/lib/billing/notify";
+import { notifOrderPending, notifPembayaranDibuat } from "@/lib/billing/notify";
 
 // Pilih paket + checkout (2026-09-08 Fase 1; 2026-09-30 T3: sambung Duitku). Membuat
 // tagihan billingLog "pending", lalu:
@@ -15,6 +15,9 @@ import { notifOrderPending } from "@/lib/billing/notify";
 //  - kalau belum (dev/staging tanpa kredensial): degrade ke "pending" (aktivasi manual
 //    lewat scripts/confirm-payment.ts). Kode SAMA, cuma beda apakah ada paymentUrl.
 // Aktivasi paket TIDAK terjadi di sini - hanya lewat webhook terverifikasi (anti curang).
+// (2026-11-07) Notif Telegram "order baru" juga di jalur GATEWAY - sebelumnya notifOrderPending
+// cuma dipanggil di cabang manual, jadi dengan Tripay aktif order masuk tanpa jejak apa pun.
+// Notif non-fatal: kegagalan kirim hanya di-log, checkout tetap jalan (pola activation.ts).
 const APP_BASE_URL = process.env.APP_BASE_URL ?? "https://aikonten.agustapstudio.com";
 
 export async function POST(req: NextRequest) {
@@ -60,6 +63,7 @@ export async function POST(req: NextRequest) {
         returnUrl: `${APP_BASE_URL}/pilih-paket/sukses?bill=${id}`,
       });
       await db.update(billingLog).set({ gatewayRef: tx.reference }).where(eq(billingLog.id, id));
+      try { await notifPembayaranDibuat(user, `Paket ${plan.nama}`, plan.hargaBulananIdr, id, "Tripay", tx.reference); } catch {}
       return NextResponse.json(
         { ok: true, billingLogId: id, paymentUrl: tx.paymentUrl, jumlahBayarIdr: plan.hargaBulananIdr },
         { status: 201 },
@@ -86,6 +90,7 @@ export async function POST(req: NextRequest) {
         returnUrl: `${APP_BASE_URL}/pilih-paket/sukses?bill=${id}`,
       });
       await db.update(billingLog).set({ gatewayRef: tx.reference }).where(eq(billingLog.id, id));
+      try { await notifPembayaranDibuat(user, `Paket ${plan.nama}`, plan.hargaBulananIdr, id, "Duitku", tx.reference); } catch {}
       return NextResponse.json(
         { ok: true, billingLogId: id, paymentUrl: tx.paymentUrl, jumlahBayarIdr: plan.hargaBulananIdr },
         { status: 201 },

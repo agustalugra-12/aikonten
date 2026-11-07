@@ -1157,6 +1157,27 @@ async function run() {
       && spec.includes("kalau kalimatnya tidak bisa difoto");
   })());
 
+
+  // ---------- Status pembayaran: batas poll & ambang menggantung (2026-11-07) ----------
+  const stp = await import("../src/lib/billing/statusPembayaran.ts");
+  ok("poll: lanjut di awal (0 ms)", stp.bolehPollLagi(0));
+  ok("poll: lanjut tepat sebelum batas", stp.bolehPollLagi(stp.BATAS_POLL_MS - 1));
+  ok("poll: BERHENTI tepat di batas (bukan spinner abadi)", !stp.bolehPollLagi(stp.BATAS_POLL_MS));
+  ok("poll: BERHENTI jauh lewat batas", !stp.bolehPollLagi(stp.BATAS_POLL_MS * 10));
+  ok("poll: jeda rapat di awal lalu melebar", stp.jedaPollMs(1) === 2500 && stp.jedaPollMs(7) === 2500 && stp.jedaPollMs(8) === 6000);
+  ok("poll: total putaran terbatas (batas / jeda terkecil)", stp.BATAS_POLL_MS / stp.jedaPollMs(1) < 100);
+  const t0 = 1_800_000_000_000;
+  ok("menggantung: baru dibuat -> belum", !stp.menggantung(t0, t0 + 60_000));
+  ok("menggantung: tepat di ambang -> ya", stp.menggantung(t0, t0 + stp.AMBANG_MENGGANTUNG_MS));
+  ok("menggantung: lewat ambang -> ya", stp.menggantung(t0, t0 + stp.AMBANG_MENGGANTUNG_MS + 1));
+  ok("menggantung: ambang > batas poll (pelanggan dulu dapat layar jelas, baru owner dinotif)", stp.AMBANG_MENGGANTUNG_MS > stp.BATAS_POLL_MS);
+  ok("peta status Tripay: PAID -> sukses", stp.petakanStatusTripay("PAID") === "sukses");
+  ok("peta status Tripay: EXPIRED/FAILED/REFUND -> gagal", ["EXPIRED", "FAILED", "REFUND"].every((s) => stp.petakanStatusTripay(s) === "gagal"));
+  ok("peta status Tripay: UNPAID -> pending", stp.petakanStatusTripay("UNPAID") === "pending");
+  ok("peta status Tripay: status asing/kosong -> pending (konservatif, jangan tandai gagal)",
+    stp.petakanStatusTripay("STATUS_BARU") === "pending" && stp.petakanStatusTripay("") === "pending");
+  ok("peta status Tripay: huruf kecil tetap terbaca", stp.petakanStatusTripay("paid") === "sukses");
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

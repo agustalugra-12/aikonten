@@ -1,14 +1,28 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { BATAS_POLL_MS, bolehPollLagi, jedaPollMs } from "@/lib/billing/statusPembayaran";
 
 // Halaman balik + layar transfer BCA manual (restyle + theme-aware 2026-10-11, ikut OS).
-// LOGIKA TETAP: poll GET /api/account/credits sampai paket aktif. ?bill=&amt=&plan=.
-// Belum aktif & ada amt (manual) -> instruksi transfer BCA (tetap poll, auto-flip aktif).
-type Kredit = { saldoKredit: number; plan: { nama: string; kreditBulanan: number } | null };
+// 2026-11-07 (perbaikan "layar menggantung"):
+//   CACAT LAMA 1 - polling /api/account/credits TANPA BATAS: pelanggan yg webhook-nya tak
+//     sampai melihat "Mengecek pembayaran… Sebentar ya…" selamanya.
+//   CACAT LAMA 2 - cabang "Menunggu konfirmasi" MATI: syaratnya `selesai`, tapi `selesai`
+//     hanya di-set saat plan ada, yang sudah ditangkap cabang `aktif` di atasnya.
+//   CACAT LAMA 3 - status dibaca dari "akun punya plan", jadi pelanggan yang MEMPERPANJANG
+//     (plan masih aktif) langsung dibilang "Pembayaran dikonfirmasi!" walau uangnya belum
+//     masuk sama sekali.
+// SEKARANG: status dibaca dari tagihan itu sendiri (/api/account/credits?bill=<id> ->
+// {tagihan:{status}}), polling berhenti di BATAS_POLL_MS lalu menampilkan keadaan "belum
+// terkonfirmasi" + NO. PESANAN + kontak bantuan + tombol "Periksa lagi". Alur pembayaran
+// tidak disentuh (aktivasi tetap hanya lewat webhook terverifikasi). ?bill=&amt=&plan=.
+type Tagihan = { id: string; status: string } | null;
+type Kredit = { saldoKredit: number; plan: { nama: string; kreditBulanan: number } | null; tagihan?: Tagihan };
+type Fase = "cek" | "lunas" | "belum" | "gagal";
 const BANK = { nama: "BCA", rek: "6110330411", an: "Lugra Agusta" };
+const WA_BANTUAN = "6287761611631";
 const rupiah = (n: number) => "Rp " + n.toLocaleString("id-ID");
 
 const CSS = `
@@ -32,6 +46,7 @@ const CSS = `
 .kp-warn{margin-top:16px;border:1px solid var(--warn-br);background:var(--warn-bg);color:var(--warn-b);border-radius:12px;padding:12px 16px;font-size:13px;line-height:1.6}
 .kp-btn{display:block;width:100%;text-align:center;margin-top:20px;border:0;cursor:pointer;font-family:inherit;background:#6366f1;color:#fff;border-radius:999px;padding:15px;font-weight:800;font-size:16px}
 .kp-btn.ghost{background:transparent;border:1px solid rgba(var(--ink),.2);color:var(--fg);margin-top:10px}
+.kp-btn[disabled]{opacity:.6;cursor:progress}
 .kp-steps{margin:14px 0 0;padding-left:20px;font-size:14px;line-height:1.9;color:rgba(var(--ink),.72)}
 `;
 
@@ -42,36 +57,67 @@ function Inner() {
   const plan = sp.get("plan") || "";
   const bill = sp.get("bill") || "";
   const [data, setData] = useState<Kredit | null>(null);
-  const [selesai, setSelesai] = useState(false);
+  const [fase, setFase] = useState<Fase>("cek");
+  const [putaran, setPutaran] = useState(0);
   const [copied, setCopied] = useState(false);
 
+  // Polling BERBATAS. Berhenti kalau: tagihan sudah sukses/gagal, atau BATAS_POLL_MS lewat.
   useEffect(() => {
-    let batal = false; let coba = 0;
+    let batal = false;
+    let coba = 0;
+    const mulai = Date.now();
     async function cek() {
       coba++;
       try {
-        const d: Kredit = await fetch("/api/account/credits").then((r) => r.json());
+        const url = bill ? `/api/account/credits?bill=${encodeURIComponent(bill)}` : "/api/account/credits";
+        const d: Kredit = await fetch(url).then((r) => r.json());
         if (batal) return;
         setData(d);
-        if (d.plan) { setSelesai(true); return; }
-      } catch { /* ulang */ }
-      if (!batal) setTimeout(cek, coba < 8 ? 2500 : 6000);
+        // Sumber kebenaran = status tagihan ini. Tanpa ?bill= (tautan lama) jatuh balik ke
+        // "akun sudah punya plan" seperti perilaku lama.
+        const st = bill ? d.tagihan?.status : d.plan ? "sukses" : "pending";
+        if (st === "sukses") { setFase("lunas"); return; }
+        if (st === "gagal") { setFase("gagal"); return; }
+      } catch { /* jaringan ngadat - coba lagi selama masih dalam batas */ }
+      if (batal) return;
+      if (!bolehPollLagi(Date.now() - mulai)) { setFase("belum"); return; }
+      setTimeout(cek, jedaPollMs(coba));
     }
     cek();
     return () => { batal = true; };
-  }, []);
+  }, [bill, putaran]);
 
-  const aktif = !!data?.plan;
-  const manual = !aktif && amt > 0;
+  // "Periksa lagi" = mulai satu putaran polling berbatas lagi (fase di-set di handler, bukan di
+  // dalam effect - setState sinkron di body effect bikin render berantai).
+  const periksaLagi = useCallback(() => { setFase("cek"); setPutaran((n) => n + 1); }, []);
+  const menitBatas = Math.round(BATAS_POLL_MS / 60000);
+  const barisPesanan = bill ? (
+    <div className="kp-row">
+      <span style={{ color: "rgba(var(--ink),.6)" }}>No. pesanan</span>
+      <b style={{ fontFamily: "ui-monospace,monospace" }}>{bill}</b>
+    </div>
+  ) : null;
+  const waBantuan = (
+    <a
+      href={`https://wa.me/${WA_BANTUAN}?text=${encodeURIComponent(
+        `Halo, pembayaran saya belum terkonfirmasi.${plan ? ` Paket ${plan}.` : ""}${amt > 0 ? ` ${rupiah(amt)}.` : ""}${bill ? ` No pesanan ${bill}.` : ""}`,
+      )}`}
+      style={{ color: "var(--acc)" }}
+    >
+      0877-6161-1631
+    </a>
+  );
 
-  if (aktif) {
+  if (fase === "lunas") {
     return (
       <div className="kp-card" style={{ textAlign: "center" }}>
         <div className="kp-ic">✅</div>
         <h1 className="kp-t">Pembayaran dikonfirmasi!</h1>
         <p className="kp-p">
-          Paket <b style={{ textTransform: "capitalize" }}>{data!.plan!.nama}</b> sudah aktif.
-          Saldo kamu <b>{data!.saldoKredit} kredit</b>. Selamat membuat konten!
+          {data?.plan ? (
+            <>Paket <b style={{ textTransform: "capitalize" }}>{data.plan.nama}</b> sudah aktif. </>
+          ) : null}
+          Saldo kamu <b>{data?.saldoKredit ?? 0} kredit</b>. Selamat membuat konten!
         </p>
         <button className="kp-btn" onClick={() => { router.push("/onboarding"); router.refresh(); }}>Lanjut: setup akun →</button>
         {bill && <a className="kp-btn ghost" href={`/api/invoice/${bill}`} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>Lihat / unduh kwitansi</a>}
@@ -79,7 +125,8 @@ function Inner() {
     );
   }
 
-  if (manual) {
+  // Jalur manual BCA (tanpa gateway): instruksi transfer. Tetap ikut polling berbatas di atas.
+  if (amt > 0 && fase !== "gagal") {
     return (
       <div className="kp-card">
         <div className="kp-ic">🧾</div>
@@ -105,33 +152,70 @@ function Inner() {
           <span style={{ color: "rgba(var(--ink),.6)" }}>Paket</span>
           <b style={{ textTransform: "capitalize" }}>{plan}</b>
         </div>
-        <div className="kp-row">
-          <span style={{ color: "rgba(var(--ink),.6)" }}>No. pesanan</span>
-          <b style={{ fontFamily: "ui-monospace,monospace" }}>{bill}</b>
-        </div>
+        {barisPesanan}
 
         <ol className="kp-steps">
           <li>Transfer <b>{rupiah(amt)}</b> ke BCA {BANK.rek} a.n. {BANK.an}.</li>
           <li>Simpan bukti transfer.</li>
-          <li>Konfirmasi lewat WhatsApp <a href={`https://wa.me/6287761611631?text=${encodeURIComponent(`Halo, saya sudah transfer paket ${plan} (${rupiah(amt)}), no pesanan ${bill}.`)}`} style={{ color: "var(--acc)" }}>0877-6161-1631</a> + lampirkan bukti.</li>
+          <li>Konfirmasi lewat WhatsApp {waBantuan} + lampirkan bukti{bill ? ` (sebut no. pesanan ${bill})` : ""}.</li>
         </ol>
 
-        <div className="kp-warn">Halaman ini akan otomatis berubah jadi “aktif” begitu pembayaran dikonfirmasi — tak perlu ditutup. Kamu juga bisa cek nanti di dashboard.</div>
+        <div className="kp-warn">
+          {fase === "cek"
+            ? `Halaman ini memeriksa pembayaran otomatis selama ±${menitBatas} menit — kalau sudah dikonfirmasi, tampilan langsung berubah jadi “aktif”.`
+            : "Pemeriksaan otomatis sudah berhenti. Kalau sudah transfer, tekan “Periksa lagi” atau cek dashboard nanti — konfirmasi manual maks. 1×24 jam kerja."}
+        </div>
+        <button className="kp-btn ghost" disabled={fase === "cek"} onClick={periksaLagi}>
+          {fase === "cek" ? "Memeriksa…" : "Periksa lagi"}
+        </button>
         <button className="kp-btn ghost" onClick={() => { router.push("/"); router.refresh(); }}>Nanti dulu, ke dashboard</button>
+      </div>
+    );
+  }
+
+  if (fase === "gagal") {
+    return (
+      <div className="kp-card" style={{ textAlign: "center" }}>
+        <div className="kp-ic">⚠️</div>
+        <h1 className="kp-t">Pembayaran tidak selesai</h1>
+        <p className="kp-p">
+          Transaksi ini <b>kedaluwarsa atau dibatalkan</b>, jadi belum ada yang dipotong dari saldomu.
+          Kamu bisa ulangi checkout kapan saja.
+        </p>
+        {barisPesanan}
+        <p className="kp-p">Sudah merasa transfer tapi tetap tertulis gagal? Hubungi {waBantuan} dengan menyebut no. pesanan di atas.</p>
+        <Link href="/pilih-paket" className="kp-btn" style={{ textDecoration: "none" }}>Ulangi pembayaran</Link>
+        <Link href="/" className="kp-btn ghost" style={{ textDecoration: "none" }}>Ke dashboard</Link>
+      </div>
+    );
+  }
+
+  if (fase === "belum") {
+    return (
+      <div className="kp-card" style={{ textAlign: "center" }}>
+        <div className="kp-ic">🕐</div>
+        <h1 className="kp-t">Menunggu konfirmasi</h1>
+        <p className="kp-p">
+          Pembayaranmu belum terkonfirmasi setelah {menitBatas} menit. Kalau uangnya sudah terkirim,
+          biasanya ini hanya tertunda — paket/kredit <b>aktif otomatis</b> begitu konfirmasi bank/gateway masuk.
+          Tak perlu bayar dua kali.
+        </p>
+        {barisPesanan}
+        <p className="kp-p">Butuh bantuan? WhatsApp {waBantuan} sambil menyebut no. pesanan di atas.</p>
+        <button className="kp-btn" onClick={periksaLagi}>Periksa lagi</button>
+        {bill && <a className="kp-btn ghost" href={`/api/invoice/${bill}`} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>Lihat detail tagihan</a>}
+        <Link href="/" className="kp-btn ghost" style={{ textDecoration: "none" }}>Ke dashboard</Link>
       </div>
     );
   }
 
   return (
     <div className="kp-card" style={{ textAlign: "center" }}>
-      <div className="kp-ic">{selesai ? "🕐" : "⏳"}</div>
-      <h1 className="kp-t">{selesai ? "Menunggu konfirmasi" : "Mengecek pembayaran…"}</h1>
-      <p className="kp-p">
-        {selesai
-          ? "Pembayaran kamu sedang diproses. Begitu lunas/dikonfirmasi, paket aktif otomatis. Muat ulang halaman ini atau cek dashboard nanti."
-          : "Sebentar ya…"}
-      </p>
-      <Link href="/" className="kp-btn" style={{ textDecoration: "none" }}>Ke dashboard</Link>
+      <div className="kp-ic">⏳</div>
+      <h1 className="kp-t">Mengecek pembayaran…</h1>
+      <p className="kp-p">Sebentar ya — kami menunggu konfirmasi dari gateway (maks. ±{menitBatas} menit di halaman ini).</p>
+      {barisPesanan}
+      <Link href="/" className="kp-btn ghost" style={{ textDecoration: "none" }}>Ke dashboard</Link>
     </div>
   );
 }
