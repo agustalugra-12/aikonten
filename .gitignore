@@ -65,3 +65,9 @@ next-env.d.ts
 # uji responsive (2026-11-05)
 .pw-browsers/
 test-results/
+
+# alat uji sementara, jangan di-commit
+_vplan_bench.ts
+_run_bench*.sh
+_ab*.ts
+_proof_render.ts
