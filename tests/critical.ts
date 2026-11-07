@@ -767,6 +767,92 @@ async function run() {
   ok("cacat1 TTS: desimal asli 3,5 tetap 'tiga koma lima'", akk.angkaKeKata("3,5") === "tiga koma lima");
   ok("cacat1 TTS: tak ada digit tersisa", !akk.adaAngkaTersisa(akk.angkaKeKata("Rp350,000 dan 1.000 dan 30%")));
 
+  // ---- bentuk angka yang dulu lolos mentah ke TTS (fix/tts-bentuk-angka, 2026-11-07) ----
+  // Bukti nyata: caption laundry TERBIT "cuci komplit Rp7.000/kg" terdengar
+  // "Gunang anggar tekanan kilogram" - nilai harganya hilang total.
+  ok("bentuk/satuan: Rp7.000/kg -> 'tujuh ribu rupiah per kilogram'",
+    akk.angkaKeKata("Rp7.000/kg") === "tujuh ribu rupiah per kilogram");
+  ok("bentuk/satuan: spasi di sekitar garis miring tetap kena",
+    akk.angkaKeKata("Rp 7.000 / kg") === "tujuh ribu rupiah per kilogram");
+  ok("bentuk/satuan: Rp149.000/bulan + 50.000/hari + 25.000/orang",
+    akk.angkaKeKata("Rp149.000/bulan") === "seratus empat puluh sembilan ribu rupiah per bulan"
+    && akk.angkaKeKata("50.000/hari") === "lima puluh ribu per hari"
+    && akk.angkaKeKata("25.000/orang") === "dua puluh lima ribu per orang");
+  ok("bentuk/satuan: kalimat caption nyata utuh (harga TIDAK hilang)",
+    akk.angkaKeKata("mulai dari cuci komplit Rp7.000/kg hingga layanan express")
+      === "mulai dari cuci komplit tujuh ribu rupiah per kilogram hingga layanan express");
+  ok("bentuk/satuan: satuan setelah KATA ('Rp1,5 juta/bulan') ikut jadi 'per'",
+    akk.angkaKeKata("Rp1,5 juta/bulan") === "satu koma lima juta rupiah per bulan");
+  ok("bentuk/satuan: garis miring BUKAN satuan tak disentuh (check-in/out, villa/homestay)", (() => {
+    const a = akk.angkaKeKata("Fleksibel check-in/out di villa/homestay");
+    return a === "Fleksibel check-in/out di villa/homestay";
+  })());
+  ok("bentuk/satuan: pecahan & '24/7' (digit di kedua sisi) tidak jadi 'per'",
+    !/per/.test(akk.angkaKeKata("1/2")) && !/per/.test(akk.angkaKeKata("24/7")));
+
+  ok("bentuk/emoji: 1\u20e3 2\u20e3 3\u20e3 -> satu dua tiga (tanpa sisa keycap)", (() => {
+    const r = akk.angkaKeKata("1\uFE0F\u20e3 2\uFE0F\u20e3 3\uFE0F\u20e3");
+    return r === "satu dua tiga" && !/\u20e3|\uFE0F/.test(r);
+  })());
+  ok("bentuk/emoji: 0\u20e3-9\u20e3 semua jadi kata, tanpa sisa keycap", (() => {
+    const src = Array.from({ length: 10 }, (_v, i) => `${i}\uFE0F\u20e3`).join(" ");
+    const r = akk.angkaKeKata(src);
+    return r === "nol satu dua tiga empat lima enam tujuh delapan sembilan"
+      && !/\u20e3/.test(r) && !akk.adaAngkaTersisa(r);
+  })());
+  ok("bentuk/emoji: keycap nempel kata tetap terpisah ('1\u20e3Cuci')",
+    akk.angkaKeKata("1\uFE0F\u20e3Cuci") === "satu Cuci");
+
+  ok("bentuk/rentang: 5-10, 5\u201310 (en), 5\u201410 (em) -> 'lima sampai sepuluh'",
+    akk.angkaKeKata("5-10 menit") === "lima sampai sepuluh menit"
+    && akk.angkaKeKata("5\u201310 menit") === "lima sampai sepuluh menit"
+    && akk.angkaKeKata("5\u201410 menit") === "lima sampai sepuluh menit");
+  ok("bentuk/rentang: Rp50.000-Rp100.000 dan 30-50%",
+    akk.angkaKeKata("Rp50.000-Rp100.000") === "lima puluh ribu rupiah sampai seratus ribu rupiah"
+    && akk.angkaKeKata("30-50%") === "tiga puluh sampai lima puluh persen");
+  ok("bentuk/rentang: nomor telepon TIDAK jadi 'sampai' (grup 4 digit diabaikan)",
+    !/sampai/.test(akk.angkaKeKata("0851-1934-9960")) && !/sampai/.test(akk.angkaKeKata("2026-2027")));
+
+  ok("bentuk/persen: RE_PERSEN lama tetap jalan",
+    akk.angkaKeKata("diskon 30%") === "diskon tiga puluh persen"
+    && akk.angkaKeKata("1.500%") === "seribu lima ratus persen");
+  ok("bentuk/derajat: 30\u00B0C / 100\u00B0F / 30\u00B0 telanjang",
+    akk.angkaKeKata("30\u00B0C") === "tiga puluh derajat celsius"
+    && akk.angkaKeKata("100\u00B0F") === "seratus derajat fahrenheit"
+    && akk.angkaKeKata("30\u00B0") === "tiga puluh derajat");
+
+  ok("bentuk/jam: 08.00 -> delapan, 08:30 -> delapan tiga puluh",
+    akk.angkaKeKata("08.00") === "delapan" && akk.angkaKeKata("08:30") === "delapan tiga puluh");
+  ok("bentuk/jam: titik akhir kalimat tak menggagalkan ('pukul 12.00.')",
+    akk.angkaKeKata("pukul 12.00.") === "pukul dua belas." );
+  ok("bentuk/jam: rentang jam 08.00-22.00 -> 'sampai'",
+    akk.angkaKeKata("buka 08.00-22.00") === "buka delapan sampai dua puluh dua");
+  // JEBAKAN: titik = pemisah ribuan DAN pemisah jam. Keduanya harus tetap benar.
+  ok("bentuk/jam vs ribuan: 1.000 / 1.000.000 / Rp350.000 TIDAK dibaca sebagai jam",
+    akk.angkaKeKata("1.000") === "seribu"
+    && akk.angkaKeKata("1.000.000") === "satu juta"
+    && akk.angkaKeKata("Rp350.000") === "tiga ratus lima puluh ribu rupiah"
+    && akk.angkaKeKata("Harga 12.000 saja") === "Harga dua belas ribu saja");
+  ok("bentuk/jam: tanggal 7.11.2026 bukan jam", !/belas|puluh satu/.test(akk.angkaKeKata("7.11.2026").split(" ")[1] || ""));
+
+  ok("besaran: Rp1,5 juta / Rp2 juta / Rp150rb (urutan kata benar, tak ada sisa 'rb')",
+    akk.angkaKeKata("Rp1,5 juta") === "satu koma lima juta rupiah"
+    && akk.angkaKeKata("Rp2 juta") === "dua juta rupiah"
+    && akk.angkaKeKata("Rp150rb") === "seratus lima puluh ribu rupiah");
+  ok("deret digit panjang (>12) dibaca satu-satu, tak ada digit tersisa", (() => {
+    const r = akk.angkaKeKata("1234567890123456");
+    return r === "satu dua tiga empat lima enam tujuh delapan sembilan nol satu dua tiga empat lima enam"
+      && !akk.adaAngkaTersisa(r);
+  })());
+
+  ok("GERBANG QC: semua bentuk baru -> adaAngkaTersisa() false", (() => {
+    const kasus = ["Rp7.000/kg", "Rp149.000/bulan", "50.000/hari", "25.000/orang",
+      "1\uFE0F\u20e3 2\uFE0F\u20e3 3\uFE0F\u20e3", "5-10", "5\u201310", "5\u201410", "30%", "30\u00B0C",
+      "08.00", "08:30", "Rp1,5 juta/bulan", "0851-1934-9960", "1234567890123456",
+      "1\uFE0F\u20e3 Cuci Rp7.000/kg\n2\uFE0F\u20e3 Express 3-5 jam, buka 08.00-22.00\n3\uFE0F\u20e3 Antar gratis 30%"];
+    return kasus.every((k) => !akk.adaAngkaTersisa(akk.angkaKeKata(k)) && !/\u20e3|\u00B0/.test(akk.angkaKeKata(k)));
+  })());
+
   const hfc = await import("../src/lib/render/hyperframesComposition");
   const bi = { orientation: "portrait" as const, brand: { mark: "laundry in bali" }, hook: "Hook uji",
     audioDurationSeconds: 8, words: [], clips: [{ videoUrl: "u", durationSeconds: 5 }] };
