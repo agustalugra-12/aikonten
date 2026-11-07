@@ -28,6 +28,10 @@ export type DirectorResult = {
   ok: boolean;
   plan: VideoPlan | null;
   errors: string[];            // kode validasi / "ai_error: ..." / "json_parse"
+  // DILEWATI, bukan GAGAL: durasi VO di luar kapasitas kontrak VideoPlan (long-form).
+  // Dipisahkan supaya tak ikut jadi penyebut pass rate - yang dilewati bukan kegagalan
+  // rencana, melainkan kasus yang memang bukan wilayah VideoPlan.
+  dilewati?: boolean;
   attempts: number;
   latencyMs: number;
   promptTokens: number;
@@ -111,6 +115,21 @@ async function defaultComplete(system: string, user: string): Promise<Completion
 export async function generateVideoPlan(i: DirectorInput, complete: CompleteFn = defaultComplete, now: () => number = Date.now): Promise<DirectorResult> {
   const t0 = now();
   const res: DirectorResult = { ok: false, plan: null, errors: [], attempts: 0, latencyMs: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 };
+
+  // GERBANG LONG-FORM (2026-11-07, keputusan Agus). Kontrak VideoPlan dirancang untuk
+  // video vertikal PENDEK: LIMITS.totalSeconds.max membatasi total durasi adegan, sedangkan
+  // validator menuntut total itu mendekati durasi VO. Untuk VO panjang (mis. dokumenter
+  // Animal Story ~440 dtk) keduanya MUSTAHIL dipenuhi bersamaan - rencana apa pun pasti
+  // ditolak. LIMITS SENGAJA TIDAK dilebarkan: melebarkannya demi satu kasus akan merusak
+  // yang sudah bekerja untuk kasus pendek. Long-form tetap di jalur render lama.
+  // Dikerjakan SEBELUM panggilan AI -> nol biaya, nol latensi.
+  const kapasitas = targetTotalDetik(i.audioDurationSeconds);
+  if (kapasitas.takTercapai) {
+    res.dilewati = true;
+    res.errors = [`dilewati:long_form (VO ${i.audioDurationSeconds.toFixed(1)}s di luar kapasitas kontrak ${LIMITS.totalSeconds.max}s)`];
+    res.latencyMs = now() - t0;
+    return res;
+  }
   const ctx = { footageIds: i.footage.map((f) => f.id), audioDurationSeconds: i.audioDurationSeconds, maxScenes: maxScenesFor(i.internal) };
   let prev: string[] | undefined;
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -152,7 +171,11 @@ export async function runVideoPlanShadow(i: DirectorInput, opts: { complete?: Co
 
 // Ringkasan metrik dari JSONL shadow: tingkat lolos, alasan gagal teratas, latency p50/p95, biaya.
 export function summarizeShadow(lines: string[]) {
-  const recs = lines.filter(Boolean).map((l) => JSON.parse(l) as DirectorResult);
+  const semua = lines.filter(Boolean).map((l) => JSON.parse(l) as DirectorResult);
+  // Yang DILEWATI (long-form) bukan kegagalan rencana - dikeluarkan dari penyebut supaya
+  // pass rate mengukur apa yang memang wilayah VideoPlan. Dihitung terpisah agar terlihat.
+  const dilewati = semua.filter((r) => r.dilewati === true).length;
+  const recs = semua.filter((r) => r.dilewati !== true);
   const pass = recs.filter((r) => r.ok).length;
   const reasons = new Map<string, number>();
   for (const r of recs) for (const e of r.errors) { const k = e.replace(/\[\d+\]/g, "[]").replace(/\(.*\)$/, ""); reasons.set(k, (reasons.get(k) ?? 0) + 1); }
@@ -161,6 +184,7 @@ export function summarizeShadow(lines: string[]) {
   const cost = recs.reduce((a, r) => a + r.costUsd, 0);
   return {
     total: recs.length, pass, passRate: recs.length ? pass / recs.length : 0,
+    dilewatiLongForm: dilewati, totalTermasukDilewati: semua.length,
     firstTryPass: recs.filter((r) => r.ok && r.attempts === 1).length,
     topReasons: [...reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10),
     latencyP50: q(0.5), latencyP95: q(0.95), costTotalUsd: cost, costPerPlanUsd: recs.length ? cost / recs.length : 0,

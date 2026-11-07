@@ -737,6 +737,38 @@ async function run() {
       && system.includes("jumlah semua duration masuk totalTargetDetik");
   })());
 
+  // ---- gerbang long-form: DILEWATI, bukan GAGAL (2026-11-07) ----
+  const inpLF = (audio: number) => ({
+    projectId: "p", brandName: "B", brief: "b", script: "naskah", hookText: null,
+    orientation: "portrait" as const, brandLook: null, footage: [], audioDurationSeconds: audio, internal: true,
+  });
+  // Kalau gerbangnya bocor, mock ini MELEMPAR -> tes merah. Itu buktinya AI tak dipanggil.
+  const aiDilarang: Parameters<typeof vpd.generateVideoPlan>[1] =
+    async () => { throw new Error("AI TIDAK BOLEH dipanggil utk long-form"); };
+
+  const lf = await vpd.generateVideoPlan(inpLF(440), aiDilarang);
+  ok("longform: dilewati=true, ok=false, attempts=0, costUsd=0, AI tak dipanggil",
+    lf.dilewati === true && lf.ok === false && lf.attempts === 0 && lf.costUsd === 0
+    && lf.errors.length === 1 && lf.errors[0].startsWith("dilewati:long_form"));
+
+  ok("longform: short-form TIDAK dilewati (gerbang tak kebablasan)", await (async () => {
+    const r = await vpd.generateVideoPlan(inpLF(12), (async () => ({ text: "{}", promptTokens: 0, completionTokens: 0 })) as never);
+    return r.dilewati !== true && r.attempts >= 1;
+  })());
+
+  ok("longform: summarizeShadow mengeluarkan yang dilewati dari penyebut", (() => {
+    const baris = [
+      JSON.stringify({ ok: true, plan: {}, errors: [], attempts: 1, latencyMs: 10, promptTokens: 1, completionTokens: 1, costUsd: 0.001 }),
+      JSON.stringify({ ok: false, plan: null, errors: ["$.scenes: count(1)"], attempts: 2, latencyMs: 20, promptTokens: 1, completionTokens: 1, costUsd: 0.001 }),
+      JSON.stringify({ ok: false, plan: null, dilewati: true, errors: ["dilewati:long_form (VO 440.0s ...)"], attempts: 0, latencyMs: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 }),
+    ];
+    const s2 = vpd.summarizeShadow(baris) as { total: number; pass: number; passRate: number; dilewatiLongForm: number; totalTermasukDilewati: number; topReasons: Array<[string, number]> };
+    // 1 lolos dari 2 yang DIHITUNG (bukan 1 dari 3), dan alasan "dilewati" tak mencemari daftar
+    return s2.total === 2 && s2.pass === 1 && Math.abs(s2.passRate - 0.5) < 1e-9
+      && s2.dilewatiLongForm === 1 && s2.totalTermasukDilewati === 3
+      && !s2.topReasons.some(([k]) => k.startsWith("dilewati"));
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
