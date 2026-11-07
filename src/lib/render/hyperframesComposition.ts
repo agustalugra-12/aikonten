@@ -4,12 +4,15 @@
 // CTA). Pola seek-safe: master timeline paused + window.__timelines; footage/audio = timed clip
 // (id + class=clip). Dirender di worker terpisah (lihat hyperframesClient.ts). Overlay via GSAP.
 
+import { punchIn, whipPan, flash, textReveal, countUp, lowerThirdInOut, type MotionPackConfig } from "./motionPack";
+
 export type HfWord = { word: string; start: number; end: number };
 export type HfClip = { videoUrl: string; durationSeconds: number; mediaStart?: number };
 export type HfCompositionInput = {
   orientation?: "portrait" | "landscape" | "square";
   brand?: {
     primary?: string; bg2?: string; accent?: string; ink?: string; cta?: string; font?: string; mark?: string;
+    logoUrl?: string; // logo brand (brands.logo_url) - dipakai MENGGANTI tulisan nama brand kalau ada
   };
   hook?: string;
   introSeconds?: number;
@@ -29,13 +32,32 @@ export type HfCompositionInput = {
   transitions?: string[];          // transisi masuk per klip (index klip): cut|crossfade|slide|zoom|whip
   tileMax?: number;                // override panjang potongan (plan: 99 = potong persis di batas adegan)
   musicVolume?: number;            // volume musik latar (default 0.13)
+  topBar?: boolean;                // garis aksen tipis tepi ATAS - DEFAULT OFF (cacat nyata: garis kuning)
   busy?: Array<[number, number]>;  // jendela waktu yg dipakai adegan -> callout tak menimpa
   layers?: Array<{ html: string; css: string; tl: string[] }>; // overlay adegan (sceneLibrary)
+  // Motion Pack 1 (2026-11-06): config ter-resolve (motionPack.ts). TIDAK diisi (undefined) =
+  // jalur lama, output buildComposition byte-identik (dijaga golden test). Diisi = 6 motion
+  // dirutekan lewat pack (intensitas/ease/flash per tone). Resolve dari brandKit.motionPack.
+  motionPack?: MotionPackConfig;
 };
 
 const DIM = { portrait: { w: 1080, h: 1920 }, landscape: { w: 1920, h: 1080 }, square: { w: 1080, h: 1080 } };
 function esc(s: unknown): string {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+// Kapitalisasi nama brand utk fallback TANPA logo: "laundry in bali" -> "Laundry in Bali".
+// Nama yg sudah ALL-CAPS atau sudah berkapital dibiarkan apa adanya. Berlaku SEMUA brand.
+const MINOR_WORDS = new Set(["in", "on", "of", "and", "the", "di", "ke", "dan", "untuk"]);
+export function titleCase(s: string): string {
+  const t = String(s ?? "").trim();
+  if (!t) return "";
+  if (t === t.toUpperCase() && /[A-Z]/.test(t)) return t;
+  return t.split(/\s+/).map((w, i) => {
+    const lw = w.toLowerCase();
+    if (i > 0 && MINOR_WORDS.has(lw)) return lw;
+    if (/[A-Z]/.test(w)) return w;
+    return lw.charAt(0).toUpperCase() + lw.slice(1);
+  }).join(" ");
 }
 
 // Grup word-timings: 2-4 kata, pecah di jeda >=0.18s / akhir kalimat / batas kata.
@@ -83,13 +105,23 @@ function tileClips(clips: HfClip[], dur: number, maxTile = 99): Array<{ url: str
   return out;
 }
 
+/** Nilai stat berupa UANG? Hitung-naik DILARANG untuk uang: penonton sempat membaca harga
+ *  yang SALAH (mis. Rp133.699 lalu Rp177.519 sebelum mendarat di Rp350.000) - itu klaim harga
+ *  keliru di layar, bukan sekadar efek. Untuk angka non-uang (mis. "10.000 pelanggan")
+ *  hitung-naik TETAP dipakai karena efeknya bagus. Berlaku untuk jalur Motion Pack MAUPUN
+ *  jalur lama (keduanya dulu menganimasikan dari 0). */
+export const isCurrencyStat = (value: string | null | undefined): boolean =>
+  /(^|[^a-z])rp\.?\s*\d|\bidr\b|\brupiah\b/i.test(String(value || ""));
+
 export function buildComposition(input: HfCompositionInput): string {
   const {
     orientation = "portrait", brand = {}, hook = "", introSeconds = 3,
     clips = [], audioUrl = null, musicUrl = null, audioDurationSeconds = 10, words = [], cta = "",
     stat = null, stats = null, lowerThird = null, look = "clean", pacing = "medium", emphasisPhrases = [],
-    transitions, musicVolume = 0.13, layers = [],
+    transitions, musicVolume = 0.13, layers = [], topBar = false,
   } = input;
+  // Motion Pack 1 (opt-in): undefined => semua cabang di bawah ambil jalur lama (identik).
+  const mp = input.motionPack;
   // Fase 5 (data blocks): render BEBERAPA statOverlays AI (bukan cuma 1), staggered di
   // tengah video, tiap blok pop+punch lalu hilang. Fallback ke `stat` tunggal (back-compat).
   const statsArr = (stats && stats.length ? stats : stat ? [stat] : [])
@@ -101,12 +133,20 @@ export function buildComposition(input: HfCompositionInput): string {
     if (!m) return null;
     const num = parseInt(m[2].replace(/[.,]/g, ""), 10);
     if (!Number.isFinite(num) || num <= 0) return null;
-    return { prefix: m[1], num, suffix: m[3], grouped: /[.,]/.test(m[2]) };
+    const grouped = /[.,]/.test(m[2]);
+    // display = nilai AKHIR terformat gaya Indonesia (titik ribuan). Dipakai sbg isi AWAL <span> supaya
+    // kartu tak pernah tampil "0"/digit mentah kalau tween count-up tak jalan (cacat nyata "000").
+    const display = grouped ? num.toLocaleString("id-ID") : String(num);
+    return { prefix: m[1], num, suffix: m[3], grouped, display, currency: isCurrencyStat(s.value) };
   });
 
   const { w, h } = DIM[orientation] || DIM.portrait;
   const bg1 = brand.primary || "#14213D", bg2 = brand.bg2 || "#0c1526", accent = brand.accent || "#FFD84D";
-  const ink = brand.ink || "#FFFFFF", ctaColor = brand.cta || "#CC1F1F", font = brand.font || "Poppins", mark = brand.mark || "";
+  const ink = brand.ink || "#FFFFFF", ctaColor = brand.cta || "#CC1F1F", font = brand.font || "Poppins";
+  // Identitas brand di tepi atas: UTAMAKAN logo (brands.logo_url). Tanpa logo -> JANGAN tulis nama
+  // mentah huruf kecil (mis "pelangi"); rapikan kapitalisasinya. Berlaku SEMUA brand.
+  const logoUrl = (brand.logoUrl || "").trim();
+  const mark = logoUrl ? "" : titleCase(brand.mark || "");
   const total = introSeconds + audioDurationSeconds;
 
   // Fase 3 (Look system): grade sinematik per brand. CSS filter di footage (.bg) + tint
@@ -173,7 +213,10 @@ export function buildComposition(input: HfCompositionInput): string {
   }).join("\n    ");
 
   const tlLines: string[] = [];
-  tlLines.push(`tl.fromTo("#bar",{scaleX:0},{scaleX:1,duration:.5,ease:"power2.inOut"},0);`);
+  // Garis aksen tepi atas: DEFAULT OFF (cacat nyata). Opt-in via input topBar, berlaku semua brand.
+  if (topBar) tlLines.push(`tl.fromTo("#bar",{scaleX:0},{scaleX:1,duration:.5,ease:"power2.inOut"},0);`);
+  // Logo: opacity + translate saja (tetap jalur cepat BeginFrame, TIDAK memaksa motion-blur/screenshot).
+  if (logoUrl) tlLines.push(`tl.fromTo("#brandlogo",{opacity:0,y:-10},{opacity:1,y:0,duration:.35,ease:"power4.out"},.3);`);
   if (mark) tlLines.push(`tl.fromTo("#mark",{opacity:0,filter:"blur(6px)"},{opacity:1,filter:"blur(0px)",duration:.35,ease:"power4.out"},.3);`);
   // Hook pendek (2026-11-03): hookText AI sering 1 kalimat penuh -> menutupi footage. Batasi
   // tampilan intro ke <=7 kata + buang kata sambung di ujung (dangling) biar hook punchy.
@@ -201,7 +244,9 @@ export function buildComposition(input: HfCompositionInput): string {
     g.forEach((wd, wi) => {
       const t = Math.max(introSeconds, introSeconds + wd.start - CAP_LEAD), te = introSeconds + wd.end;
       // Pop-in (scale+y) + karaoke: kata aktif warna aksen saat diucapkan, balik ink di akhir.
-      tlLines.push(`tl.fromTo("#g${gi}w${wi}",{opacity:0,scale:.5,y:22},{opacity:1,scale:1,y:0,duration:.16,ease:"back.out(2)"},${t.toFixed(3)});`);
+      // Motion Pack: tiered text-reveal (intensitas/ease per tone) kalau aktif; else jalur lama.
+      if (mp?.enabled.textReveal) tlLines.push(...textReveal({ target: `#g${gi}w${wi}`, at: t, intensity: mp.intensity, ease: mp.eases.pop }));
+      else tlLines.push(`tl.fromTo("#g${gi}w${wi}",{opacity:0,scale:.5,y:22},{opacity:1,scale:1,y:0,duration:.16,ease:"back.out(2)"},${t.toFixed(3)});`);
       tlLines.push(`tl.set("#g${gi}w${wi}",{color:"${accent}"},${t.toFixed(3)});`);
       tlLines.push(`tl.set("#g${gi}w${wi}",{color:"${ink}"},${te.toFixed(3)});`);
     });
@@ -210,8 +255,11 @@ export function buildComposition(input: HfCompositionInput): string {
   });
   if (lowerThird) {
     const lt = introSeconds + (lowerThird.atSeconds ?? 1.5), ld = lowerThird.durationSeconds ?? 3.5;
-    tlLines.push(`tl.fromTo("#lt",{opacity:0,y:30},{opacity:1,y:0,duration:.4,ease:"power3.out"},${lt.toFixed(3)});`);
-    tlLines.push(`tl.to("#lt",{opacity:0,duration:.35,ease:"power2.in"},${(lt + ld).toFixed(3)});`);
+    if (mp?.enabled.lowerThird) tlLines.push(...lowerThirdInOut({ target: "#lt", inAt: lt, outAt: lt + ld, intensity: mp.intensity, easeIn: mp.eases.cam }));
+    else {
+      tlLines.push(`tl.fromTo("#lt",{opacity:0,y:30},{opacity:1,y:0,duration:.4,ease:"power3.out"},${lt.toFixed(3)});`);
+      tlLines.push(`tl.to("#lt",{opacity:0,duration:.35,ease:"power2.in"},${(lt + ld).toFixed(3)});`);
+    }
   }
   if (statsArr.length) {
     const n = statsArr.length;
@@ -222,7 +270,12 @@ export function buildComposition(input: HfCompositionInput): string {
       const st = base + j * slot;
       tlLines.push(`tl.fromTo("#statCard${j}",{opacity:0,scale:.7,y:24},{opacity:1,scale:1,y:0,duration:.42,ease:"back.out(2)"},${st.toFixed(3)});`);
       const p = statParsed[j];
-      if (p) tlLines.push(`var o${j}={v:0};tl.to(o${j},{v:${p.num},duration:.9,ease:"power2.out",onUpdate:function(){document.getElementById("num${j}").textContent=fmtNum(o${j}.v,${p.grouped});}},${st.toFixed(3)});`);
+      // A4 (2026-11-07): uang TIDAK dihitung naik - kartu muncul langsung dgn nilai akhir
+      // (isi <span> sudah berupa nilai terformat), memakai animasi kemunculan kartu di atas.
+      if (p && !p.currency) {
+        if (mp?.enabled.countUp) tlLines.push(...countUp({ varName: `o${j}`, numId: `num${j}`, num: p.num, grouped: p.grouped, at: st, intensity: mp.intensity }));
+        else tlLines.push(`var o${j}={v:0};tl.to(o${j},{v:${p.num},duration:.9,ease:"power2.out",onUpdate:function(){document.getElementById("num${j}").textContent=fmtNum(o${j}.v,${p.grouped});}},${st.toFixed(3)});`);
+      }
       tlLines.push(`tl.to("#statCard${j}",{opacity:0,scale:.92,duration:.3,ease:"power2.in"},${(st + hold).toFixed(3)});`);
     });
   }
@@ -265,11 +318,26 @@ export function buildComposition(input: HfCompositionInput): string {
         const trans = transitions?.[i] !== undefined ? (PT[transitions[i]] ?? 0) : i % 4; // 0 crossfade · 1 slide · 2 zoom · 3 whip (gantian -> terasa "diedit")
         if (trans === 1) tlLines.push(`tl.fromTo("#cw${i}",{xPercent:${d2 * 100}},{xPercent:0,duration:.5,ease:"power3.out"},${v.estart.toFixed(3)});`);
         else if (trans === 2) tlLines.push(`tl.fromTo("#cw${i}",{scale:1.35,opacity:0},{scale:1,opacity:1,duration:.45,ease:"power3.out"},${v.estart.toFixed(3)});`);
-        else if (trans === 3) tlLines.push(`tl.fromTo("#cw${i}",{xPercent:${d2 * 65},scale:1.12,opacity:.3},{xPercent:0,scale:1,opacity:1,duration:.3,ease:"power4.out"},${v.estart.toFixed(3)});`);
+        // Motion Pack: whip-pan (jarak lempar per intensitas/ease per tone) kalau aktif; else jalur lama.
+        else if (trans === 3) {
+          if (mp?.enabled.whipPan) tlLines.push(...whipPan({ target: `#cw${i}`, at: v.estart, intensity: mp.intensity, dir: d2, ease: mp.eases.whip }));
+          else tlLines.push(`tl.fromTo("#cw${i}",{xPercent:${d2 * 65},scale:1.12,opacity:.3},{xPercent:0,scale:1,opacity:1,duration:.3,ease:"power4.out"},${v.estart.toFixed(3)});`);
+        }
         else tlLines.push(`tl.fromTo("#cw${i}",{opacity:0},{opacity:1,duration:${XFADE},ease:"power1.inOut"},${v.estart.toFixed(3)});`);
       }
-      tlLines.push(`tl.fromTo("#bg${i}",{scale:${v.s0},xPercent:${v.x0},yPercent:${v.y0}},{scale:${v.s1},xPercent:${v.x1},yPercent:${v.y1},duration:${v.edur.toFixed(3)},ease:"power1.out"},${v.estart.toFixed(3)});`);
+      // Motion Pack: punch-in (Ken Burns per intensitas/ease per tone) kalau aktif; else jalur lama.
+      if (mp?.enabled.punchIn) tlLines.push(...punchIn({ target: `#bg${i}`, at: v.estart, duration: v.edur, intensity: mp.intensity, zoomIn: i % 2 === 0, dir: i % 2 === 0 ? 1 : -1, ease: mp.eases.cam }));
+      else tlLines.push(`tl.fromTo("#bg${i}",{scale:${v.s0},xPercent:${v.x0},yPercent:${v.y0}},{scale:${v.s1},xPercent:${v.x1},yPercent:${v.y1},duration:${v.edur.toFixed(3)},ease:"power1.out"},${v.estart.toFixed(3)});`);
     });
+    // Motion Pack: flash putih cepat di titik cut (whip / cut eksplisit). Opt-in via tone
+    // (playful) / toggle. Overlay #flash murni opacity -> jalur cepat BeginFrame (bukan screenshot).
+    if (mp?.enabled.flash) {
+      clipWins.forEach((v, i) => {
+        if (i === 0) return;
+        const isWhip = transitions?.[i] !== undefined ? transitions[i] === "whip" : i % 4 === 3;
+        if (isWhip || transitions?.[i] === "cut") tlLines.push(...flash({ at: v.estart, intensity: mp.intensity }));
+      });
+    }
   }
   // Faceless bg: 2 blob lembut drift PELAN satu arah sepanjang video (ambient, bukan loop
   // "breathing" yg terlihat AI-generated). Gerak halus = latar "hidup" tanpa footage.
@@ -302,7 +370,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 .clipwrap{position:absolute;inset:0;overflow:hidden;will-change:transform,opacity;}
 .bg{position:absolute;left:0;top:0;width:${w}px;height:${h}px;object-fit:cover;filter:${lk.filter};}
 #grade{position:absolute;inset:0;z-index:250;pointer-events:none;background:${lk.tint || "transparent"};mix-blend-mode:${lk.blend || "normal"};opacity:${lk.op ?? 0};}
-#vignette{position:absolute;inset:0;z-index:310;pointer-events:none;background:radial-gradient(ellipse 78% 72% at 50% 42%,transparent 48%,rgba(0,0,0,${lk.vig}) 100%);}
+#vignette{position:absolute;inset:0;z-index:310;pointer-events:none;background:radial-gradient(ellipse 78% 72% at 50% 42%,transparent 48%,rgba(0,0,0,${lk.vig}) 100%);}${mp?.enabled.flash ? `\n#flash{position:absolute;inset:0;z-index:720;pointer-events:none;background:#fff;opacity:0;}` : ""}
 #facelessBg{position:absolute;inset:0;z-index:0;background:radial-gradient(120% 90% at 50% 10%,var(--bg1),var(--bg2));}
 .blob{position:absolute;z-index:0;width:${Math.round(w * 0.9)}px;height:${Math.round(w * 0.9)}px;border-radius:50%;filter:blur(90px);}
 #blob1{top:${Math.round(h * 0.04)}px;left:${Math.round(w * 0.08)}px;background:var(--accent);opacity:.26;}
@@ -310,6 +378,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 #scrim{position:absolute;inset:0;z-index:300;background:linear-gradient(180deg,rgba(12,21,38,.22) 0%,rgba(12,21,38,.06) 40%,rgba(12,21,38,.78) 100%);}
 .bar{position:absolute;top:0;left:0;height:12px;width:100%;background:var(--accent);z-index:650;transform-origin:left;}
 .mark{position:absolute;top:70px;left:0;right:0;text-align:center;color:var(--accent);font-weight:800;font-size:${Math.round(w * 0.04)}px;letter-spacing:.05em;z-index:650;opacity:0;text-shadow:0 2px 12px rgba(0,0,0,.5);}
+.brandlogo{position:absolute;top:60px;left:50%;transform:translateX(-50%);height:${Math.round(h * 0.035)}px;width:auto;max-width:${Math.round(w * 0.42)}px;object-fit:contain;z-index:650;opacity:0;filter:drop-shadow(0 2px 10px rgba(0,0,0,.45));}
 #introLayer{position:absolute;inset:0;z-index:600;background:${introBg};display:flex;align-items:center;justify-content:center;text-align:center;padding:0 80px;}
 #introText{color:var(--ink);font-weight:800;font-size:${introFont}px;line-height:1.02;letter-spacing:-.03em;overflow:visible;}
 #introText .hw{display:inline-block;opacity:0;}
@@ -338,10 +407,10 @@ ${layers.map((L) => L.css + "\n").join("")}#cta span{display:inline-flex;align-i
     ${bgmEl}
     ${capHtml}
     ${lowerThird ? `<div id="lt"><div class="t">${esc(lowerThird.title || "")}</div>${lowerThird.subtitle ? `<div class="s">${esc(lowerThird.subtitle)}</div>` : ""}</div>` : ""}
-    ${statsArr.map((s, j) => { const p = statParsed[j]; const v = p ? `${esc(p.prefix)}<span id="num${j}">0</span>${esc(p.suffix)}` : esc(s.value || ""); return `<div class="statCard" id="statCard${j}"><span class="v">${v}</span><span class="l">${esc(s.label || "")}</span></div>`; }).join("")}
+    ${statsArr.map((s, j) => { const p = statParsed[j]; const v = p ? `${esc(p.prefix)}<span id="num${j}">${esc(p.display)}</span>${esc(p.suffix)}` : esc(s.value || ""); return `<div class="statCard" id="statCard${j}"><span class="v">${v}</span><span class="l">${esc(s.label || "")}</span></div>`; }).join("")}
     ${callouts.map((c, j) => `<div class="callout" id="callout${j}">${esc(c.text)}</div>`).join("")}${layers.map((L) => L.html).join("")}
-    <div class="bar" id="bar"></div>
-    ${mark ? `<div class="mark" id="mark">${esc(mark)}</div>` : ""}
+    ${mp?.enabled.flash ? `<div id="flash"></div>\n    ` : ""}${topBar ? `<div class="bar" id="bar"></div>` : ""}
+    ${logoUrl ? `<img class="brandlogo" id="brandlogo" src="${esc(logoUrl)}" alt=""/>` : ""}${mark ? `<div class="mark" id="mark">${esc(mark)}</div>` : ""}
     <div id="introLayer"><div id="introText">${hookSpans}</div></div>
     ${cta ? `<div id="cta"><span>${esc(cta)} &#8594;</span></div>` : ""}
 </div>

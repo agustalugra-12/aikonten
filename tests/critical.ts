@@ -756,6 +756,115 @@ async function run() {
     return fsRoute.includes("buildBrandContext")
       && /generateCompetitorIntelligence\(\s*brand\.name,\s*comps,\s*ownPerformance,\s*brandContext\s*\)/.test(fsRoute);
   })());
+  // ---- 4 cacat video nyata (fix/video-defects-4) ----
+  const akk = await import("../src/lib/ai/angkaKeKata");
+  ok("cacat1 TTS: Rp350.000 -> kata wajar", akk.angkaKeKata("Rp350.000") === "tiga ratus lima puluh ribu rupiah");
+  ok("cacat1 TTS: Rp350,000 (koma ribuan Inggris) TIDAK jadi 'nol nol nol'", (() => {
+    const r = akk.angkaKeKata("Rp350,000");
+    return r === "tiga ratus lima puluh ribu rupiah" && !/nol/.test(r);
+  })());
+  ok("cacat1 TTS: 1,250,000 -> juta (bukan desimal)", akk.angkaKeKata("1,250,000") === "satu juta dua ratus lima puluh ribu");
+  ok("cacat1 TTS: desimal asli 3,5 tetap 'tiga koma lima'", akk.angkaKeKata("3,5") === "tiga koma lima");
+  ok("cacat1 TTS: tak ada digit tersisa", !akk.adaAngkaTersisa(akk.angkaKeKata("Rp350,000 dan 1.000 dan 30%")));
+
+  const hfc = await import("../src/lib/render/hyperframesComposition");
+  const bi = { orientation: "portrait" as const, brand: { mark: "laundry in bali" }, hook: "Hook uji",
+    audioDurationSeconds: 8, words: [], clips: [{ videoUrl: "u", durationSeconds: 5 }] };
+  ok("cacat4: garis aksen atas DEFAULT OFF", (() => {
+    const h = hfc.buildComposition(bi);
+    return !h.includes('class="bar"') && !h.includes("#bar");
+  })());
+  ok("cacat4: topBar:true -> opt-in muncul", (() => {
+    const h = hfc.buildComposition({ ...bi, topBar: true });
+    return h.includes('class="bar"') && h.includes("#bar");
+  })());
+  ok("cacat3: tanpa logo -> nama dikapitalisasi (bukan huruf kecil mentah)", (() => {
+    const h = hfc.buildComposition(bi);
+    return h.includes("Laundry in Bali") && !h.includes(">laundry in bali<");
+  })());
+  ok("cacat3: ada logoUrl -> pakai <img> logo, TANPA tulisan nama", (() => {
+    const h = hfc.buildComposition({ ...bi, brand: { mark: "laundry in bali", logoUrl: "https://x/logo.png" } });
+    return h.includes('id="brandlogo"') && h.includes("logo.png") && !h.includes('id="mark"');
+  })());
+  ok("cacat1 layar: kartu stat mulai dari nilai terformat id-ID (bukan '0')", (() => {
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Harga", value: "Rp350.000" }] });
+    return h.includes(">350.000<") && !h.includes('id="num0">0<');
+  })());
+  ok("cacat1 layar: nilai koma-Inggris 350,000 tetap tampil 350.000", (() => {
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Harga", value: "Rp350,000" }] });
+    return h.includes(">350.000<");
+  })());
+  ok("cacat3: titleCase tak merusak ALL-CAPS / yg sudah berkapital",
+    hfc.titleCase("PELANGI") === "PELANGI" && hfc.titleCase("Pelangi Homestay") === "Pelangi Homestay");
+  ok("semua cacat: motion-blur TETAP off (tak ada yg memaksa screenshot)", (() => {
+    const h = hfc.buildComposition({ ...bi, topBar: true, brand: { mark: "x", logoUrl: "https://x/l.png" },
+      stats: [{ label: "Harga", value: "Rp350,000" }] });
+    return h.includes('data-motion-blur="off"') && !h.includes('data-motion-blur="on"');
+  })());
+  // ---------- Motion Pack 1 (2026-11-06) - 6 motion tone-aware jalur HyperFrames (GSAP) ----------
+  const mpk = await import("../src/lib/render/motionPack.ts");
+  ok("motionPack: 6 id + semua cost 'cheap' (BeginFrame)", mpk.MOTION_IDS.length === 6 && mpk.MOTION_IDS.every((id) => mpk.MOTION_COST[id] === "cheap"));
+  ok("motionPack: resolveMotionTone fallback friendly", mpk.resolveMotionTone("x").tone === "friendly" && mpk.resolveMotionTone("x").usedFallback === true && mpk.resolveMotionTone("playful").usedFallback === false);
+  ok("motionPack: disabled/absent -> null (default-off)", mpk.resolveMotionPackConfig(undefined) === null && mpk.resolveMotionPackConfig({ tone: "playful" }) === null && mpk.resolveMotionPackConfig({ enabled: false }) === null);
+  ok("motionPack: intensitas low != high (efek nyata)", JSON.stringify(mpk.punchIn({ target: "#b", at: 0, duration: 1, intensity: 0.1 })) !== JSON.stringify(mpk.punchIn({ target: "#b", at: 0, duration: 1, intensity: 0.9 })));
+  ok("motionPack: premium vs playful beda (ease/flash)", (() => {
+    const p = mpk.resolveMotionPackConfig({ enabled: true, tone: "premium" }), q = mpk.resolveMotionPackConfig({ enabled: true, tone: "playful" });
+    return !!p && !!q && p.eases.pop !== q.eases.pop && p.enabled.flash === false && q.enabled.flash === true;
+  })());
+  ok("motionPack: fragmen tanpa kontrol media (.play/.pause/.seek/.currentTime/playbackRate)", (() => {
+    const frag = [...mpk.punchIn({ target: "#b", at: 0, duration: 1, intensity: 1 }), ...mpk.whipPan({ target: "#c", at: 0, intensity: 1 }), ...mpk.flash({ at: 0, intensity: 1 }), ...mpk.countUp({ varName: "o", numId: "n", num: 5, grouped: true, at: 0, intensity: 1 })].join("\n");
+    return [".play(", ".pause(", ".seek(", ".currentTime", "playbackRate"].every((f) => !frag.includes(f));
+  })());
+  ok("motionPack: buildComposition disabled == baseline (byte-identik)", hfc.buildComposition({ orientation: "portrait", hook: "Halo", audioDurationSeconds: 5, words: [{ word: "Halo", start: 0, end: 0.4 }] }) === hfc.buildComposition({ orientation: "portrait", hook: "Halo", audioDurationSeconds: 5, words: [{ word: "Halo", start: 0, end: 0.4 }], motionPack: undefined }));
+  ok("motionPack: enabled playful -> HTML beda + flash + motion-blur tetap off + tanpa kontrol media", (() => {
+    const inp = { orientation: "portrait" as const, brand: { accent: "#FFD84D", ink: "#FFF" }, hook: "Halo dunia", audioDurationSeconds: 6, clips: [{ videoUrl: "u1", durationSeconds: 5 }, { videoUrl: "u2", durationSeconds: 5 }], words: [{ word: "Halo", start: 0, end: 0.4 }, { word: "dunia", start: 0.5, end: 0.9 }], stats: [{ label: "x", value: "350.000" }], lowerThird: { title: "A", subtitle: "B" } };
+    const cfg = mpk.resolveMotionPackConfig({ enabled: true, tone: "playful" })!;
+    const html = hfc.buildComposition({ ...inp, motionPack: cfg }), bas = hfc.buildComposition(inp);
+    return html !== bas && html.includes('id="flash"') && html.includes('data-motion-blur="off"') && !html.includes('data-motion-blur="on"') && [".play(", ".pause(", ".seek(", ".currentTime", "playbackRate"].every((f) => !html.includes(f));
+  })());
+  ok("motionPack: validateBrandKit terima config valid, tolak enum/range/bool salah", mpk && bkm.validateBrandKit({ motionPack: { enabled: true, tone: "playful", intensity: 80, motions: { flash: false } } }).ok === true && bkm.validateBrandKit({ motionPack: { tone: "boom" } }).ok === false && bkm.validateBrandKit({ motionPack: { intensity: 999 } }).ok === false && bkm.validateBrandKit({ motionPack: { motions: { punchIn: "x" } } }).ok === false);
+  ok("motionPack: resolveBrandKit expose enabled + config (default-off backward-compat)", bkm.resolveBrandKit(JSON.stringify({ motionPack: { enabled: true, tone: "playful" } }))?.motionPackEnabled === true && bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "anton" }))?.motionPackEnabled === false);
+
+  // ---- BAGIAN A (2026-11-07): suara produksi + hitung-naik mata uang ----
+  // A3: tes SAMBUNGAN, bukan tes fungsi. Yang meleset 2026-11-06 adalah wiring-nya:
+  // angkaKeKata lolos semua tes unit tapi TIDAK PERNAH dipanggil sebelum TTS.
+  const srcPP = require("node:fs").readFileSync("src/lib/pipeline/processProject.ts", "utf8") as string;
+  ok("A3 SAMBUNGAN: generateVoiceover menerima teks hasil angkaKeKata, bukan teks mentah", (() => {
+    const adaDeklarasi = /const narrationTts = angkaKeKata\(narrationText\);/.test(srcPP);
+    const ttsPakaiTerkonversi = /generateVoiceover\(narrationTts,/.test(srcPP);
+    const takAdaMentah = !/generateVoiceover\(narrationText[,)]/.test(srcPP);
+    return adaDeklarasi && ttsPakaiTerkonversi && takAdaMentah;
+  })());
+  ok("A3 SAMBUNGAN: QC memeriksa variabel YANG SAMA dgn yang diucapkan (satu deklarasi saja)", (() => {
+    const deklarasi = (srcPP.match(/const narrationTts\s*=/g) || []).length;
+    return deklarasi === 1 && srcPP.includes("adaAngkaTersisa(narrationTts)");
+  })());
+  ok("A3: teks yang dikirim ke TTS utk caption nyata benar-benar bebas digit", (() => {
+    const caption = "Paket langganan mulai Rp350.000 per bulan, antar jemput gratis, selesai dalam 2 hari.";
+    const dikirim = akk.angkaKeKata(caption);
+    return !akk.adaAngkaTersisa(dikirim) && !/\d/.test(dikirim) && /tiga ratus lima puluh ribu/.test(dikirim);
+  })());
+
+  ok("A4: isCurrencyStat kenali uang, abaikan angka biasa", (() =>
+    hfc.isCurrencyStat("Rp350.000") && hfc.isCurrencyStat("rp 350000") && hfc.isCurrencyStat("IDR 350.000")
+    && hfc.isCurrencyStat("mulai Rp1.200.000 rupiah")
+    && !hfc.isCurrencyStat("10.000 pelanggan") && !hfc.isCurrencyStat("3 hari") && !hfc.isCurrencyStat(""))());
+
+  ok("A4: stat UANG -> tanpa tween hitung-naik, nilai akhir langsung tampil (jalur lama)", (() => {
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Harga Paket", value: "Rp350.000" }] });
+    return h.includes(">350.000<") && !/\bo0\b/.test(h) && h.includes('id="statCard0"');
+  })());
+  ok("A4: stat UANG -> tanpa hitung-naik JUGA saat Motion Pack playful aktif", (() => {
+    const cfg = mpk.resolveMotionPackConfig({ enabled: true, tone: "playful" })!;
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Harga", value: "Rp350.000" }], motionPack: cfg });
+    return h.includes(">350.000<") && !/\bo0\b/.test(h);
+  })());
+  ok("A4: angka NON-uang TETAP dihitung naik (efeknya bagus, jangan dimatikan)", (() => {
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Pelanggan", value: "10.000 pelanggan" }] });
+    const hp = hfc.buildComposition({ ...bi, stats: [{ label: "Pelanggan", value: "10.000 pelanggan" }],
+      motionPack: mpk.resolveMotionPackConfig({ enabled: true, tone: "playful" })! });
+    return /\bo0\b/.test(h) && /\bo0\b/.test(hp);
+  })());
 
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);

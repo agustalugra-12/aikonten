@@ -57,7 +57,11 @@ function desimalKeKata(bulat: number, pecahanDigits: string): string {
 //   lebih aman konversi tiap sisi terpisah: "empat puluh lima sampai enam puluh")
 const RE_RUPIAH = /\brp\.?\s*(\d{1,12}(?:\.\d{3})*(?:,\d+)?)/gi;
 const RE_PERSEN = /(\d{1,3}(?:\.\d{3})*)\s*%/g;
-const RE_DESIMAL = /(\d{1,9}),(\d{1,6})\b/g;
+// Desimal HANYA bila pecahannya 1-2 digit ("3,5" / "12,75"). Koma + 3 digit = pemisah RIBUAN gaya
+// Inggris ("350,000"), BUKAN desimal - dulu terbaca "tiga ratus koma nol nol nol" (cacat nyata "000").
+const RE_DESIMAL = /(\d{1,9}),(\d{1,2})(?!\d)/g;
+// Ribuan bergaya KOMA: 350,000 / 1,250,000 -> dinormalkan ke digit polos sebelum aturan lain.
+const RE_RIBUAN_KOMA = /\b\d{1,3}(?:,\d{3})+\b/g;
 const RE_RIBUAN = /\b\d{1,3}(?:\.\d{3})+\b/g; // 1.000 / 175.500 (min satu titik grup 3 digit)
 // Slang Indonesia: 150k / 150K / 150rb / 150RB = seratus lima puluh ribu
 const RE_SLANG_RIBU = /\b(\d{1,9})\s*(k|rb)\b/gi;
@@ -74,12 +78,19 @@ function bersihkanSpasiGanda(t: string): string {
 export function angkaKeKata(text: string): string {
   let out = text ?? "";
 
+  // 0. Normalisasi pemisah ribuan gaya KOMA (Inggris) -> digit polos, SEBELUM aturan desimal.
+  //    "Rp350,000" / "350,000" / "1,250,000" dulu kena aturan desimal -> "koma nol nol nol".
+  out = out.replace(RE_RIBUAN_KOMA, (m: string) => m.replace(/,/g, ""));
+
   // 1. Rupiah: Rp175.000 → seratus tujuh puluh lima ribu rupiah
   out = out.replace(RE_RUPIAH, (_m, digits: string) => {
     const clean = digits.replace(/\./g, "");
+    // Koma = desimal HANYA bila pecahan 1-2 digit; 3 digit = ribuan (sudah dinormalkan di langkah 0;
+    // ini jaring pengaman bila pola lolos, mis. "Rp1.250,000").
     if (digits.includes(",")) {
       const [i, d] = digits.split(",");
-      return `${desimalKeKata(Number(i.replace(/\./g, "")), d)} rupiah`;
+      if (d && d.length <= 2) return `${desimalKeKata(Number(i.replace(/\./g, "")), d)} rupiah`;
+      return `${angkaBulatKeKata(Number(digits.replace(/[.,]/g, "")))} rupiah`;
     }
     return `${angkaBulatKeKata(Number(clean))} rupiah`;
   });

@@ -57,8 +57,14 @@ export async function extractStatOverlays(script: string): Promise<StatOverlay[]
             "danger level, country/location, discovery year, brain/intelligence measures, sound/hearing facts, " +
             "or similar measurable facts). Do NOT invent, estimate, or infer any " +
             "number or fact that is not literally stated in the text - if the script has no such explicit stats, " +
-            "return an empty list. For each stat, give a short label (1-3 words, e.g. \"Top Speed\", \"Weight\", " +
-            "\"Habitat\"), the value exactly as stated (short, e.g. \"70 mph\", \"200kg\", \"Pacific Ocean\"), and " +
+            "return an empty list. The label and value MUST be written in BAHASA INDONESIA - these are " +
+            "on-screen overlays for an Indonesian audience, NEVER English. Give a short Indonesian label " +
+            "(1-3 words, e.g. \"Kecepatan\", \"Berat\", \"Habitat\", \"Harga\", \"Per Malam\"), and the value " +
+            "exactly as stated but in Indonesian units/format (e.g. \"110 km/jam\", \"200 kg\", \"Samudra Pasifik\", " +
+            "\"Rp350.000\"). Numbers MUST use \".\" as thousand separator and \",\" as decimal separator - " +
+            "NEVER the English style \"350,000\". Do NOT use English abbreviations \"K\"/\"M\" for thousands/millions " +
+            "(write \"rb\"/\"jt\" or the full number). Do NOT use English words such as \"from\", \"only\", " +
+            "\"per night\", \"Top Speed\" - use \"mulai\", \"hanya\", \"per malam\", \"Kecepatan\". Also give "+
             "positionFraction (0.0-1.0) estimating where in the narration this fact is mentioned (0=start, 1=end), " +
             `and iconCategory - pick the SINGLE closest match from this FIXED list only: ${VALID_ICON_CATEGORIES.join(", ")} ` +
             '(use "default" if nothing fits well - do not invent a new category name). ' +
