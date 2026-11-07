@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { buildComposition, type HfClip, type HfCompositionInput, type HfWord } from "@/lib/render/hyperframesComposition";
 import type { Scene, VideoPlan } from "./videoPlan";
 import { designBg, flashLayer, renderScene, safeHex, type BrandColors, type Layer } from "./sceneLibrary";
-import { applyGlossary, fixText, freeZone, hookConfidence, isBlurry, MIN_FRAME_SHARP, officialName, overclaimsSpecific, subjectScore, subjectSource, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
+import { applyGlossary, fixText, freeZone, hookConfidence, isBlurry, MIN_FRAME_SHARP, officialName, overclaimsSpecific, subjectScore, subjectSource, subjectTokens, type ClipAnalysis, type FootageSubject, type Zone } from "./footageFit";
 import { captionLayer, hookLayer } from "./planText";
 
 // mediaStart = awal segmen di sumber; subject = metadata isi (footage_bank/Pexels); analysis = ketajaman & letak subjek.
@@ -68,6 +68,21 @@ function fixScene(s: Scene, terms: string[]): Scene {
   return o as Scene;
 }
 
+// "subject" = instruksi internal pencocokan footage ("benda yang terlihat di frame"), BUKAN copy untuk penonton.
+// Satu-satunya teks adegan yang bisa jadi salinannya adalah footage-caption.caption (AI kadang menyalin apa adanya:
+// kartu putih "Wanita melipat pakaian di meja" di p1-nyala detik 50 = subject "wanita melipat pakaian di meja
+// setrika"). Caption yang isinya cuma mengulang subject DIBUANG -> adegan tampil sebagai footage polos.
+// Ambang 0.6 token caption (sesudah stopword + sinonim subjectTokens) ada di subject.
+export function echoesSubject(caption: string, subject: string): boolean {
+  const cap = subjectTokens(caption), subj = subjectTokens(subject);
+  if (!cap.size || !subj.size) return false;
+  let hit = 0;
+  for (const t of cap) if (subj.has(t)) hit++;
+  return hit / cap.size >= 0.6;
+}
+const dropSubjectEcho = (s: Scene): Scene =>
+  s.type === "footage-caption" && s.caption && s.subject && echoesSubject(s.caption, s.subject) ? { ...s, caption: undefined } : s;
+
 export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBuild {
   const { w, h } = DIM[plan0.orientation];
   const brand: BrandColors = {
@@ -78,7 +93,7 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   const terms = [officialName(m.brand.name), m.brand.mark, ...(m.glossary ?? [])].filter((x): x is string => !!x);
   const g = applyGlossary(m.words, terms);
   const words = g.words;
-  const plan: VideoPlan = { ...plan0, scenes: plan0.scenes.map((s) => fixScene(s, terms)) as VideoPlan["scenes"] };
+  const plan: VideoPlan = { ...plan0, scenes: plan0.scenes.map((s) => dropSubjectEcho(fixScene(s, terms))) as VideoPlan["scenes"] };
   const windows = planWindows(plan, m.audioDurationSeconds, words, m.beatSeconds);
 
   // Kecocokan footage per adegan: subjek adegan (atau teks hook) harus ada di metadata footage. Adegan
@@ -223,7 +238,23 @@ export function buildCompositionFromPlan(plan0: VideoPlan, m: PlanMedia): PlanBu
   }
   // Caption VO: 1 baris terpusat, zona bebas subjek/kartu; tak tampil di outro (tertutup layar brand).
   const H = windows[0].dur, total = H + m.audioDurationSeconds;
-  const cap = captionLayer(words, { offset: H, total, w, h, brand, zoneAt: (t) => capZone[winAt(t)] });
+  // Zona caption dipilih per JENDELA AWAL baris (seperti sebelumnya), tapi baris tak boleh MENGGANTUNG di
+  // jendela berikutnya yang kartunya memakai zona yang sama: kartu adegan & caption sama-sama berlabuh di batas
+  // title-safe (sceneLibrary.vpos "bottom" == planText .vpcl bottom) -> teks menumpuk berbayang (p2-nyala ~51s).
+  // Baris begitu DIPOTONG di batas adegan, tapi tak pernah sebelum kata terakhirnya selesai diucapkan; yang
+  // hilang cuma ekor "tahan baca" setelah suaranya habis. Baris yg tak menyeberang: hasilnya identik dgn dulu.
+  const conflict = (t0: number, t1: number): number | null => {
+    const i0 = winAt(t0), zone = capZone[i0];
+    for (let i = i0 + 1; i < windows.length && windows[i].start < t1; i++) if (cardZone[i] === zone) return windows[i].start;
+    return null;
+  };
+  // Baris dipecah di batas adegan yg bentrok (kata sesudahnya dapat zona adegan barunya), lalu ekor "tahan baca"
+  // kepala baris dipotong di batas itu juga - tapi tak pernah sebelum kata terakhirnya selesai diucapkan.
+  const placeCaption = (t0: number, t1: number, spoken: number): { zone: Zone | null; end: number } => {
+    const b = conflict(t0, t1);
+    return { zone: capZone[winAt(t0)], end: b === null ? t1 : Math.max(b, Math.min(t1, spoken)) };
+  };
+  const cap = captionLayer(words, { offset: H, total, w, h, brand, place: placeCaption, splitAt: conflict });
   layers.push(cap);
   const framed: string[] = [];
   clipRefs.forEach((r, k) => {

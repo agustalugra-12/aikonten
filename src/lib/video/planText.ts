@@ -48,11 +48,18 @@ export function hookLayer(o: { text: string; dur: number; avoid?: [number, numbe
 }
 
 export type CapLine = { words: HfWord[]; text: string; start: number; end: number; zone: Zone | null }; // null = disembunyikan (kartu + subjek)
+// Penempatan satu baris caption. Builder tahu jendela adegan & zona kartunya, jadi dialah yg memutuskan zona DAN
+// sampai kapan baris boleh tampil (baris yg menyeberang ke adegan yg kartunya sezona harus berhenti di batas
+// adegan). spoken = waktu kata terakhir baris selesai diucapkan: baris tak pernah dipotong sebelum itu.
+export type CapPlace = (start: number, end: number, spoken: number) => { zone: Zone | null; end: number };
+// Batas adegan di dalam (from,to) yg kartunya memakai zona caption baris ini; null = tak ada. Baris dipecah di
+// situ supaya kata yg diucapkan SESUDAH batas tampil di zona adegan barunya, bukan menggantung di atas kartu.
+export type CapSplit = (from: number, to: number) => number | null;
 const READ = (chars: number) => Math.max(1.0, 0.045 * chars + 0.35); // waktu baca minimum (dtk)
 
 // Kelompokkan kata jadi baris yg MUAT 1 BARIS; pecah di akhir kalimat / jeda ≥0.45 dtk; gabung baris yg
 // tampil terlalu singkat bila gabungannya masih 1 baris. Waktu absolut = offset + waktu kata.
-export function captionLines(words: HfWord[], o: { offset: number; total: number; w: number; h: number; font: string; zoneAt: (t: number) => Zone | null }): { lines: CapLine[]; size: number; maxW: number } {
+export function captionLines(words: HfWord[], o: { offset: number; total: number; w: number; h: number; font: string; place: CapPlace; splitAt: CapSplit }): { lines: CapLine[]; size: number; maxW: number } {
   const sa = safeArea(o.w, o.h);
   const maxW = sa.x1 - sa.x0 - Math.round(o.w * 0.06);
   const size = Math.round(o.w * 0.066);
@@ -90,10 +97,25 @@ export function captionLines(words: HfWord[], o: { offset: number; total: number
   };
   // ponytail: guard iterasi — curi-kata bisa ping-pong di kasus patologis; batasi raw.length*4 langkah lalu terima apa adanya.
   for (let guard = raw.length * 4; guard-- > 0 && relieve(); );
+  // Pecah grup yg menyeberang ke adegan yg kartunya sezona: tanpa ini baris lama menggantung persis di atas kartu
+  // adegan berikutnya (kartu & caption berlabuh di batas title-safe yg sama). Dilakukan SESUDAH penggabungan
+  // supaya tak dibatalkan relieve(); tiap pecahan diperiksa lagi lewat i yg maju.
+  for (let i = 0; i < raw.length; i++) {
+    const g = raw[i];
+    const t = o.splitAt(o.offset + g[0].start, o.offset + g[g.length - 1].end);
+    if (t === null) continue;
+    const k = g.findIndex((wd) => o.offset + wd.start >= t);
+    if (k > 0) raw.splice(i, 1, g.slice(0, k), g.slice(k));
+  }
   const lines = raw.map((g, i) => {
     const start = Math.max(o.offset, o.offset + g[0].start - 0.12);
     const end = Math.min(o.total, i + 1 < raw.length ? o.offset + raw[i + 1][0].start - 0.12 : o.offset + g[g.length - 1].end + 0.6);
-    return { words: g, text: g.map((x) => x.word).join(" "), start, end, zone: o.zoneAt(start) };
+    // Zona + batas akhir dinilai utk SELURUH rentang baris, bukan cuma awalnya: baris yg mulai di adegan i dan
+    // masih "menggantung" di adegan i+1 bisa jatuh persis di atas kartu adegan i+1 (bukti p2-nyala ~51s: caption
+    // "Bandingkan dengan" menumpuk di atas sub-CTA "Nikmati layanan pickup & delivery", dua-duanya berlabuh di
+    // batas title-safe bawah yang sama).
+    const pl = o.place(start, end, o.offset + g[g.length - 1].end);
+    return { words: g, text: g.map((x) => x.word).join(" "), start, end: pl.end, zone: pl.zone };
     // Buang baris di luar VO: SRT bisa punya kata melewati titik potong VO -> start>=total (durasi nol/negatif),
     // tak boleh dirender sebagai caption berkedip. (mis. "Nature's survival hacks" di t>durasi).
   }).filter((l) => l.start < o.total - 0.03 && l.end - l.start > 0.05);
@@ -107,7 +129,7 @@ export function captionLines(words: HfWord[], o: { offset: number; total: number
 // bila kontras ≥4.5 thd pil terburuk (pil di atas footage putih); kalau tidak putih.
 export const CAP_PILL = "rgba(8,10,14,.8)";
 export const CAP_PILL_WORST = "#3B3C3E"; // pil .8 di atas putih murni (0.8*8+0.2*255 ≈ 58)
-export function captionLayer(words: HfWord[], o: { offset: number; total: number; w: number; h: number; brand: BrandColors; zoneAt: (t: number) => Zone | null }): Layer & { lines: CapLine[] } {
+export function captionLayer(words: HfWord[], o: { offset: number; total: number; w: number; h: number; brand: BrandColors; place: CapPlace; splitAt: CapSplit }): Layer & { lines: CapLine[] } {
   const { lines, size } = captionLines(words, { ...o, font: o.brand.font });
   const sa = safeArea(o.w, o.h);
   const active = contrast(o.brand.accent, CAP_PILL_WORST) >= 4.5 ? o.brand.accent : "#FFFFFF";

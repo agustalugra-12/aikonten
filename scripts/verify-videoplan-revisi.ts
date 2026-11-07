@@ -52,7 +52,7 @@ const S = {
   assert.ok(!b.designScenes.includes("menu"), `menu pakai footage cocok, bukan desain: ${b.designScenes}`);
   assert.ok(!b.html.includes("./m/garden.mp4"), "footage tak cocok (garden) tidak dipakai");
   // Subjek yg TAK ADA footage cocok sama sekali -> adegan desain (bukan footage acak) + tandai footage_kurang.
-  const b3 = buildCompositionFromPlan(plan([S.hookFood, { ...S.menu, id: "mobil", subject: "mobil balap", caption: "Mobil balap" }, S.room, S.outro]), media());
+  const b3 = buildCompositionFromPlan(plan([S.hookFood, { ...S.menu, id: "mobil", subject: "mobil balap", caption: "Siap jalan kapan saja" }, S.room, S.outro]), media());
   assert.ok(b3.designScenes.includes("mobil") && b3.html.includes('class="vp-dcap"'), `subjek tanpa footage -> desain: ${b3.designScenes}`);
   assert.ok(b3.footageKurang.includes("mobil balap"), `footage_kurang menandai subjek tanpa footage: ${b3.footageKurang}`);
   // Tanpa footage yang cocok dgn hook -> hook desain (latar brand), bukan footage acak.
@@ -112,7 +112,7 @@ ok("placement: kartu pindah ke zona bebas subjek; caption selalu tampil di zona 
 // 5. Caption: 1 baris, posisi tetap (tanpa scale/y), cukup lama dibaca.
 {
   const words = "Menginap di Pelangi Homestay dekat kebun stroberi dan danau Beratan yang sejuk setiap pagi bersama keluarga tercinta".split(" ").map((word, i) => ({ word, start: i * 0.32, end: i * 0.32 + 0.26 }));
-  const { lines, size, maxW } = captionLines(words, { offset: 2, total: 12, w: 1080, h: 1920, font: "Poppins", zoneAt: () => "bottom" });
+  const { lines, size, maxW } = captionLines(words, { offset: 2, total: 12, w: 1080, h: 1920, font: "Poppins", place: (_s: number, e: number) => ({ zone: "bottom" as const, end: e }), splitAt: () => null });
   for (const ln of lines) assert.strictEqual(estLines(ln.text, size, maxW, "Poppins"), 1, ln.text);
   lines.slice(0, -1).forEach((ln, i) => assert.ok(ln.end - ln.start >= Math.min(1.0, 0.045 * ln.text.length + 0.35) - 1e-9 || estLines(`${ln.text} ${lines[i + 1].text}`, size, maxW, "Poppins") > 1, `"${ln.text}" ${(ln.end - ln.start).toFixed(2)}s`));
   const b = buildCompositionFromPlan(plan([S.hookFood, S.room, S.outro]), media({ words }));
@@ -413,16 +413,16 @@ ok("desain kaya: designBg beberapa elemen + tekstur (bukan 1-glow); panel before
 // 24. (PRIORITAS 3) Caption tak menyisakan satu kata menggantung ("This"/"a bird"): minimal 1 frasa utuh per baris.
 {
   const mk = (pairs: [string, number][]) => pairs.map(([word, t]) => ({ word, start: t, end: t + 0.3 }));
-  const { lines } = captionLines(mk([["Kucing", 0], ["lucu", 0.5], ["sekali", 1.0], ["ini.", 1.5], ["Dia", 3.0]]), { offset: 0, total: 10, w: 1080, h: 1920, font: "Poppins", zoneAt: () => "bottom" });
+  const { lines } = captionLines(mk([["Kucing", 0], ["lucu", 0.5], ["sekali", 1.0], ["ini.", 1.5], ["Dia", 3.0]]), { offset: 0, total: 10, w: 1080, h: 1920, font: "Poppins", place: (_s: number, e: number) => ({ zone: "bottom" as const, end: e }), splitAt: () => null });
   assert.ok(lines.length >= 1 && lines.every((ln) => ln.words.length >= 2 || lines.length === 1), `baris menggantung: ${lines.map((l) => l.text).join(" | ")}`);
-  assert.strictEqual(captionLines(mk([["Halo", 0], ["dunia", 0.5]]), { offset: 0, total: 5, w: 1080, h: 1920, font: "Poppins", zoneAt: () => "bottom" }).lines.length, 1, "kalimat sangat pendek tetap 1 baris");
+  assert.strictEqual(captionLines(mk([["Halo", 0], ["dunia", 0.5]]), { offset: 0, total: 5, w: 1080, h: 1920, font: "Poppins", place: (_s: number, e: number) => ({ zone: "bottom" as const, end: e }), splitAt: () => null }).lines.length, 1, "kalimat sangat pendek tetap 1 baris");
 }
 ok("caption: tak ada kata menggantung (lone word digabung/ditarik jadi frasa utuh, tetap muat 1 baris)");
 
 // 25. (PRIORITAS 3) Baris caption di luar durasi VO (SRT melewati titik potong) dibuang -> tak ada caption durasi nol/negatif.
 {
   const words = [["Halo", 0.2], ["dunia", 0.6], ["yang", 9.0], ["jauh", 9.4]].map(([w, t]) => ({ word: w as string, start: t as number, end: (t as number) + 0.3 }));
-  const { lines } = captionLines(words, { offset: 0, total: 5, w: 1080, h: 1920, font: "Poppins", zoneAt: () => "bottom" });
+  const { lines } = captionLines(words, { offset: 0, total: 5, w: 1080, h: 1920, font: "Poppins", place: (_s: number, e: number) => ({ zone: "bottom" as const, end: e }), splitAt: () => null });
   assert.ok(lines.length >= 1 && lines.every((l) => l.start < l.end && l.start < 5), `baris di luar VO dibuang: ${lines.map((l) => `${l.text}@${l.start.toFixed(1)}`).join(" ")}`);
   assert.ok(!lines.some((l) => l.text.includes("jauh")), "kata di luar VO (t>total) tak jadi baris");
 }
@@ -474,7 +474,7 @@ ok("revisi-6 motion-blur: default off di root komposisi (jalur cepat BeginFrame 
   // brand gelap: base = primary (identik perilaku lama, dark tak berubah)
   assert.strictEqual(designBase({ primary: "#14213D", bg2: "#0c1526", accent: "#FFD84D", ink: "#FFFFFF", cta: "#CC1F1F", font: "Poppins", mark: "X" }).base, "#14213D");
   // caption desain brand terang: ada (ink putih dipakai lewat designInk)
-  const b = buildCompositionFromPlan(plan([S.hookFood, { ...S.menu, id: "mobil", subject: "mobil balap", caption: "Mobil balap" }, S.room, S.outro]), media({ brand: { ...bright, name: "Pelangi Homestay" } }));
+  const b = buildCompositionFromPlan(plan([S.hookFood, { ...S.menu, id: "mobil", subject: "mobil balap", caption: "Siap jalan kapan saja" }, S.room, S.outro]), media({ brand: { ...bright, name: "Pelangi Homestay" } }));
   assert.ok(b.html.includes('class="vp-dcap"'), "caption adegan desain terender");
 }
 ok("revisi-6 palet desain: brand terang -> latar dalam (tak pucat) + ink kontras aman + cincin diperjelas; brand gelap tak berubah");

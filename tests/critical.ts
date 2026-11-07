@@ -1233,6 +1233,54 @@ async function run() {
     return r.status === "published" && r.errorMessage === null;
   })());
 
+  // ---------- VideoPlan: subject bocor & teks menumpuk di adegan penutup (2026-11-07) ----------
+  // Rekonstruksi dua cacat dari render A/B "laundry in bali" TANPA merender: hanya HTML dari buildCompositionFromPlan.
+  {
+    const pb = await import("../src/lib/video/planBuilder.ts");
+    type AnyScene = Parameters<typeof pb.buildCompositionFromPlan>[0]["scenes"][number];
+    const SUBJ = "wanita melipat pakaian di meja setrika";
+    const plan = (caption?: string) => ({
+      version: 1 as const, orientation: "portrait" as const, look: "clean" as const, pacing: "medium" as const,
+      music: { mood: "none" as const, volume: 0.2 }, brand: { tone: "friendly" as const },
+      scenes: [
+        { id: "s1", type: "hook", duration: 2, transition: "cut", text: "Cucian menumpuk lagi?", subject: "tumpukan cucian", footageRef: "f1" },
+        { id: "s2", type: "footage-caption", duration: 3, transition: "cut", footageRef: "f1", subject: SUBJ, ...(caption ? { caption } : {}) },
+        { id: "s3", type: "cta", duration: 3, transition: "cut", text: "Pesan sekarang", sub: "Nikmati layanan pickup & delivery" },
+      ] as AnyScene[],
+    });
+    // Satu baris caption VO yg kata-katanya habis di adegan s2 tapi "tahan baca"-nya menggantung ke adegan CTA.
+    const words = [
+      { word: "Bandingkan", start: 0.5, end: 1.0 }, { word: "dengan", start: 1.0, end: 1.6 }, { word: "laundry", start: 1.6, end: 2.0 },
+      { word: "Antar", start: 3.6, end: 4.0 }, { word: "jemput", start: 4.0, end: 4.5 }, { word: "gratis", start: 4.5, end: 5.0 },
+    ];
+    const media = {
+      footage: { f1: { videoUrl: "./f1.mp4", durationSeconds: 60, subject: { description: "wanita melipat pakaian di meja setrika, tumpukan cucian", source: "vision" as const } } },
+      audioUrl: null, audioDurationSeconds: 6, words, brand: { name: "Laundry in Bali", primary: "#14213D", accent: "#FFD84D", cta: "#CC1F1F" }, seed: "proj_test",
+    };
+
+    const echoed = pb.buildCompositionFromPlan(plan("Wanita melipat pakaian di meja"), media);
+    ok("plan: caption yg cuma mengulang subject tak jadi teks tampil", !/Wanita melipat pakaian di meja/i.test(echoed.html));
+    ok("plan: subject tak pernah muncul di HTML (caption echo)", !/melipat pakaian di meja setrika/i.test(echoed.html));
+
+    const kosong = pb.buildCompositionFromPlan(plan(), media);
+    ok("plan: caption kosong tak diisi subject", !/melipat pakaian/i.test(kosong.html));
+
+    const copy = pb.buildCompositionFromPlan(plan("Dilipat rapi, siap pakai"), media);
+    ok("plan: caption pemasaran asli TETAP tampil", /Dilipat rapi, siap pakai/.test(copy.html));
+    ok("plan: subject tetap tak tampil walau caption ada", !/melipat pakaian di meja setrika/i.test(copy.html));
+
+    ok("echoesSubject: salinan subject ketahuan", pb.echoesSubject("Wanita melipat pakaian di meja", SUBJ));
+    ok("echoesSubject: copy pemasaran tidak kena", !pb.echoesSubject("Antar jemput gratis se-Bali", SUBJ));
+
+    // Adegan penutup: tak boleh ada baris caption adegan sebelumnya yg masih tampil di atas kartu CTA.
+    // Kartu CTA (sceneLibrary.vpos "bottom") & caption zona "bottom" berlabuh di batas title-safe yg sama.
+    const ctaWin = copy.windows[copy.windows.length - 1];
+    const bentrok = copy.captionLines.filter((l) => l.zone === "bottom" && l.end > ctaWin.start + 1e-6);
+    ok("plan: caption tak menggantung di atas kartu CTA (adegan terakhir)", bentrok.length === 0);
+    ok("plan: caption tetap ada (tidak dimatikan diam-diam)", copy.captionLines.some((l) => !!l.zone));
+    ok("plan: pemotongan tak memakan kata yg masih diucapkan", copy.captionLines.every((l) => l.end >= l.start));
+  }
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
