@@ -4,7 +4,7 @@
 // Tak pernah melempar error ke pipeline: AI gagal / plan invalid -> dicatat, jalur lama jalan apa adanya.
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { validateVideoPlan, videoPlanPromptSpec, type VideoPlan } from "./videoPlan";
+import { validateVideoPlan, videoPlanPromptSpec, LIMITS, type VideoPlan } from "./videoPlan";
 
 export const DIRECTOR_MODEL = "gpt-4.1-mini";
 const PRICE_PER_1M: [number, number] = [0.40, 1.60]; // = openaiClient MODEL_PRICING_PER_1M["gpt-4.1-mini"]
@@ -37,18 +37,60 @@ export type DirectorResult = {
 
 export const maxScenesFor = (internal: boolean) => (internal ? 12 : 8);
 
+/** Rentang total durasi adegan yang AKAN diterima validator, dihitung dari durasi VO.
+ *  Validator memakai target = durasiVO + durasi hook, toleransi maks(2, 25%), lalu
+ *  total tetap wajib di dalam LIMITS.totalSeconds. Dulu prompt hanya menyebut rumusnya
+ *  ("≈ durasi VO + hook") - AI tetap meleset 11x. Sekarang ANGKA JADI-nya yang dikirim.
+ *  CATATAN: untuk audio sangat panjang (long-form), batas atas LIMITS.totalSeconds.max
+ *  membuat rentang ini MUSTAHIL dipenuhi - itu batas kontrak, bukan kesalahan prompt. */
+export function targetTotalDetik(audioDurationSeconds: number): { min: number; max: number; takTercapai: boolean } {
+  // Validator: |total - (durasiVO + durasiHook)| <= maks(2, (durasiVO+durasiHook)*0.25),
+  // dengan durasiHook yang DIPILIH AI (LIMITS.hookSeconds). Rentang yang kita iklankan
+  // harus diterima untuk durasi hook MANA PUN, jadi dipakai IRISAN semua jendela itu:
+  //   batas bawah = jendela dgn hook TERPANJANG  (target terbesar -> tepi bawah tertinggi)
+  //   batas atas  = jendela dgn hook TERPENDEK   (target terkecil -> tepi atas terendah)
+  // Dulu prompt hanya menyebut rumusnya ("~ durasi VO + hook") dan AI meleset 11x;
+  // iklan 25% penuh juga masih bisa keluar jendela (terbukti 22.0s vs 16.6s).
+  const jendela = (hook: number) => {
+    const target = audioDurationSeconds + hook;
+    const tol = Math.max(2, target * 0.25);
+    return { bawah: target - tol, atas: target + tol };
+  };
+  // Dibulatkan KE DALAM (bawah naik, atas turun). Math.round biasa bisa mendorong tepi
+  // atas keluar jendela sampai 0,05 dtk (mis. 57,75 -> 57,8) dan rencana jadi ditolak.
+  const keAtas = (x: number) => Math.ceil(x * 10) / 10;
+  const keBawah = (x: number) => Math.floor(x * 10) / 10;
+  const bawahKetat = jendela(LIMITS.hookSeconds.max).bawah;
+  const atasKetat = jendela(LIMITS.hookSeconds.min).atas;
+  // Kedua ujung dijepit ke LIMITS.totalSeconds: untuk audio sangat pendek, irisan jendela
+  // bisa jatuh DI BAWAH total minimum - rentang yang diiklankan tak boleh keluar kontrak.
+  const jepit = (x: number) => Math.min(Math.max(x, LIMITS.totalSeconds.min), LIMITS.totalSeconds.max);
+  // Dirapatkan 0,05 dtk ke dalam: tepat DI tepi jendela, galat pembulatan desimal bisa
+  // membuat |total-target| sedikit melebihi toleransi (2.3000000000000007 > 2.3) dan
+  // rencana yang sebenarnya pas malah ditolak.
+  // Urutan penting: rapatkan dulu terhadap JENDELA VALIDATOR, baru dijepit ke batas
+  // kontrak. Kalau dibalik, epsilon malah menggeser hasil keluar LIMITS.totalSeconds.
+  const EPS = 0.05;
+  const min = jepit(keAtas(bawahKetat + EPS));
+  const max = jepit(keBawah(atasKetat - EPS));
+  return { min: Math.min(min, max), max: Math.max(min, max), takTercapai: bawahKetat > LIMITS.totalSeconds.max };
+}
+
 export function directorPrompts(i: DirectorInput, prevErrors?: string[]): { system: string; user: string } {
   const system = [
     "Kamu sutradara video pendek media sosial. Susun rencana adegan sebagai JSON VideoPlan.",
     "Pilih struktur yang paling cocok dengan naskah; jangan pakai urutan yang sama untuk semua video.",
     "Hook = 3 detik pertama, pakai footage paling relevan & menarik. Teks di layar singkat dan diambil dari naskah.",
     "Jangan mengarang angka, harga, atau testimoni yang tidak ada di naskah/brief. Kalau tidak ada, jangan pakai adegan stat/testimonial.",
+    "Sebelum membalas, periksa sendiri: (1) tiap adegan memakai field DATAR sesuai daftar, tidak ada objek bernama tipe; (2) tiap teks di bawah batas karakter DAN kata; (3) jumlah semua duration masuk totalTargetDetik.",
     "Balas HANYA JSON.",
     videoPlanPromptSpec(),
   ].join("\n");
   const user = JSON.stringify({
     brand: i.brandName, brief: i.brief.slice(0, 600), naskah: i.script.slice(0, 2000), hook: i.hookText || undefined,
     orientation: i.orientation, lookBrand: i.brandLook || undefined, durasiVO: Math.round(i.audioDurationSeconds * 10) / 10,
+    // Rentang JADI, bukan rumus - inilah yang diperiksa validator (lihat targetTotalDetik).
+    totalTargetDetik: targetTotalDetik(i.audioDurationSeconds),
     maksAdegan: maxScenesFor(i.internal),
     footage: i.footage.slice(0, 24).map((f) => ({ id: f.id, isi: f.label.slice(0, 80), durasi: Math.round(f.durationSeconds * 10) / 10 })),
     ...(prevErrors?.length ? { perbaiki: prevErrors.slice(0, 12) } : {}),

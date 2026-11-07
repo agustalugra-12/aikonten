@@ -674,6 +674,69 @@ async function run() {
     return /\bo0\b/.test(h) && /\bo0\b/.test(hp);
   })());
 
+  // ---- prompt VideoPlan (2026-11-07): bentuk datar, field per tipe, target durasi ----
+  const vpd = await import("../src/lib/video/videoPlanDirector");
+  const vp = await import("../src/lib/video/videoPlan");
+
+  ok("vplan prompt: contoh JSON DATAR + contoh SALAH bersarang disebut eksplisit", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    return spec.includes('{"type":"hook","hook":{"text":"..."}}')
+      && spec.includes('BENAR: {"type":"hook","text":"..."}')
+      && spec.includes("JANGAN bungkus isi adegan dalam objek bernama tipe")
+      && spec.includes('"type":"feature-list","duration":5');
+  })());
+
+  ok("vplan prompt: daftar field DIIZINKAN memuat semua 8 scene type", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    return vp.SCENE_TYPES.every((t) => spec.includes(`  ${t}`.slice(0, 2 + t.length)))
+      && spec.includes("Field lain APA PUN DITOLAK");
+  })());
+
+  ok("vplan prompt: batas teks ditulis dgn contoh BENAR dan SALAH", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    return spec.includes("BENAR \"Cucian menumpuk lagi?\"") && spec.includes("SALAH \"Apakah kamu merasa")
+      && spec.includes(`<=${vp.LIMITS.text.hook.chars} karakter`)
+      && spec.includes(`<=${vp.LIMITS.text.featureItem.chars} karakter`);
+  })());
+
+  ok("vplan: rentang yang diiklankan SELALU di dalam jendela validator (hook mana pun)", (() => {
+    // Validator: |total - (audio + durasiHook)| <= maks(2, (audio+durasiHook)*0.25).
+    // Durasi hook dipilih AI (1.2-4 dtk), jadi rentang kita harus tahan ketiga ujungnya.
+    const diterima = (audio: number, hook: number, total: number) => {
+      const target = audio + hook;
+      return Math.abs(total - target) <= Math.max(2, target * 0.25);
+    };
+    for (const audio of [8, 12, 20, 45, 90]) {
+      const r = vpd.targetTotalDetik(audio);
+      if (r.takTercapai) continue;
+      for (const hook of [vp.LIMITS.hookSeconds.min, 2.6, vp.LIMITS.hookSeconds.max]) {
+        if (!diterima(audio, hook, r.min) || !diterima(audio, hook, r.max)) return false;
+      }
+      if (r.min >= r.max) return false;
+    }
+    return vpd.targetTotalDetik(20).takTercapai === false;
+  })());
+
+  ok("vplan: durasi sangat pendek -> rentang tetap di dalam LIMITS.totalSeconds", (() => {
+    const r = vpd.targetTotalDetik(1);
+    return r.min >= vp.LIMITS.totalSeconds.min && r.max <= vp.LIMITS.totalSeconds.max && r.min <= r.max;
+  })());
+
+  ok("vplan: long-form ditandai takTercapai (batas kontrak, bukan salah prompt)", (() => {
+    const r = vpd.targetTotalDetik(440);
+    return r.takTercapai === true && r.max === vp.LIMITS.totalSeconds.max;
+  })());
+
+  ok("vplan: rentang target IKUT dikirim ke prompt (bukan cuma rumus)", (() => {
+    const { user, system } = vpd.directorPrompts({
+      projectId: "p", brandName: "B", brief: "b", script: "naskah uji", hookText: null,
+      orientation: "portrait", brandLook: null, footage: [], audioDurationSeconds: 20, internal: true,
+    });
+    const o = JSON.parse(user);
+    return o.totalTargetDetik && typeof o.totalTargetDetik.min === "number" && o.durasiVO === 20
+      && system.includes("jumlah semua duration masuk totalTargetDetik");
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
