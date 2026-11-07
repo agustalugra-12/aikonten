@@ -1057,7 +1057,15 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
     // Engine "scenes" (HyperFrames Pro): video frame-desain MUSIK-ONLY - tak pakai voiceover/
     // subtitle. Skip TTS + Whisper (hemat biaya tiap konten Desain; dulu digenerate lalu dibuang).
     const isScenesEngine = brandKitRenderEngine(brand?.brandKit) === "scenes";
-    let voiceoverBuffer = isScenesEngine ? Buffer.alloc(0) : await generateVoiceover(narrationText, brandKitVoice(brand?.brandKit));
+    // A1 (2026-11-07): TTS WAJIB menerima teks yang angkanya sudah jadi kata. Sebelumnya
+    // `narrationText` MENTAH dikirim ke sini, sedangkan angkaKeKata() cuma dipakai di QC
+    // Final pada variabel buang - jadi gerbang itu meluluskan string yang TIDAK PERNAH
+    // diucapkan (jaminan palsu; terbukti saat render pembuktian 2026-11-07). Satu variabel
+    // ini dipakai BERSAMA oleh TTS dan QC supaya tak bisa melenceng lagi.
+    // CATATAN: hanya untuk TTS. Caption/SRT, stat, harga, lower-third, planEdit TETAP memakai
+    // `narrationText` asli supaya kartu harga tetap tampil "Rp350.000", bukan ejaan kata.
+    const narrationTts = angkaKeKata(narrationText);
+    let voiceoverBuffer = isScenesEngine ? Buffer.alloc(0) : await generateVoiceover(narrationTts, brandKitVoice(brand?.brandKit));
     // Tenant eksternal: narasi TTS nyata wajib muat video 30-60 dtk - koreksi murah (atempo/jeda) atau gagal
     // jelas SEBELUM Whisper/render (refund kredit oleh pemanggil). Internal tak berubah.
     if (!isScenesEngine) {
@@ -1383,8 +1391,11 @@ async function processProjectInner(id: string): Promise<ProcessResult> {
       // Semua cek wajib PASS agar render diizinkan. Gagal = throw Error + log ke autoFixLog.
       const qcErrors: string[] = [];
       // [ ] Voiceover tidak memiliki angka numerik
-      const narrationTts = angkaKeKata(narrationText);
-      if (/\d/.test(narrationTts)) qcErrors.push("Voiceover mengandung angka numerik (larangan PRD v1.1 §1)");
+      // A2 (2026-11-07): memeriksa `narrationTts` YANG SAMA dengan yang dikirim ke
+      // generateVoiceover di atas - BUKAN hasil konversi baru dari teks mentah. Dulu baris ini
+      // menghitung ulang angkaKeKata(narrationText) ke variabel lokal yang tak pernah dipakai,
+      // sehingga gerbang ini selalu lulus apa pun yang sebenarnya diucapkan.
+      if (adaAngkaTersisa(narrationTts)) qcErrors.push("Voiceover mengandung angka numerik (larangan PRD v1.1 §1)");
       // [ ] Tidak ada duplicate Pexels footage
       const pexelsIds = brollClips.map((c) => c.pexelsVideoId).filter((v): v is string => !!v);
       if (new Set(pexelsIds).size !== pexelsIds.length) qcErrors.push("Duplicate Pexels video ID terdeteksi (PRD v1.1 §3)");

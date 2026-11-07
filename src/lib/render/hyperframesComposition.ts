@@ -105,6 +105,14 @@ function tileClips(clips: HfClip[], dur: number, maxTile = 99): Array<{ url: str
   return out;
 }
 
+/** Nilai stat berupa UANG? Hitung-naik DILARANG untuk uang: penonton sempat membaca harga
+ *  yang SALAH (mis. Rp133.699 lalu Rp177.519 sebelum mendarat di Rp350.000) - itu klaim harga
+ *  keliru di layar, bukan sekadar efek. Untuk angka non-uang (mis. "10.000 pelanggan")
+ *  hitung-naik TETAP dipakai karena efeknya bagus. Berlaku untuk jalur Motion Pack MAUPUN
+ *  jalur lama (keduanya dulu menganimasikan dari 0). */
+export const isCurrencyStat = (value: string | null | undefined): boolean =>
+  /(^|[^a-z])rp\.?\s*\d|\bidr\b|\brupiah\b/i.test(String(value || ""));
+
 export function buildComposition(input: HfCompositionInput): string {
   const {
     orientation = "portrait", brand = {}, hook = "", introSeconds = 3,
@@ -129,7 +137,7 @@ export function buildComposition(input: HfCompositionInput): string {
     // display = nilai AKHIR terformat gaya Indonesia (titik ribuan). Dipakai sbg isi AWAL <span> supaya
     // kartu tak pernah tampil "0"/digit mentah kalau tween count-up tak jalan (cacat nyata "000").
     const display = grouped ? num.toLocaleString("id-ID") : String(num);
-    return { prefix: m[1], num, suffix: m[3], grouped, display };
+    return { prefix: m[1], num, suffix: m[3], grouped, display, currency: isCurrencyStat(s.value) };
   });
 
   const { w, h } = DIM[orientation] || DIM.portrait;
@@ -262,7 +270,9 @@ export function buildComposition(input: HfCompositionInput): string {
       const st = base + j * slot;
       tlLines.push(`tl.fromTo("#statCard${j}",{opacity:0,scale:.7,y:24},{opacity:1,scale:1,y:0,duration:.42,ease:"back.out(2)"},${st.toFixed(3)});`);
       const p = statParsed[j];
-      if (p) {
+      // A4 (2026-11-07): uang TIDAK dihitung naik - kartu muncul langsung dgn nilai akhir
+      // (isi <span> sudah berupa nilai terformat), memakai animasi kemunculan kartu di atas.
+      if (p && !p.currency) {
         if (mp?.enabled.countUp) tlLines.push(...countUp({ varName: `o${j}`, numId: `num${j}`, num: p.num, grouped: p.grouped, at: st, intensity: mp.intensity }));
         else tlLines.push(`var o${j}={v:0};tl.to(o${j},{v:${p.num},duration:.9,ease:"power2.out",onUpdate:function(){document.getElementById("num${j}").textContent=fmtNum(o${j}.v,${p.grouped});}},${st.toFixed(3)});`);
       }

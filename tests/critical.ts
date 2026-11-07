@@ -633,6 +633,47 @@ async function run() {
   ok("motionPack: validateBrandKit terima config valid, tolak enum/range/bool salah", mpk && bkm.validateBrandKit({ motionPack: { enabled: true, tone: "playful", intensity: 80, motions: { flash: false } } }).ok === true && bkm.validateBrandKit({ motionPack: { tone: "boom" } }).ok === false && bkm.validateBrandKit({ motionPack: { intensity: 999 } }).ok === false && bkm.validateBrandKit({ motionPack: { motions: { punchIn: "x" } } }).ok === false);
   ok("motionPack: resolveBrandKit expose enabled + config (default-off backward-compat)", bkm.resolveBrandKit(JSON.stringify({ motionPack: { enabled: true, tone: "playful" } }))?.motionPackEnabled === true && bkm.resolveBrandKit(JSON.stringify({ subtitleFont: "anton" }))?.motionPackEnabled === false);
 
+  // ---- BAGIAN A (2026-11-07): suara produksi + hitung-naik mata uang ----
+  // A3: tes SAMBUNGAN, bukan tes fungsi. Yang meleset 2026-11-06 adalah wiring-nya:
+  // angkaKeKata lolos semua tes unit tapi TIDAK PERNAH dipanggil sebelum TTS.
+  const srcPP = require("node:fs").readFileSync("src/lib/pipeline/processProject.ts", "utf8") as string;
+  ok("A3 SAMBUNGAN: generateVoiceover menerima teks hasil angkaKeKata, bukan teks mentah", (() => {
+    const adaDeklarasi = /const narrationTts = angkaKeKata\(narrationText\);/.test(srcPP);
+    const ttsPakaiTerkonversi = /generateVoiceover\(narrationTts,/.test(srcPP);
+    const takAdaMentah = !/generateVoiceover\(narrationText[,)]/.test(srcPP);
+    return adaDeklarasi && ttsPakaiTerkonversi && takAdaMentah;
+  })());
+  ok("A3 SAMBUNGAN: QC memeriksa variabel YANG SAMA dgn yang diucapkan (satu deklarasi saja)", (() => {
+    const deklarasi = (srcPP.match(/const narrationTts\s*=/g) || []).length;
+    return deklarasi === 1 && srcPP.includes("adaAngkaTersisa(narrationTts)");
+  })());
+  ok("A3: teks yang dikirim ke TTS utk caption nyata benar-benar bebas digit", (() => {
+    const caption = "Paket langganan mulai Rp350.000 per bulan, antar jemput gratis, selesai dalam 2 hari.";
+    const dikirim = akk.angkaKeKata(caption);
+    return !akk.adaAngkaTersisa(dikirim) && !/\d/.test(dikirim) && /tiga ratus lima puluh ribu/.test(dikirim);
+  })());
+
+  ok("A4: isCurrencyStat kenali uang, abaikan angka biasa", (() =>
+    hfc.isCurrencyStat("Rp350.000") && hfc.isCurrencyStat("rp 350000") && hfc.isCurrencyStat("IDR 350.000")
+    && hfc.isCurrencyStat("mulai Rp1.200.000 rupiah")
+    && !hfc.isCurrencyStat("10.000 pelanggan") && !hfc.isCurrencyStat("3 hari") && !hfc.isCurrencyStat(""))());
+
+  ok("A4: stat UANG -> tanpa tween hitung-naik, nilai akhir langsung tampil (jalur lama)", (() => {
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Harga Paket", value: "Rp350.000" }] });
+    return h.includes(">350.000<") && !/\bo0\b/.test(h) && h.includes('id="statCard0"');
+  })());
+  ok("A4: stat UANG -> tanpa hitung-naik JUGA saat Motion Pack playful aktif", (() => {
+    const cfg = mpk.resolveMotionPackConfig({ enabled: true, tone: "playful" })!;
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Harga", value: "Rp350.000" }], motionPack: cfg });
+    return h.includes(">350.000<") && !/\bo0\b/.test(h);
+  })());
+  ok("A4: angka NON-uang TETAP dihitung naik (efeknya bagus, jangan dimatikan)", (() => {
+    const h = hfc.buildComposition({ ...bi, stats: [{ label: "Pelanggan", value: "10.000 pelanggan" }] });
+    const hp = hfc.buildComposition({ ...bi, stats: [{ label: "Pelanggan", value: "10.000 pelanggan" }],
+      motionPack: mpk.resolveMotionPackConfig({ enabled: true, tone: "playful" })! });
+    return /\bo0\b/.test(h) && /\bo0\b/.test(hp);
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
