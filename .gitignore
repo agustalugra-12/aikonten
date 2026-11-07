@@ -66,8 +66,11 @@ next-env.d.ts
 .pw-browsers/
 test-results/
 
-# alat uji sementara, jangan di-commit
-_vplan_bench.ts
-_run_bench*.sh
-_ab*.ts
-_proof_render.ts
+# Alat uji/skrip sementara di AKAR repo. Berlabuh di "/" supaya TIDAK mengenai
+# berkas sah seperti docs/_audit_kontenpilot_raw.md atau drizzle/meta/_journal.json.
+/_*.ts
+/_*.sh
+/_*.py
+# Log operasional di data/ (mis. videoplan-shadow.jsonl) - data, bukan kode.
+/data/*.jsonl
+/data/*.log
