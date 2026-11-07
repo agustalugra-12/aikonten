@@ -699,6 +699,28 @@ async function run() {
       && spec.includes(`<=${vp.LIMITS.text.featureItem.chars} karakter`);
   })());
 
+  ok("vplan prompt: contoh item feature lewat-tipis ada DAN hitungan karakternya jujur", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    const lim = vp.LIMITS.text.featureItem.chars;
+    const re = /GAGAL "([^"]+)" \((\d+)\)\s*-> BENAR "([^"]+)" \((\d+)\)/g;
+    let m: RegExpExecArray | null, n = 0, adaTipis = false;
+    while ((m = re.exec(spec))) {
+      const [, buruk, nBuruk, baik, nBaik] = m;
+      // angka di prompt harus = panjang asli, sisi salah harus lewat, sisi benar harus lolos
+      if (buruk.length !== Number(nBuruk) || baik.length !== Number(nBaik)) return false;
+      if (buruk.length <= lim || baik.length > lim) return false;
+      if (buruk.length === lim + 1) adaTipis = true;
+      n++;
+    }
+    return n >= 3 && adaTipis;
+  })());
+
+  ok("vplan prompt: batas item diajarkan lewat angka konkret, bukan hanya plafon", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    const lim = vp.LIMITS.text.featureItem.chars;
+    return spec.includes(`${lim + 1} karakter untuk batas ${lim}`) && spec.includes("2-3 kata per item");
+  })());
+
   ok("vplan: rentang yang diiklankan SELALU di dalam jendela validator (hook mana pun)", (() => {
     // Validator: |total - (audio + durasiHook)| <= maks(2, (audio+durasiHook)*0.25).
     // Durasi hook dipilih AI (1.2-4 dtk), jadi rentang kita harus tahan ketiga ujungnya.
