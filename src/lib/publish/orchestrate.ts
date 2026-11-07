@@ -9,6 +9,7 @@ import { tryAcquireLock, releaseLock, projectPublishLockKey, LockBusyError } fro
 import { adaptCaptionForPlatform, type Platform } from "@/lib/ai/platformAdaptation";
 import { afterBufferPublish } from "./sweepRunner";
 import { assertLedgerReady } from "./ledger";
+import { summarizeProjectPublish } from "./projectStatus";
 
 // Publish - dulu dipanggil OTOMATIS begitu artefak AI selesai (full-auto, tanpa jeda
 // approval), TAPI sejak 2026-08-04 (permintaan Agus - mau bisa cek draft dulu) ini
@@ -325,21 +326,15 @@ async function publishProjectInner(projectId: string, opts?: { accountIds?: stri
   // BENAR2 semua akun sukses (dulu: 1 akun sukses saja sudah dianggap "published",
   // platform lain yg gagal jadi tidak pernah dicoba lagi).
   const finalLogs = await db.select().from(publishLogs).where(eq(publishLogs.projectId, projectId));
-  const succeededIds = new Set(finalLogs.filter((l) => l.status === "success").map((l) => l.socialAccountId));
-  const finalStatus =
-    succeededIds.size === 0 ? "failed" : succeededIds.size === accounts.length ? "published" : "partial";
-
   // #2 (feat/publish-guard): simpan RINGKASAN alasan kalau belum sepenuhnya sukses -> project tak lagi
   // "gagal diam-diam" (dulu errorMessage project NULL; alasan hanya tersebar di publishLogs).
-  let summary: string | null = null;
-  if (finalStatus !== "published") {
-    const reasons = [...new Set(finalLogs.filter((l) => l.status !== "success" && l.errorMessage).map((l) => String(l.errorMessage).slice(0, 120)))].slice(0, 3);
-    summary = `Publish ${finalStatus}: ${succeededIds.size}/${accounts.length} akun sukses` + (reasons.length ? ` — ${reasons.join(" | ")}` : "");
-  }
+  // Formula + ringkasan dipindah ke summarizeProjectPublish() (2026-11-07) supaya jalur koreksi
+  // (sweepRunner/bufferAuth) tidak lagi punya salinan yg lupa menulis errorMessage.
+  const { status: finalStatus, errorMessage } = summarizeProjectPublish(finalLogs, accounts.length);
 
   await db
     .update(projects)
-    .set({ status: finalStatus, updatedAt: new Date(), ...(summary ? { errorMessage: summary } : {}) })
+    .set({ status: finalStatus, updatedAt: new Date(), errorMessage })
     .where(eq(projects.id, projectId));
 }
 
