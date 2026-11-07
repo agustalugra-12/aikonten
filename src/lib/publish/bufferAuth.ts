@@ -1,4 +1,5 @@
 import { recordBufferCall, type BufferCallKind } from "./ledger";
+import { summarizeProjectPublish } from "./projectStatus";
 
 // URL dibaca saat call (default API asli) -> tes memakai server GraphQL tiruan via BUFFER_API_URL.
 const bufferApiUrl = () => process.env.BUFFER_API_URL || "https://api.buffer.com";
@@ -269,9 +270,10 @@ export async function verifyPublishSucceeded(opts: {
         .from(socialAccounts)
         .where(and(eq(socialAccounts.brandId, project.brandId), eq(socialAccounts.connected, true)));
       const allLogs = await db.select().from(publishLogs).where(eq(publishLogs.projectId, opts.projectId));
-      const succeededCount = new Set(allLogs.filter((l) => l.status === "success").map((l) => l.socialAccountId)).size;
-      const correctedStatus = succeededCount === 0 ? "failed" : succeededCount === connectedAccounts.length ? "published" : "partial";
-      await db.update(projects).set({ status: correctedStatus, updatedAt: new Date() }).where(eq(projects.id, opts.projectId));
+      // errorMessage WAJIB ikut ditulis (2026-11-07) - dulu baris ini cuma set status, jadi project
+      // yg dikoreksi jadi "failed" di sini tampil TANPA alasan (penyebab 31 "failed" tanpa pesan).
+      const { status: correctedStatus, errorMessage } = summarizeProjectPublish(allLogs, connectedAccounts.length);
+      await db.update(projects).set({ status: correctedStatus, errorMessage, updatedAt: new Date() }).where(eq(projects.id, opts.projectId));
     }
 
     await sendTelegramNotification(

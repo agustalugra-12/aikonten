@@ -1177,6 +1177,61 @@ async function run() {
   ok("peta status Tripay: status asing/kosong -> pending (konservatif, jangan tandai gagal)",
     stp.petakanStatusTripay("STATUS_BARU") === "pending" && stp.petakanStatusTripay("") === "pending");
   ok("peta status Tripay: huruf kecil tetap terbaca", stp.petakanStatusTripay("paid") === "sukses");
+  // ---------- Status publish project: "gagal" WAJIB bawa alasan (2026-11-07) ----------
+  // Akar bug nyata: 31/55 project "failed" 7 hari terakhir punya error_message NULL, padahal
+  // publish_logs-nya penuh alasan ("Access token is not valid" / Buffer 429). Formula status
+  // di-copy 3x dan 2 salinan lupa menulis errorMessage.
+  const ps = await import("../src/lib/publish/projectStatus.ts");
+  const L = (acc: string, status: string, errorMessage?: string | null) => ({ socialAccountId: acc, status, errorMessage });
+
+  ok("publish: semua akun sukses -> published + error lama DIBERSIHKAN", (() => {
+    const r = ps.summarizeProjectPublish([L("a", "success"), L("b", "success")], 2);
+    return r.status === "published" && r.errorMessage === null;
+  })());
+
+  ok("publish: 0 sukses -> failed DAN alasan dari publish_logs terangkat", (() => {
+    const r = ps.summarizeProjectPublish(
+      [L("a", "failed", "Access token is not valid"), L("b", "failed", "Too many requests from this client")],
+      2
+    );
+    return r.status === "failed"
+      && !!r.errorMessage
+      && r.errorMessage.includes("0/2 akun sukses")
+      && r.errorMessage.includes("Access token is not valid")
+      && r.errorMessage.includes("Too many requests");
+  })());
+
+  ok("publish: failed tanpa alasan tercatat TETAP tidak NULL (bug 31 project)", (() => {
+    const r = ps.summarizeProjectPublish([L("a", "failed", null)], 1);
+    return r.status === "failed" && typeof r.errorMessage === "string" && r.errorMessage.length > 0;
+  })());
+
+  ok("publish: failed tanpa log sama sekali TETAP tidak NULL", (() => {
+    const r = ps.summarizeProjectPublish([], 2);
+    return r.status === "failed" && typeof r.errorMessage === "string" && r.errorMessage.length > 0;
+  })());
+
+  ok("publish: sebagian sukses -> partial + alasan akun yg gagal", (() => {
+    const r = ps.summarizeProjectPublish([L("a", "success"), L("b", "failed", "quota habis")], 2);
+    return r.status === "partial" && !!r.errorMessage && r.errorMessage.includes("1/2") && r.errorMessage.includes("quota habis");
+  })());
+
+  ok("publish: alasan duplikat di-dedup & dibatasi 3", (() => {
+    const logs = ["X", "X", "A", "B", "C", "D"].map((m, i) => L("acc" + i, "failed", m));
+    const r = ps.summarizeProjectPublish(logs, 6);
+    return (r.errorMessage || "").split(" | ").length === 3;
+  })());
+
+  ok("publish: akun di-disconnect setelah sukses tidak nyangkut partial", (() => {
+    // 2 log sukses tapi sekarang cuma 1 akun connected -> harus published, bukan partial selamanya
+    const r = ps.summarizeProjectPublish([L("a", "success"), L("b", "success")], 1);
+    return r.status === "published" && r.errorMessage === null;
+  })());
+
+  ok("publish: 1 akun retry (success menimpa failed utk akun SAMA) -> published", (() => {
+    const r = ps.summarizeProjectPublish([L("a", "failed", "timeout"), L("a", "success")], 1);
+    return r.status === "published" && r.errorMessage === null;
+  })());
 
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);

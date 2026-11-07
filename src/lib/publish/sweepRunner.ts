@@ -14,6 +14,7 @@ import { assertLedgerReady, setTokenCooldown, tokenFingerprint } from "./ledger"
 import { tokenVerdict } from "./publishGate";
 import { channelsToSweep, defaultSweepCfg, reconcileSweep, sweepEnabled, type SweepCfg } from "./sweep";
 import { classifyBufferError, cooldownForReason, defaultCooldownCfg } from "./guard";
+import { summarizeProjectPublish } from "./projectStatus";
 
 const VERIFY_SKIP_PLATFORMS = new Set(["instagram"]); // sama persis jalur lama orchestrate.ts
 
@@ -70,9 +71,10 @@ async function recomputeProjectStatus(projectId: string): Promise<void> {
   if (!project) return;
   const connected = await db.select().from(socialAccounts).where(and(eq(socialAccounts.brandId, project.brandId), eq(socialAccounts.connected, true)));
   const logs = await db.select().from(publishLogs).where(eq(publishLogs.projectId, projectId));
-  const ok = new Set(logs.filter((l) => l.status === "success").map((l) => l.socialAccountId)).size;
-  const st = ok === 0 ? "failed" : ok === connected.length ? "published" : "partial";
-  await db.update(projects).set({ status: st, updatedAt: new Date() }).where(eq(projects.id, projectId));
+  // errorMessage WAJIB ikut ditulis (2026-11-07) - dulu baris ini cuma set status, jadi project
+  // yg dikoreksi jadi "failed" oleh sweep tampil TANPA alasan di dashboard.
+  const { status, errorMessage } = summarizeProjectPublish(logs, connected.length);
+  await db.update(projects).set({ status, errorMessage, updatedAt: new Date() }).where(eq(projects.id, projectId));
 }
 
 export type SweepReport = {
