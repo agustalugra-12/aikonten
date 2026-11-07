@@ -866,6 +866,79 @@ async function run() {
     return /\bo0\b/.test(h) && /\bo0\b/.test(hp);
   })());
 
+  // ---- caption angka + kontras logo (2026-11-07) ----
+  const cw = await import("../src/lib/ai/captionWords");
+  const ASLI = "Harganya Starter Rp149.000 per bulan untuk 60 konten.";
+  const UCAP = akk.angkaKeKata(ASLI);
+  const kataWhisper = cw.tokenisasi(UCAP).map((w, i) => ({ word: w, start: i * 0.4, end: i * 0.4 + 0.35 }));
+
+  ok("caption: token berangka dipulihkan jadi Rp149.000 (bukan 'puluh')", (() => {
+    const hasil = cw.captionDariTeksAsli(ASLI, UCAP, kataWhisper);
+    const kata = hasil.map((h) => h.word);
+    return kata.includes("Rp149.000") && kata.includes("60")
+      && !kata.some((k) => /^(puluh|ratus|ribu|sembilan|empat|seratus|enam)$/i.test(k));
+  })());
+
+  ok("caption: waktu digabung dari kata Whisper yang menyusun angka itu", (() => {
+    const hasil = cw.captionDariTeksAsli(ASLI, UCAP, kataWhisper);
+    const rp = hasil.find((h) => h.word === "Rp149.000")!;
+    const i0 = cw.tokenisasi(UCAP).findIndex((w) => /seratus/i.test(w));
+    return !!rp && Math.abs(rp.start - i0 * 0.4) < 1e-6 && rp.end > rp.start;
+  })());
+
+  ok("caption: urutan kata tetap & tak ada kata tampil yang hilang di tengah", (() => {
+    const hasil = cw.captionDariTeksAsli(ASLI, UCAP, kataWhisper);
+    const kata = hasil.map((h) => h.word);
+    return kata[0] === "Harganya" && kata[1] === "Starter" && kata[2] === "Rp149.000"
+      && hasil.every((h, i) => i === 0 || h.start >= hasil[i - 1].start);
+  })());
+
+  ok("caption: teks tanpa angka -> kata Whisper dikembalikan apa adanya", (() => {
+    const w = [{ word: "halo", start: 0, end: 1 }, { word: "dunia", start: 1, end: 2 }];
+    return cw.captionDariTeksAsli("halo dunia", "halo dunia", w) === w;
+  })());
+
+  ok("caption: masukan kosong/penyelarasan gagal -> fail-soft ke Whisper", (() => {
+    const w = [{ word: "x", start: 0, end: 1 }];
+    return cw.captionDariTeksAsli("", "", w) === w
+      && cw.captionDariTeksAsli("Rp1.000", "seribu", []).length === 0
+      && cw.captionDariTeksAsli("Rp1.000 a b c d e f", "zzz qqq", w) === w;
+  })());
+
+  ok("caption: petakanUcapanKeTampil memetakan SEMUA kata angka ke satu token", (() => {
+    const tampil = ["beli", "2", "hari"], ucapan = ["beli", "dua", "hari"];
+    const peta = cw.petakanUcapanKeTampil(tampil, ucapan);
+    return peta[0] === 0 && peta[1] === 1 && peta[2] === 2;
+  })());
+
+  const lc = await import("../src/lib/render/logoContrast");
+  ok("logo: luminans + pilihan alas (gelap->terang, terang->gelap, transparan->none)", (() => {
+    const gelap = { data: Buffer.from([10, 10, 10, 255, 20, 20, 20, 255]), info: { channels: 4 } };
+    const terang = { data: Buffer.from([240, 240, 240, 255, 230, 230, 230, 255]), info: { channels: 4 } };
+    const kosong = { data: Buffer.from([10, 10, 10, 0, 20, 20, 20, 0]), info: { channels: 4 } };
+    return lc.alasDariLuminans(lc.luminansRata(gelap)) === "light"
+      && lc.alasDariLuminans(lc.luminansRata(terang)) === "dark"
+      && lc.luminansRata(kosong) === null
+      && lc.alasDariLuminans(null) === "none";
+  })());
+
+  const alasGagal = await lc.deteksiAlasLogo("https://contoh-tidak-ada/x.png",
+    (async () => { throw new Error("jaringan mati"); }) as unknown as typeof fetch);
+  const alasKosong = await lc.deteksiAlasLogo("");
+  ok("logo: fetch gagal / URL kosong -> 'none', tak pernah throw",
+    alasGagal === "none" && alasKosong === "none");
+  ok("logo: alas mengubah CSS, 'none' == tampilan lama (tanpa regresi)", (() => {
+    const dasar = { ...bi, brand: { mark: "x", logoUrl: "https://x/l.png" } };
+    const none = hfc.buildComposition(dasar);
+    const terang = hfc.buildComposition({ ...dasar, brand: { ...dasar.brand, logoPlate: "light" as const } });
+    const gelap = hfc.buildComposition({ ...dasar, brand: { ...dasar.brand, logoPlate: "dark" as const } });
+    return none === hfc.buildComposition({ ...dasar, brand: { ...dasar.brand, logoPlate: "none" as const } })
+      && terang !== none && gelap !== none && terang !== gelap
+      && terang.includes("background:rgba(255,255,255,.94)")
+      && gelap.includes("background:rgba(0,0,0,.58)")
+      && !none.includes("background:rgba(255,255,255,.94)");
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }

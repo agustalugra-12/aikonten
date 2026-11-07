@@ -4,6 +4,7 @@
 import { createHash } from "node:crypto";
 import { buildComposition, type HfClip, type HfWord } from "./hyperframesComposition";
 import { resolveMotionPackConfig } from "./motionPack";
+import { deteksiAlasLogo } from "./logoContrast";
 import { renderComposition } from "./hyperframesClient";
 import { uploadBuffer, buildAssetKey } from "@/lib/storage";
 import { getAudioDurationSeconds } from "@/lib/ai/dubbing";
@@ -63,6 +64,8 @@ export async function renderViaHyperframes(
   const audioKey = buildAssetKey(opts.brandId, opts.projectId, "hf-voiceover.mp3");
   const audioUrl = await uploadBuffer(audioKey, opts.voiceoverBuffer, "audio/mpeg");
   const audioDurationSeconds = await getAudioDurationSeconds(opts.voiceoverBuffer);
+  // Diukur sekali per URL logo (di-ingat dalam proses); gagal -> "none" = tampilan lama.
+  const alasLogo = await deteksiAlasLogo(opts.logoUrl);
 
   let bk: Record<string, unknown> = {};
   try { bk = opts.brandKitRaw ? JSON.parse(opts.brandKitRaw) : {}; } catch { bk = {}; }
@@ -80,6 +83,8 @@ export async function renderViaHyperframes(
       // punya logo, logo dipakai MENGGANTI tulisan nama. Berlaku semua brand.
       mark: opts.brandName || "",
       logoUrl: opts.logoUrl || "",
+      // Alas kontras: logo gelap di atas footage gelap nyaris hilang (cacat nyata 2026-11-07).
+      logoPlate: alasLogo,
     },
     hook: opts.hookText || "",
     introSeconds: INTRO_SECONDS,

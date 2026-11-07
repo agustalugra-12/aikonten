@@ -13,6 +13,9 @@ export type HfCompositionInput = {
   brand?: {
     primary?: string; bg2?: string; accent?: string; ink?: string; cta?: string; font?: string; mark?: string;
     logoUrl?: string; // logo brand (brands.logo_url) - dipakai MENGGANTI tulisan nama brand kalau ada
+    // Alas kontras di belakang logo (2026-11-07). "light" utk logo GELAP, "dark" utk logo
+    // TERANG, "none" = tanpa alas (perilaku lama). Dideteksi otomatis di hyperframesRender.
+    logoPlate?: "light" | "dark" | "none";
   };
   hook?: string;
   introSeconds?: number;
@@ -146,6 +149,7 @@ export function buildComposition(input: HfCompositionInput): string {
   // Identitas brand di tepi atas: UTAMAKAN logo (brands.logo_url). Tanpa logo -> JANGAN tulis nama
   // mentah huruf kecil (mis "pelangi"); rapikan kapitalisasinya. Berlaku SEMUA brand.
   const logoUrl = (brand.logoUrl || "").trim();
+  const logoPlate = brand.logoPlate === "light" || brand.logoPlate === "dark" ? brand.logoPlate : "none";
   const mark = logoUrl ? "" : titleCase(brand.mark || "");
   const total = introSeconds + audioDurationSeconds;
 
@@ -378,7 +382,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:var(--bg1);}
 #scrim{position:absolute;inset:0;z-index:300;background:linear-gradient(180deg,rgba(12,21,38,.22) 0%,rgba(12,21,38,.06) 40%,rgba(12,21,38,.78) 100%);}
 .bar{position:absolute;top:0;left:0;height:12px;width:100%;background:var(--accent);z-index:650;transform-origin:left;}
 .mark{position:absolute;top:70px;left:0;right:0;text-align:center;color:var(--accent);font-weight:800;font-size:${Math.round(w * 0.04)}px;letter-spacing:.05em;z-index:650;opacity:0;text-shadow:0 2px 12px rgba(0,0,0,.5);}
-.brandlogo{position:absolute;top:60px;left:50%;transform:translateX(-50%);height:${Math.round(h * 0.035)}px;width:auto;max-width:${Math.round(w * 0.42)}px;object-fit:contain;z-index:650;opacity:0;filter:drop-shadow(0 2px 10px rgba(0,0,0,.45));}
+.brandlogo{position:absolute;top:60px;left:50%;transform:translateX(-50%);height:${Math.round(h * 0.035)}px;width:auto;max-width:${Math.round(w * 0.42)}px;object-fit:contain;z-index:650;opacity:0;filter:drop-shadow(0 2px 10px rgba(0,0,0,.45));${logoPlate === "light" ? `background:rgba(255,255,255,.94);padding:${Math.round(h * 0.009)}px ${Math.round(h * 0.014)}px;border-radius:${Math.round(h * 0.010)}px;box-shadow:0 2px 12px rgba(0,0,0,.35);` : logoPlate === "dark" ? `background:rgba(0,0,0,.58);padding:${Math.round(h * 0.009)}px ${Math.round(h * 0.014)}px;border-radius:${Math.round(h * 0.010)}px;box-shadow:0 0 0 1px rgba(255,255,255,.28);` : ""}}
 #introLayer{position:absolute;inset:0;z-index:600;background:${introBg};display:flex;align-items:center;justify-content:center;text-align:center;padding:0 80px;}
 #introText{color:var(--ink);font-weight:800;font-size:${introFont}px;line-height:1.02;letter-spacing:-.03em;overflow:visible;}
 #introText .hw{display:inline-block;opacity:0;}
