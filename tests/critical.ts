@@ -989,6 +989,173 @@ async function run() {
     const peta = cw.petakanUcapanKeTampil(["beli", "2", "hari"], ["beli", "dua", "hari"]);
     return peta[0] === 0 && peta[1] === 1 && peta[2] === 2;
   })());
+  // ---- prompt VideoPlan (2026-11-07): bentuk datar, field per tipe, target durasi ----
+  const vpd = await import("../src/lib/video/videoPlanDirector");
+  const vp = await import("../src/lib/video/videoPlan");
+
+  ok("vplan prompt: contoh JSON DATAR + contoh SALAH bersarang disebut eksplisit", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    return spec.includes('{"type":"hook","hook":{"text":"..."}}')
+      && spec.includes('BENAR: {"type":"hook","text":"..."}')
+      && spec.includes("JANGAN bungkus isi adegan dalam objek bernama tipe")
+      && spec.includes('"type":"feature-list","duration":5');
+  })());
+
+  ok("vplan prompt: daftar field DIIZINKAN memuat semua 8 scene type", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    return vp.SCENE_TYPES.every((t) => spec.includes(`  ${t}`.slice(0, 2 + t.length)))
+      && spec.includes("Field lain APA PUN DITOLAK");
+  })());
+
+  ok("vplan prompt: batas teks ditulis dgn contoh BENAR dan SALAH", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    return spec.includes("BENAR \"Cucian menumpuk lagi?\"") && spec.includes("SALAH \"Apakah kamu merasa")
+      && spec.includes(`<=${vp.LIMITS.text.hook.chars} karakter`)
+      && spec.includes(`<=${vp.LIMITS.text.featureItem.chars} karakter`);
+  })());
+
+  ok("vplan prompt: contoh item feature lewat-tipis ada DAN hitungan karakternya jujur", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    const lim = vp.LIMITS.text.featureItem.chars;
+    const re = /GAGAL "([^"]+)" \((\d+)\)\s*-> BENAR "([^"]+)" \((\d+)\)/g;
+    let m: RegExpExecArray | null, n = 0, adaTipis = false;
+    while ((m = re.exec(spec))) {
+      const [, buruk, nBuruk, baik, nBaik] = m;
+      // angka di prompt harus = panjang asli, sisi salah harus lewat, sisi benar harus lolos
+      if (buruk.length !== Number(nBuruk) || baik.length !== Number(nBaik)) return false;
+      if (buruk.length <= lim || baik.length > lim) return false;
+      if (buruk.length === lim + 1) adaTipis = true;
+      n++;
+    }
+    return n >= 3 && adaTipis;
+  })());
+
+  ok("vplan prompt: batas item diajarkan lewat angka konkret, bukan hanya plafon", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    const lim = vp.LIMITS.text.featureItem.chars;
+    return spec.includes(`${lim + 1} karakter untuk batas ${lim}`) && spec.includes("2-3 kata per item");
+  })());
+
+  ok("vplan: rentang yang diiklankan SELALU di dalam jendela validator (hook mana pun)", (() => {
+    // Validator: |total - (audio + durasiHook)| <= maks(2, (audio+durasiHook)*0.25).
+    // Durasi hook dipilih AI (1.2-4 dtk), jadi rentang kita harus tahan ketiga ujungnya.
+    const diterima = (audio: number, hook: number, total: number) => {
+      const target = audio + hook;
+      return Math.abs(total - target) <= Math.max(2, target * 0.25);
+    };
+    for (const audio of [8, 12, 20, 45, 90]) {
+      const r = vpd.targetTotalDetik(audio);
+      if (r.takTercapai) continue;
+      for (const hook of [vp.LIMITS.hookSeconds.min, 2.6, vp.LIMITS.hookSeconds.max]) {
+        if (!diterima(audio, hook, r.min) || !diterima(audio, hook, r.max)) return false;
+      }
+      if (r.min >= r.max) return false;
+    }
+    return vpd.targetTotalDetik(20).takTercapai === false;
+  })());
+
+  ok("vplan: durasi sangat pendek -> rentang tetap di dalam LIMITS.totalSeconds", (() => {
+    const r = vpd.targetTotalDetik(1);
+    return r.min >= vp.LIMITS.totalSeconds.min && r.max <= vp.LIMITS.totalSeconds.max && r.min <= r.max;
+  })());
+
+  ok("vplan: long-form ditandai takTercapai (batas kontrak, bukan salah prompt)", (() => {
+    const r = vpd.targetTotalDetik(440);
+    return r.takTercapai === true && r.max === vp.LIMITS.totalSeconds.max;
+  })());
+
+  ok("vplan: rentang target IKUT dikirim ke prompt (bukan cuma rumus)", (() => {
+    const { user, system } = vpd.directorPrompts({
+      projectId: "p", brandName: "B", brief: "b", script: "naskah uji", hookText: null,
+      orientation: "portrait", brandLook: null, footage: [], audioDurationSeconds: 20, internal: true,
+    });
+    const o = JSON.parse(user);
+    return o.totalTargetDetik && typeof o.totalTargetDetik.min === "number" && o.durasiVO === 20
+      && system.includes("jumlah semua duration masuk totalTargetDetik");
+  })());
+
+  // ---- gerbang long-form: DILEWATI, bukan GAGAL (2026-11-07) ----
+  const inpLF = (audio: number) => ({
+    projectId: "p", brandName: "B", brief: "b", script: "naskah", hookText: null,
+    orientation: "portrait" as const, brandLook: null, footage: [], audioDurationSeconds: audio, internal: true,
+  });
+  // Kalau gerbangnya bocor, mock ini MELEMPAR -> tes merah. Itu buktinya AI tak dipanggil.
+  const aiDilarang: Parameters<typeof vpd.generateVideoPlan>[1] =
+    async () => { throw new Error("AI TIDAK BOLEH dipanggil utk long-form"); };
+
+  const lf = await vpd.generateVideoPlan(inpLF(440), aiDilarang);
+  ok("longform: dilewati=true, ok=false, attempts=0, costUsd=0, AI tak dipanggil",
+    lf.dilewati === true && lf.ok === false && lf.attempts === 0 && lf.costUsd === 0
+    && lf.errors.length === 1 && lf.errors[0].startsWith("dilewati:long_form"));
+
+  ok("longform: short-form TIDAK dilewati (gerbang tak kebablasan)", await (async () => {
+    const r = await vpd.generateVideoPlan(inpLF(12), (async () => ({ text: "{}", promptTokens: 0, completionTokens: 0 })) as never);
+    return r.dilewati !== true && r.attempts >= 1;
+  })());
+
+  ok("longform: summarizeShadow mengeluarkan yang dilewati dari penyebut", (() => {
+    const baris = [
+      JSON.stringify({ ok: true, plan: {}, errors: [], attempts: 1, latencyMs: 10, promptTokens: 1, completionTokens: 1, costUsd: 0.001 }),
+      JSON.stringify({ ok: false, plan: null, errors: ["$.scenes: count(1)"], attempts: 2, latencyMs: 20, promptTokens: 1, completionTokens: 1, costUsd: 0.001 }),
+      JSON.stringify({ ok: false, plan: null, dilewati: true, errors: ["dilewati:long_form (VO 440.0s ...)"], attempts: 0, latencyMs: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 }),
+    ];
+    const s2 = vpd.summarizeShadow(baris) as { total: number; pass: number; passRate: number; dilewatiLongForm: number; totalTermasukDilewati: number; topReasons: Array<[string, number]> };
+    // 1 lolos dari 2 yang DIHITUNG (bukan 1 dari 3), dan alasan "dilewati" tak mencemari daftar
+    return s2.total === 2 && s2.pass === 1 && Math.abs(s2.passRate - 0.5) < 1e-9
+      && s2.dilewatiLongForm === 1 && s2.totalTermasukDilewati === 3
+      && !s2.topReasons.some(([k]) => k.startsWith("dilewati"));
+  })());
+
+  // ---- jumlah adegan disarankan, diturunkan dari rentang durasi (2026-11-07) ----
+  ok("adegan: saran diturunkan dari durasi, bukan plafon 12", (() => {
+    // VO 11,6 dtk -> rentang 11,8-15,9 -> tengah 13,85 / 3,5 = 4. Rencana yang LOLOS
+    // saat pembedahan memang 4 adegan; yang gagal 5-8.
+    const a = vpd.adeganDisarankanUntuk(11.6, true);
+    const b = vpd.adeganDisarankanUntuk(32.8, true);
+    return a === 4 && b > a && b <= vp.LIMITS.scenes.max;
+  })());
+
+  ok("adegan: saran selalu di dalam LIMITS.scenes dan tak melebihi plafon tenant", (() => {
+    for (const audio of [3, 8, 11.6, 20, 45, 90]) {
+      for (const internal of [true, false]) {
+        const n = vpd.adeganDisarankanUntuk(audio, internal);
+        if (n < vp.LIMITS.scenes.min || n > vp.LIMITS.scenes.max) return false;
+        if (n > vpd.maxScenesFor(internal)) return false;
+      }
+    }
+    return true;
+  })());
+
+  ok("adegan: saran x durasi adegan yang wajar jatuh DI DALAM rentang target", (() => {
+    for (const audio of [8, 11.6, 20, 45]) {
+      const n = vpd.adeganDisarankanUntuk(audio, true);
+      const r = vpd.targetTotalDetik(audio);
+      const tengah = (r.min + r.max) / 2;
+      const perAdegan = tengah / n;
+      // durasi tiap adegan harus mungkin dipenuhi kontrak
+      if (perAdegan < vp.LIMITS.sceneSeconds.min || perAdegan > vp.LIMITS.sceneSeconds.max) return false;
+    }
+    return true;
+  })());
+
+  ok("adegan: payload mengirim angka konkret + plafon terpisah", (() => {
+    const { user, system } = vpd.directorPrompts({
+      projectId: "p", brandName: "B", brief: "b", script: "n", hookText: null,
+      orientation: "portrait", brandLook: null, footage: [], audioDurationSeconds: 11.6, internal: true,
+    });
+    const o = JSON.parse(user);
+    return o.adeganDisarankan === 4 && o.adeganMaksimum === vpd.maxScenesFor(true)
+      && system.includes("jumlah adegan = adeganDisarankan")
+      && vp.videoPlanPromptSpec().includes('PAKAI "adeganDisarankan"');
+  })());
+
+  ok("vplan prompt: subject wajib benda terlihat, dgn contoh BENAR dan SALAH", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    return spec.includes("BENDA YANG TERLIHAT DI FRAME")
+      && spec.includes('BENAR "tumpukan cucian terbungkus plastik"')
+      && spec.includes('SALAH "pickup delivery gratis"')
+      && spec.includes("kalau kalimatnya tidak bisa difoto");
+  })());
 
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
