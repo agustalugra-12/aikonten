@@ -812,6 +812,14 @@ async function run() {
       && vp.videoPlanPromptSpec().includes('PAKAI "adeganDisarankan"');
   })());
 
+  ok("vplan prompt: subject wajib benda terlihat, dgn contoh BENAR dan SALAH", (() => {
+    const spec = vp.videoPlanPromptSpec();
+    return spec.includes("BENDA YANG TERLIHAT DI FRAME")
+      && spec.includes('BENAR "tumpukan cucian terbungkus plastik"')
+      && spec.includes('SALAH "pickup delivery gratis"')
+      && spec.includes("kalau kalimatnya tidak bisa difoto");
+  })());
+
   console.log(`\n${pass} lolos, ${fail} gagal`);
   assert.strictEqual(fail, 0, `${fail} tes gagal`);
 }
